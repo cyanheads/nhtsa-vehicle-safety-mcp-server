@@ -1,10 +1,10 @@
 # NHTSA Vehicle Safety MCP Server
 
-[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server)
+[![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 
-An MCP server providing access to NHTSA (National Highway Traffic Safety Administration) vehicle safety data — recalls, consumer complaints, NCAP crash test ratings, defect investigations, and VIN decoding.
+<p><b>Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.</b></p>
 
 ## Tools (7)
 

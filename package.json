@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.",
   "type": "module",
   "main": "dist/index.js",
@@ -23,15 +23,32 @@
     "start:stdio": "MCP_TRANSPORT_TYPE=stdio node dist/index.js",
     "start:http": "MCP_TRANSPORT_TYPE=http node dist/index.js"
   },
-  "keywords": ["mcp", "mcp-server", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "nhtsa",
+    "vehicle-safety",
+    "recalls",
+    "vin-decoder",
+    "crash-ratings",
+    "ncap",
+    "typescript"
+  ],
+  "author": "cyanheads",
+  "homepage": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server"
+  },
+  "bugs": {
+    "url": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues"
   },
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22.0.0"
   },
+  "packageManager": "bun@1.3.11",
   "publishConfig": {
     "access": "public"
   },

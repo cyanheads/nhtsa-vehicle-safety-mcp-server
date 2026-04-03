@@ -38,7 +38,8 @@ ENV NODE_ENV=production
 
 # OCI image metadata (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
 LABEL org.opencontainers.image.title="nhtsa-vehicle-safety-mcp-server"
-LABEL org.opencontainers.image.description=""
+LABEL org.opencontainers.image.description="Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding."
+LABEL org.opencontainers.image.source="https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # Copy dependency manifests
