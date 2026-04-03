@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.2] - 2026-04-03
+
+### Changed
+
+- Scoped npm package to `@cyanheads/nhtsa-vehicle-safety-mcp-server`
+- Updated server.json registry name to `io.github.cyanheads/nhtsa-vehicle-safety-mcp-server`
+- Expanded package.json metadata (keywords, author, homepage, bugs, packageManager)
+- Updated Dockerfile OCI labels with description and source URL
+
+### Added
+
+- Apache 2.0 LICENSE file
+- `bunfig.toml` for Bun runtime configuration
+- `docs/tree.md` directory structure reference
+
+### Fixed
+
+- Formatted test fixture for readability (sideCrash object in get-vehicle-safety test)
+
 ## [0.2.1] - 2026-04-03
 
 ### Changed
