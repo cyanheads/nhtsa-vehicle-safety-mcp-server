@@ -6,7 +6,9 @@
 
 <div align="center">
 
-[![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![Version](https://img.shields.io/badge/Version-0.2.3-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^5.9.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/)
+[![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![Version](https://img.shields.io/badge/Version-0.3.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -111,7 +113,7 @@ NHTSA-specific:
 - Investigation index caching (1h TTL) for fast repeated queries
 - No API key required — all NHTSA APIs are public
 
-## Getting Started
+## Getting started
 
 Add to your MCP client config (e.g., `claude_desktop_config.json`):
 
@@ -127,15 +129,62 @@ Add to your MCP client config (e.g., `claude_desktop_config.json`):
 }
 ```
 
+Or with npx (no Bun required):
+
+```json
+{
+  "mcpServers": {
+    "nhtsa-vehicle-safety": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server@latest"]
+    }
+  }
+}
+```
+
+Or with Docker:
+
+```json
+{
+  "mcpServers": {
+    "nhtsa-vehicle-safety": {
+      "type": "stdio",
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT_TYPE=stdio", "ghcr.io/cyanheads/nhtsa-vehicle-safety-mcp-server:latest"]
+    }
+  }
+}
+```
+
+For Streamable HTTP, set the transport and start the server:
+
+```sh
+MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
+# Server listens at http://localhost:3010/mcp
+```
+
 ### Prerequisites
 
-- [Bun v1.2.0](https://bun.sh/) or higher (or Node.js >= 22.0.0)
+- [Bun v1.3.2](https://bun.sh/) or higher (or Node.js >= 22.0.0)
 
 ### Installation
 
+1. **Clone the repository:**
+
 ```sh
 git clone https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server.git
+```
+
+2. **Navigate into the directory:**
+
+```sh
 cd nhtsa-vehicle-safety-mcp-server
+```
+
+3. **Install dependencies:**
+
+```sh
 bun install
 ```
 
@@ -152,7 +201,7 @@ No API keys required — all NHTSA APIs are public.
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
 | `MCP_LOG_LEVEL` | Log level (RFC 5424). | `info` |
 
-## Data Sources
+## Data sources
 
 All data comes from NHTSA's public APIs:
 
@@ -162,14 +211,20 @@ All data comes from NHTSA's public APIs:
 - **Investigations API** — `api.nhtsa.gov/investigations`
 - **VPIC API** — `vpic.nhtsa.dot.gov/api/vehicles`
 
-## Running the Server
+## Running the server
 
-### Local Development
+### Local development
 
 ```sh
 bun run dev:stdio     # Dev mode with hot reload (stdio)
 bun run dev:http      # Dev mode with hot reload (HTTP)
 ```
+
+- **Run checks and tests**:
+  ```sh
+  bun run devcheck  # Lints, formats, type-checks, and more
+  bun run test      # Runs the test suite
+  ```
 
 ### Production
 
@@ -186,14 +241,7 @@ docker build -t nhtsa-vehicle-safety-mcp-server .
 docker run -p 3010:3010 nhtsa-vehicle-safety-mcp-server
 ```
 
-### Checks and Tests
-
-```sh
-bun run devcheck      # Lint + format + typecheck
-bun run test          # Run test suite
-```
-
-## Project Structure
+## Project structure
 
 | Directory | Purpose |
 |:----------|:--------|
@@ -201,7 +249,7 @@ bun run test          # Run test suite
 | `src/mcp-server/tools/definitions/` | Tool definitions (`*.tool.ts`). |
 | `src/services/nhtsa/` | NHTSA API client with retry logic and field normalization. |
 
-## Development Guide
+## Development guide
 
 See [`CLAUDE.md`](./CLAUDE.md) for development guidelines and architectural rules. The short version:
 
