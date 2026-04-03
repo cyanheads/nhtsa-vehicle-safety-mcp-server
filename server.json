@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "nhtsa-vehicle-safety-mcp-server",
-  "description": "",
+  "name": "cyanheads/nhtsa-vehicle-safety-mcp-server",
+  "description": "Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.",
   "repository": {
-    "url": "",
+    "url": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server",
     "source": "github"
   },
   "version": "0.1.0",

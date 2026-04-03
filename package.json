@@ -1,21 +1,14 @@
 {
   "name": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
   "version": "0.1.0",
-  "description": "",
+  "description": "Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "nhtsa-vehicle-safety-mcp-server": "dist/index.js"
   },
-  "files": [
-    "dist/",
-    "README.md",
-    "LICENSE",
-    "CLAUDE.md",
-    "Dockerfile",
-    "server.json"
-  ],
+  "files": ["dist/", "README.md", "LICENSE", "CLAUDE.md", "Dockerfile", "server.json"],
   "scripts": {
     "build": "bun scripts/build.ts",
     "rebuild": "bun scripts/clean.ts && bun scripts/build.ts",
@@ -30,14 +23,10 @@
     "start:stdio": "MCP_TRANSPORT_TYPE=stdio node dist/index.js",
     "start:http": "MCP_TRANSPORT_TYPE=http node dist/index.js"
   },
-  "keywords": [
-    "mcp",
-    "mcp-server",
-    "model-context-protocol"
-  ],
+  "keywords": ["mcp", "mcp-server", "model-context-protocol"],
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server"
   },
   "license": "Apache-2.0",
   "engines": {
@@ -53,9 +42,9 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
     "@types/node": "^25.5.2",
+    "depcheck": "^1.4.7",
     "ignore": "^7.0.5",
     "tsc-alias": "^1.8.16",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.2"
   }
