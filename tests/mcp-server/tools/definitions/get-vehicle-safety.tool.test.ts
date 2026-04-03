@@ -120,7 +120,13 @@ describe('getVehicleSafety', () => {
           vehicleDescription: '2020 Camry',
           overallRating: '5',
           frontalCrash: { overall: '5', driverSide: '5', passengerSide: '5' },
-          sideCrash: { overall: '5', driverSide: '5', passengerSide: '5', barrierOverall: '5', pole: '5' },
+          sideCrash: {
+            overall: '5',
+            driverSide: '5',
+            passengerSide: '5',
+            barrierOverall: '5',
+            pole: '5',
+          },
           rollover: { rating: '4', probability: 0.1, dynamicTipResult: 'No Tip' },
           adasFeatures: {
             electronicStabilityControl: 'Standard',
