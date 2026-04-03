@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.",
   "type": "module",
   "main": "dist/index.js",

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.3] - 2026-04-03
+
+### Fixed
+
+- Replaced non-null assertions with safe defaults in `normalizeDate` date parsing
+
+### Changed
+
+- Rewrote README with expanded per-tool descriptions, Features, Getting Started, Docker, Project Structure, and Contributing sections
+- Updated CLAUDE.md agent protocol: removed unused `ctx.elicit`/`ctx.sample` from context table, added `lint:mcp` command
+- Fixed package.json repository URL to `git+https` format
+- Added `mcpName` field for MCP registry identification
+- Added Bun engine requirement (`>=1.2.0`) to package.json
+- Switched server.json `runtimeHint` from `node` to `bun`
+
 ## [0.2.2] - 2026-04-03
 
 ### Changed
