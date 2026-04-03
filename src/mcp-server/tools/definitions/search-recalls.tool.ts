@@ -132,6 +132,11 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
     if (input.dateRange?.after || input.dateRange?.before) {
       const after = input.dateRange.after ? new Date(input.dateRange.after).getTime() : 0;
       const before = input.dateRange.before ? new Date(input.dateRange.before).getTime() : Infinity;
+      if (Number.isNaN(after) || Number.isNaN(before)) {
+        throw validationError(
+          `Invalid date in dateRange: after=${input.dateRange.after ?? '(none)'}, before=${input.dateRange.before ?? '(none)'}. Use ISO 8601 format (e.g., "2025-01-01").`,
+        );
+      }
       recalls = recalls.filter((r) => {
         const d = new Date(r.reportReceivedDate).getTime();
         return d >= after && d <= before;

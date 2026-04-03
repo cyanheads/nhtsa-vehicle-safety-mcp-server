@@ -91,7 +91,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         const allMakes = await svc.getAllMakes();
         const makes = allMakes.slice(0, 200);
         ctx.log.info('VPIC makes lookup', { total: allMakes.length, returned: makes.length });
-        return { operation: 'makes', count: allMakes.length, makes };
+        return { operation: 'makes', count: makes.length, makes };
       }
 
       case 'models': {
@@ -143,9 +143,9 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     const lines = [`**${result.count} result(s)**\n`];
 
     if (result.makes) {
-      if (result.count > 100) {
+      if (result.makes.length > 100) {
         lines.push(
-          `*Showing first 100 of ${result.count} makes. Consider using "models" with a specific make instead.*\n`,
+          `*Showing first 100 of ${result.makes.length} makes. Consider using "models" with a specific make instead.*\n`,
         );
       }
       for (const m of result.makes.slice(0, 100)) {

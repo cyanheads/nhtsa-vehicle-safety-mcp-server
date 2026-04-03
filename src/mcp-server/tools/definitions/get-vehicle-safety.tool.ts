@@ -31,7 +31,7 @@ const safetyRatingSchema = z.object({
   rollover: z
     .object({
       rating: z.string().describe('Rollover resistance rating'),
-      probability: z.number().describe('Rollover probability percentage'),
+      probability: z.number().describe('Rollover probability (0-1 scale)'),
       dynamicTipResult: z.string().describe('Dynamic tip test result'),
     })
     .describe('Rollover risk assessment'),
@@ -120,7 +120,17 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
     ]);
 
     const safetyRatings = (
-      await Promise.all(variants.map((v) => svc.getSafetyRating(v.vehicleId)))
+      await Promise.all(
+        variants.map((v) =>
+          svc.getSafetyRating(v.vehicleId).catch((err) => {
+            ctx.log.warning('Failed to fetch safety rating for variant', {
+              vehicleId: v.vehicleId,
+              error: String(err),
+            });
+            return null;
+          }),
+        ),
+      )
     ).filter((r) => r !== null);
 
     const breakdown = buildComponentBreakdown(complaints);

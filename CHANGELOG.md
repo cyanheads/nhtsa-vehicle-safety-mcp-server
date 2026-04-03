@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1] - 2026-04-03
+
+### Fixed
+
+- `nhtsa_get_vehicle_safety` — per-variant `getSafetyRating` failures are now caught and logged as warnings; other variants are still returned instead of failing the entire request
+- `nhtsa_lookup_vehicles` — `count` in makes response now reflects the sliced length (≤200) rather than the full API total; truncation warning condition corrected to match
+- `nhtsa_search_recalls` — added `NaN` validation for `dateRange` dates with a descriptive error message directing users to ISO 8601 format
+
+### Changed
+
+- `nhtsa_get_vehicle_safety` — corrected rollover `probability` description from "percentage" to "(0-1 scale)"
+
 ## [0.3.0] - 2026-04-03
 
 ### Changed
