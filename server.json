@@ -12,7 +12,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
-      "runtimeHint": "node",
+      "runtimeHint": "bun",
       "version": "0.2.2",
       "packageArguments": [
         {
@@ -41,7 +41,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
-      "runtimeHint": "node",
+      "runtimeHint": "bun",
       "version": "0.2.2",
       "packageArguments": [
         {
