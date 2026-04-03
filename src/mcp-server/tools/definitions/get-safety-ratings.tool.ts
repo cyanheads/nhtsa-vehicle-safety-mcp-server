@@ -1,0 +1,153 @@
+/**
+ * @fileoverview NCAP crash test ratings and ADAS feature availability tool.
+ * Two-step lookup: year/make/model → variant IDs → full ratings per variant.
+ * @module mcp-server/tools/definitions/get-safety-ratings.tool
+ */
+
+import { tool, z } from '@cyanheads/mcp-ts-core';
+import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import type { SafetyRating } from '@/services/nhtsa/types.js';
+
+function formatStars(rating: string): string {
+  const n = Number.parseInt(rating, 10);
+  if (Number.isNaN(n)) return rating;
+  return `${'★'.repeat(n)}${'☆'.repeat(Math.max(0, 5 - n))} (${n}/5)`;
+}
+
+export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
+  description:
+    'Get NCAP crash test ratings and ADAS feature availability for a vehicle. Use when the user specifically wants crash test stars, rollover risk, or wants to compare safety features across vehicles. NCAP data available from 1990+, best coverage for 2011+.',
+  annotations: { readOnlyHint: true },
+  input: z.object({
+    make: z.string().describe('Vehicle manufacturer.'),
+    model: z.string().describe('Vehicle model.'),
+    modelYear: z.number().describe('Model year. NCAP coverage increases significantly for 2011+.'),
+    vehicleId: z
+      .number()
+      .optional()
+      .describe('Specific NCAP vehicle ID (from prior results). Skips the year/make/model lookup.'),
+  }),
+  output: z.object({
+    ratings: z
+      .array(
+        z.object({
+          vehicleId: z.number().describe('NCAP vehicle ID'),
+          vehicleDescription: z.string().describe('Vehicle variant description'),
+          overallRating: z.string().describe('Overall safety rating (1-5 stars or "Not Rated")'),
+          frontalCrash: z
+            .object({
+              overall: z.string().describe('Overall frontal crash rating'),
+              driverSide: z.string().describe('Driver-side rating'),
+              passengerSide: z.string().describe('Passenger-side rating'),
+            })
+            .describe('Frontal crash test results'),
+          sideCrash: z
+            .object({
+              overall: z.string().describe('Overall side crash rating'),
+              driverSide: z.string().describe('Driver-side rating'),
+              passengerSide: z.string().describe('Passenger-side rating'),
+              combinedBarrierPoleFront: z.string().describe('Combined barrier/pole front rating'),
+              combinedBarrierPoleRear: z.string().describe('Combined barrier/pole rear rating'),
+              barrierOverall: z.string().describe('Side barrier overall rating'),
+              pole: z.string().describe('Side pole crash rating'),
+            })
+            .describe('Side crash test results'),
+          rollover: z
+            .object({
+              rating: z.string().describe('Rollover resistance rating'),
+              probability: z.number().describe('Rollover probability (0-1 scale)'),
+              dynamicTipResult: z.string().describe('Dynamic tip test result'),
+            })
+            .describe('Rollover risk assessment'),
+          adasFeatures: z
+            .object({
+              electronicStabilityControl: z
+                .string()
+                .describe('"Standard", "Optional", or "Not Available"'),
+              forwardCollisionWarning: z
+                .string()
+                .describe('Forward collision warning availability'),
+              laneDepartureWarning: z.string().describe('Lane departure warning availability'),
+            })
+            .describe('Advanced driver assistance features'),
+          complaintsCount: z.number().describe('Number of complaints on file'),
+          recallsCount: z.number().describe('Number of recalls on file'),
+          investigationCount: z.number().describe('Number of investigations on file'),
+        }),
+      )
+      .describe('Safety ratings per vehicle variant'),
+  }),
+
+  async handler(input, ctx) {
+    const svc = getNhtsaService();
+    let ratings: SafetyRating[] = [];
+
+    if (input.vehicleId) {
+      const rating = await svc.getSafetyRating(input.vehicleId);
+      if (rating) ratings = [rating];
+    } else {
+      const variants = await svc.getSafetyRatingVariants(input.modelYear, input.make, input.model);
+      ratings = (await Promise.all(variants.map((v) => svc.getSafetyRating(v.vehicleId)))).filter(
+        (r) => r !== null,
+      );
+    }
+
+    ctx.log.info('Safety ratings fetched', {
+      make: input.make,
+      model: input.model,
+      modelYear: input.modelYear,
+      variants: ratings.length,
+    });
+
+    return { ratings };
+  },
+
+  format: (result) => {
+    if (result.ratings.length === 0) {
+      return [
+        {
+          type: 'text' as const,
+          text: 'No NCAP safety ratings available for this vehicle. Ratings are most comprehensive for 2011+ model years.',
+        },
+      ];
+    }
+
+    const lines: string[] = [];
+    for (const r of result.ratings) {
+      lines.push(`## ${r.vehicleDescription}\n`);
+      lines.push(`**Overall:** ${formatStars(r.overallRating)}\n`);
+
+      lines.push('### Frontal Crash');
+      lines.push(`Overall: ${formatStars(r.frontalCrash.overall)}`);
+      lines.push(
+        `Driver: ${formatStars(r.frontalCrash.driverSide)} | Passenger: ${formatStars(r.frontalCrash.passengerSide)}\n`,
+      );
+
+      lines.push('### Side Crash');
+      lines.push(`Overall: ${formatStars(r.sideCrash.overall)}`);
+      lines.push(
+        `Driver: ${formatStars(r.sideCrash.driverSide)} | Passenger: ${formatStars(r.sideCrash.passengerSide)}`,
+      );
+      lines.push(
+        `Barrier: ${formatStars(r.sideCrash.barrierOverall)} | Pole: ${formatStars(r.sideCrash.pole)}\n`,
+      );
+
+      lines.push('### Rollover');
+      lines.push(`Rating: ${formatStars(r.rollover.rating)}`);
+      lines.push(
+        `Probability: ${(r.rollover.probability * 100).toFixed(1)}% | Tip test: ${r.rollover.dynamicTipResult}\n`,
+      );
+
+      lines.push('### ADAS Features');
+      lines.push(`ESC: ${r.adasFeatures.electronicStabilityControl}`);
+      lines.push(`Forward Collision Warning: ${r.adasFeatures.forwardCollisionWarning}`);
+      lines.push(`Lane Departure Warning: ${r.adasFeatures.laneDepartureWarning}\n`);
+
+      lines.push(
+        `*Complaints: ${r.complaintsCount} | Recalls: ${r.recallsCount} | Investigations: ${r.investigationCount}*\n`,
+      );
+    }
+
+    return [{ type: 'text' as const, text: lines.join('\n') }];
+  },
+});
