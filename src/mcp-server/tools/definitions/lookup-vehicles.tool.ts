@@ -88,9 +88,10 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
     switch (input.operation) {
       case 'makes': {
-        const makes = await svc.getAllMakes();
-        ctx.log.info('VPIC makes lookup', { count: makes.length });
-        return { operation: 'makes', count: makes.length, makes };
+        const allMakes = await svc.getAllMakes();
+        const makes = allMakes.slice(0, 200);
+        ctx.log.info('VPIC makes lookup', { total: allMakes.length, returned: makes.length });
+        return { operation: 'makes', count: allMakes.length, makes };
       }
 
       case 'models': {

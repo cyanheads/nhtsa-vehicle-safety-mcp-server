@@ -5,7 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { validationError } from '@cyanheads/mcp-ts-core/errors';
+import { notFound, validationError } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 export const searchRecalls = tool('nhtsa_search_recalls', {
@@ -80,7 +80,11 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       const campaign = await svc.getRecallCampaign(input.campaignNumber);
       ctx.log.info('Campaign lookup', { campaignNumber: input.campaignNumber, found: !!campaign });
 
-      if (!campaign) return { recalls: [], totalCount: 0 };
+      if (!campaign) {
+        throw notFound(
+          `No recall found for campaign "${input.campaignNumber}". Verify the campaign number format (e.g., "24V744000").`,
+        );
+      }
 
       return {
         recalls: [
@@ -105,7 +109,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
     // Vehicle-scoped lookup
     if (!input.make || !input.model || input.modelYear == null) {
       throw validationError(
-        'make, model, and modelYear are all required for vehicle-scoped recall search.',
+        'Provide either campaignNumber for a specific recall, or make + model + modelYear for vehicle recalls.',
       );
     }
 

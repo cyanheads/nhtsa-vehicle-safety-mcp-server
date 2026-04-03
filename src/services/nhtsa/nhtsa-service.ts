@@ -417,7 +417,9 @@ function normalizeDecodedVin(r: RawVpicDecodedVin): DecodedVin {
     vehicleType: r.VehicleType ?? '',
     driveType: r.DriveType ?? '',
     engineCylinders: r.EngineCylinders ?? '',
-    engineDisplacementL: r.DisplacementL ?? '',
+    engineDisplacementL: r.DisplacementL
+      ? String(Math.round(Number(r.DisplacementL) * 10) / 10 || r.DisplacementL)
+      : '',
     engineHP: r.EngineHP ?? '',
     fuelType: r.FuelTypePrimary ?? '',
     trim: r.Trim ?? '',

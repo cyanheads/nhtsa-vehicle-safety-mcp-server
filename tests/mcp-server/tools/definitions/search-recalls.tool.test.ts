@@ -74,15 +74,12 @@ describe('searchRecalls', () => {
     expect(result.recalls[0].parkOutSide).toBe(true);
   });
 
-  it('returns empty when campaign not found', async () => {
+  it('throws when campaign not found', async () => {
     mockService.getRecallCampaign.mockResolvedValue(null);
 
     const ctx = createMockContext();
     const input = searchRecalls.input.parse({ campaignNumber: 'ZZZ999999' });
-    const result = await searchRecalls.handler(input, ctx);
-
-    expect(result.totalCount).toBe(0);
-    expect(result.recalls).toEqual([]);
+    await expect(searchRecalls.handler(input, ctx)).rejects.toThrow(/no recall found/i);
   });
 
   it('throws when both campaignNumber and vehicle params provided', async () => {
@@ -99,7 +96,7 @@ describe('searchRecalls', () => {
   it('throws when vehicle params incomplete', async () => {
     const ctx = createMockContext();
     const input = searchRecalls.input.parse({ make: 'Toyota' });
-    await expect(searchRecalls.handler(input, ctx)).rejects.toThrow(/required/i);
+    await expect(searchRecalls.handler(input, ctx)).rejects.toThrow(/campaignNumber/i);
   });
 
   it('filters by dateRange', async () => {

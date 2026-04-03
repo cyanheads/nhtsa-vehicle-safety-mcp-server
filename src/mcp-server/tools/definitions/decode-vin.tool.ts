@@ -61,21 +61,28 @@ export const decodeVin = tool('nhtsa_decode_vin', {
     const svc = getNhtsaService();
     const vins = Array.isArray(input.vin) ? input.vin : [input.vin];
 
-    if (vins.length > MAX_BATCH_SIZE) {
-      throw validationError(`Maximum ${MAX_BATCH_SIZE} VINs per batch. Received ${vins.length}.`);
+    const nonEmpty = vins.filter((v) => v.trim().length > 0);
+    if (nonEmpty.length === 0) {
+      throw validationError('At least one non-empty VIN is required.');
     }
 
-    const [firstVin] = vins;
+    if (nonEmpty.length > MAX_BATCH_SIZE) {
+      throw validationError(
+        `Maximum ${MAX_BATCH_SIZE} VINs per batch. Received ${nonEmpty.length}.`,
+      );
+    }
+
+    const [firstVin] = nonEmpty;
     const vehicles =
-      firstVin && vins.length === 1
+      firstVin && nonEmpty.length === 1
         ? [await svc.decodeVin(firstVin, input.modelYear)]
         : await svc.decodeVinBatch(
-            vins.map((vin) =>
+            nonEmpty.map((vin) =>
               input.modelYear != null ? { vin, modelYear: input.modelYear } : { vin },
             ),
           );
 
-    ctx.log.info('VIN decode', { count: vins.length, results: vehicles.length });
+    ctx.log.info('VIN decode', { count: nonEmpty.length, results: vehicles.length });
 
     return { vehicles };
   },

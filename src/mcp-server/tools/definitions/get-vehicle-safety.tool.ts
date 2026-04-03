@@ -45,6 +45,15 @@ const safetyRatingSchema = z.object({
       passengerSide: z.string().describe('Passenger-side frontal crash rating'),
     })
     .describe('Frontal crash test ratings'),
+  sideCrash: z
+    .object({
+      overall: z.string().describe('Overall side crash rating'),
+      driverSide: z.string().describe('Driver-side rating'),
+      passengerSide: z.string().describe('Passenger-side rating'),
+      barrierOverall: z.string().describe('Side barrier overall rating'),
+      pole: z.string().describe('Side pole crash rating'),
+    })
+    .describe('Side crash test ratings'),
   rollover: z
     .object({
       rating: z.string().describe('Rollover resistance rating'),
@@ -138,6 +147,13 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
         vehicleDescription: r.vehicleDescription,
         overallRating: r.overallRating,
         frontalCrash: r.frontalCrash,
+        sideCrash: {
+          overall: r.sideCrash.overall,
+          driverSide: r.sideCrash.driverSide,
+          passengerSide: r.sideCrash.passengerSide,
+          barrierOverall: r.sideCrash.barrierOverall,
+          pole: r.sideCrash.pole,
+        },
         rollover: r.rollover,
         adasFeatures: r.adasFeatures,
       })),
@@ -171,6 +187,9 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
         lines.push(`**Overall:** ${r.overallRating} stars`);
         lines.push(
           `**Frontal Crash:** ${r.frontalCrash.overall} (Driver: ${r.frontalCrash.driverSide}, Passenger: ${r.frontalCrash.passengerSide})`,
+        );
+        lines.push(
+          `**Side Crash:** ${r.sideCrash.overall} (Driver: ${r.sideCrash.driverSide}, Passenger: ${r.sideCrash.passengerSide}, Barrier: ${r.sideCrash.barrierOverall}, Pole: ${r.sideCrash.pole})`,
         );
         lines.push(
           `**Rollover:** ${r.rollover.rating} (${(r.rollover.probability * 100).toFixed(1)}% probability, Tip test: ${r.rollover.dynamicTipResult})`,

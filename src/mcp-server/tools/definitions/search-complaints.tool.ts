@@ -156,7 +156,10 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       if (c.numberOfDeaths > 0) flags.push(`${c.numberOfDeaths} deaths`);
       const flagStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
 
-      lines.push(`**#${c.odiNumber}** — ${c.dateOfIncident}${flagStr}`);
+      lines.push(
+        `**#${c.odiNumber}** — ${c.dateOfIncident} (filed ${c.dateComplaintFiled})${flagStr}`,
+      );
+      if (c.vin) lines.push(`VIN: ${c.vin}`);
       lines.push(`Components: ${c.components}`);
       lines.push(`${c.summary}\n`);
     }
