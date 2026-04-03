@@ -6,33 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import type { Complaint, ComponentBreakdown } from '@/services/nhtsa/types.js';
-
-function buildComponentBreakdown(complaints: Complaint[]): ComponentBreakdown[] {
-  const map = new Map<string, ComponentBreakdown>();
-  for (const c of complaints) {
-    for (const component of c.components
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)) {
-      const entry = map.get(component) ?? {
-        component,
-        count: 0,
-        crashCount: 0,
-        fireCount: 0,
-        injuryCount: 0,
-        deathCount: 0,
-      };
-      entry.count++;
-      if (c.crash) entry.crashCount++;
-      if (c.fire) entry.fireCount++;
-      entry.injuryCount += c.numberOfInjuries;
-      entry.deathCount += c.numberOfDeaths;
-      map.set(component, entry);
-    }
-  }
-  return [...map.values()].sort((a, b) => b.count - a.count);
-}
+import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
 const safetyRatingSchema = z.object({
   vehicleId: z.number().describe('NCAP vehicle ID for follow-up queries'),
@@ -121,9 +95,28 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
     const { make, model, modelYear } = input;
 
     const [variants, recalls, complaints] = await Promise.all([
-      svc.getSafetyRatingVariants(modelYear, make, model).catch(() => []),
-      svc.getRecallsByVehicle(make, model, modelYear).catch(() => []),
-      svc.getComplaintsByVehicle(make, model, modelYear).catch(() => []),
+      svc.getSafetyRatingVariants(modelYear, make, model).catch((err) => {
+        ctx.log.warning('Failed to fetch safety rating variants', {
+          make,
+          model,
+          modelYear,
+          error: String(err),
+        });
+        return [];
+      }),
+      svc.getRecallsByVehicle(make, model, modelYear).catch((err) => {
+        ctx.log.warning('Failed to fetch recalls', { make, model, modelYear, error: String(err) });
+        return [];
+      }),
+      svc.getComplaintsByVehicle(make, model, modelYear).catch((err) => {
+        ctx.log.warning('Failed to fetch complaints', {
+          make,
+          model,
+          modelYear,
+          error: String(err),
+        });
+        return [];
+      }),
     ]);
 
     const safetyRatings = (

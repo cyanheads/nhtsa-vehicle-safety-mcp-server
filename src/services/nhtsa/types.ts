@@ -198,6 +198,33 @@ export interface ComponentBreakdown {
   injuryCount: number;
 }
 
+/** Aggregate complaints by component, sorted by frequency descending. */
+export function buildComponentBreakdown(complaints: Complaint[]): ComponentBreakdown[] {
+  const map = new Map<string, ComponentBreakdown>();
+  for (const c of complaints) {
+    for (const component of c.components
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)) {
+      const entry = map.get(component) ?? {
+        component,
+        count: 0,
+        crashCount: 0,
+        fireCount: 0,
+        injuryCount: 0,
+        deathCount: 0,
+      };
+      entry.count++;
+      if (c.crash) entry.crashCount++;
+      if (c.fire) entry.fireCount++;
+      entry.injuryCount += c.numberOfInjuries;
+      entry.deathCount += c.numberOfDeaths;
+      map.set(component, entry);
+    }
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count);
+}
+
 export interface SafetyRatingVariant {
   vehicleDescription: string;
   vehicleId: number;

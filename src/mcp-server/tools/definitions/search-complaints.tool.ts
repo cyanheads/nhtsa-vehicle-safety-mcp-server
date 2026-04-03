@@ -6,35 +6,9 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import type { Complaint, ComponentBreakdown } from '@/services/nhtsa/types.js';
+import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
 const MAX_COMPLAINTS_RETURNED = 50;
-
-function buildBreakdown(complaints: Complaint[]): ComponentBreakdown[] {
-  const map = new Map<string, ComponentBreakdown>();
-  for (const c of complaints) {
-    for (const component of c.components
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)) {
-      const entry = map.get(component) ?? {
-        component,
-        count: 0,
-        crashCount: 0,
-        fireCount: 0,
-        injuryCount: 0,
-        deathCount: 0,
-      };
-      entry.count++;
-      if (c.crash) entry.crashCount++;
-      if (c.fire) entry.fireCount++;
-      entry.injuryCount += c.numberOfInjuries;
-      entry.deathCount += c.numberOfDeaths;
-      map.set(component, entry);
-    }
-  }
-  return [...map.values()].sort((a, b) => b.count - a.count);
-}
 
 export const searchComplaints = tool('nhtsa_search_complaints', {
   description:
@@ -95,7 +69,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       );
     }
 
-    const breakdown = buildBreakdown(complaints);
+    const breakdown = buildComponentBreakdown(complaints);
 
     // Sort by date descending, return most recent
     const sorted = [...complaints].sort(
