@@ -316,12 +316,12 @@ function normalizeDate(raw: string): string {
   // DD/MM/YYYY — detect by slash separators with a 4-digit year at end
   const ddmmyyyy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (ddmmyyyy) {
-    const [, dd, mm, yyyy] = ddmmyyyy;
-    return `${yyyy}-${mm!.padStart(2, '0')}-${dd!.padStart(2, '0')}`;
+    const [, dd = '', mm = '', yyyy] = ddmmyyyy;
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
   }
   // Already ISO-ish (YYYY-MM-DD or full ISO 8601) — extract date portion
   const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (iso) return iso[1]!;
+  if (iso) return iso[1] ?? raw;
   return raw;
 }
 
