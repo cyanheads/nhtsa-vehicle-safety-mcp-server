@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2026-04-03
+
+### Changed
+
+- Extracted shared `buildComponentBreakdown` into `services/nhtsa/types.ts`, removing duplicate implementations from `get-vehicle-safety` and `search-complaints` tools
+- Added warning-level logging when parallel API fetches fail in `nhtsa_get_vehicle_safety`
+- Standardized all package.json scripts to use `bun run` prefix; production start now uses `bun` instead of `node`
+- Upgraded TypeScript from ^5.9.3 to ^6.0.2
+- Updated Bun engine requirement from >=1.2.0 to >=1.3.2
+- README: added npx and Docker installation methods, reorganized sections, added Bun version badge
+- Added author details, funding links, and security dependency overrides to package.json
+
 ## [0.2.3] - 2026-04-03
 
 ### Fixed
