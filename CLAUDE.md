@@ -43,86 +43,35 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 ```ts
 import { tool, z } from '@cyanheads/mcp-ts-core';
 
-export const searchItems = tool('search_items', {
-  description: 'Search inventory items by query.',
+export const nhtsaSearchRecalls = tool('nhtsa_search_recalls', {
+  description: 'Search recall campaigns by vehicle or campaign number.',
   annotations: { readOnlyHint: true },
   input: z.object({
-    query: z.string().describe('Search terms'),
-    limit: z.number().default(10).describe('Max results'),
+    make: z.string().describe('Vehicle manufacturer (e.g., "Toyota")'),
+    model: z.string().describe('Vehicle model (e.g., "Camry")'),
+    modelYear: z.number().describe('Model year (e.g., 2020)'),
   }),
   output: z.object({
-    items: z.array(z.object({
-      id: z.string().describe('Item ID'),
-      name: z.string().describe('Item name'),
-    })).describe('Matching items'),
+    recalls: z.array(z.object({
+      campaignNumber: z.string().describe('NHTSA campaign number'),
+      component: z.string().describe('Affected component'),
+      summary: z.string().describe('Recall summary'),
+    })).describe('Matching recalls'),
   }),
-  auth: ['inventory:read'],
 
   async handler(input, ctx) {
-    const items = await findItems(input.query, input.limit);
-    ctx.log.info('Search completed', { query: input.query, count: items.length });
-    return { items };
+    const recalls = await getNhtsaService().getRecallsByVehicle(input);
+    ctx.log.info('Recalls fetched', { ...input, count: recalls.length });
+    return { recalls };
   },
 
-  // format() populates content[] — the only field most LLM clients forward to
-  // the model. Render all data the LLM needs, not just a count or title.
   format: (result) => [{
     type: 'text',
-    text: result.items.map(i => `**${i.id}**: ${i.name}`).join('\n'),
+    text: result.recalls.map(r =>
+      `**${r.campaignNumber}** — ${r.component}\n${r.summary}`
+    ).join('\n\n') || 'No recalls found.',
   }],
 });
-```
-
-### Resource
-
-```ts
-import { resource, z } from '@cyanheads/mcp-ts-core';
-
-export const itemData = resource('inventory://{itemId}', {
-  description: 'Fetch an inventory item by ID.',
-  params: z.object({ itemId: z.string().describe('Item identifier') }),
-  auth: ['inventory:read'],
-  async handler(params, ctx) {
-    const item = await ctx.state.get(`item:${params.itemId}`);
-    if (!item) throw new Error(`Item ${params.itemId} not found`);
-    return item;
-  },
-});
-```
-
-### Prompt
-
-```ts
-import { prompt, z } from '@cyanheads/mcp-ts-core';
-
-export const reviewCode = prompt('review_code', {
-  description: 'Review code for issues and best practices.',
-  args: z.object({
-    code: z.string().describe('Code to review'),
-    language: z.string().optional().describe('Programming language'),
-  }),
-  generate: (args) => [
-    { role: 'user', content: { type: 'text', text: `Review this ${args.language ?? ''} code:\n${args.code}` } },
-  ],
-});
-```
-
-### Server config
-
-```ts
-// src/config/server-config.ts — lazy-parsed, separate from framework config
-const ServerConfigSchema = z.object({
-  myApiKey: z.string().describe('External API key'),
-  maxResults: z.coerce.number().default(100),
-});
-let _config: z.infer<typeof ServerConfigSchema> | undefined;
-export function getServerConfig() {
-  _config ??= ServerConfigSchema.parse({
-    myApiKey: process.env.MY_API_KEY,
-    maxResults: process.env.MY_MAX_RESULTS,
-  });
-  return _config;
-}
 ```
 
 ---
@@ -172,19 +121,13 @@ Plain `Error` is fine for most cases. Use factories when the error code matters.
 ```text
 src/
   index.ts                              # createApp() entry point
-  config/
-    server-config.ts                    # Server-specific env vars (Zod schema)
   services/
-    [domain]/
-      [domain]-service.ts               # Domain service (init/accessor pattern)
-      types.ts                          # Domain types
+    nhtsa/
+      nhtsa-service.ts                  # NHTSA API client (init/accessor pattern)
+      types.ts                          # API response types, normalized domain types
   mcp-server/
     tools/definitions/
-      [tool-name].tool.ts               # Tool definitions
-    resources/definitions/
-      [resource-name].resource.ts       # Resource definitions
-    prompts/definitions/
-      [prompt-name].prompt.ts           # Prompt definitions
+      [tool-name].tool.ts               # Tool definitions (nhtsa_ prefixed)
 ```
 
 ---
@@ -193,10 +136,10 @@ src/
 
 | What | Convention | Example |
 |:-----|:-----------|:--------|
-| Files | kebab-case with suffix | `search-docs.tool.ts` |
-| Tool/resource/prompt names | snake_case | `search_docs` |
-| Directories | kebab-case | `src/services/doc-search/` |
-| Descriptions | Single string or template literal, no `+` concatenation | `'Search items by query and filter.'` |
+| Files | kebab-case with suffix | `search-recalls.tool.ts` |
+| Tool names | snake_case, `nhtsa_` prefix | `nhtsa_search_recalls` |
+| Directories | kebab-case | `src/services/nhtsa/` |
+| Descriptions | Single string or template literal, no `+` concatenation | `'Search recall campaigns by vehicle.'` |
 
 ---
 
@@ -262,7 +205,7 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { McpError, JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 
 // Server's own code — via path alias
-import { getMyService } from '@/services/my-domain/my-service.js';
+import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 ```
 
 ---
@@ -275,6 +218,6 @@ import { getMyService } from '@/services/my-domain/my-service.js';
 - [ ] `ctx.log` for logging, `ctx.state` for storage
 - [ ] Handlers throw on failure — error factories or plain `Error`, no try/catch
 - [ ] `format()` renders all data the LLM needs — `content[]` is the only field most clients forward to the model
-- [ ] Registered in `createApp()` arrays (directly or via barrel exports)
+- [ ] Registered in `createApp()` tools array (directly or via barrel export)
 - [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing`
 - [ ] `bun run devcheck` passes
