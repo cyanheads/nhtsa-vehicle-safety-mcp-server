@@ -1,6 +1,6 @@
 # NHTSA Vehicle Safety MCP Server
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server)
+[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 

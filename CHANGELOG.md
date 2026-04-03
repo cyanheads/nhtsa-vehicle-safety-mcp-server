@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.1] - 2026-04-03
+
+### Changed
+
+- `nhtsa_decode_vin` — filter empty VINs before processing, validate at least one non-empty VIN
+- `nhtsa_get_vehicle_safety` — added side crash ratings (overall, driver, passenger, barrier, pole) to output and format
+- `nhtsa_lookup_vehicles` — capped makes response to 200 entries to reduce payload size
+- `nhtsa_search_complaints` — added complaint filing date and VIN to formatted output
+- `nhtsa_search_recalls` — throw `notFound` for missing campaign instead of empty result; improved validation message
+
+### Fixed
+
+- Engine displacement rounding in VIN decoder (now 1 decimal place)
+
+### Tests
+
+- Updated test fixtures for side crash ratings and recall not-found error behavior
+
 ## [0.2.0] - 2026-04-03
 
 ### Added
