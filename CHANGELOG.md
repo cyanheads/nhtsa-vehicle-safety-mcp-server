@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0] - 2026-04-04
+
+### Added
+
+- `nhtsa_get_vehicle_safety` — `warnings` array in output surfaces partial failures (e.g. when recalls or complaints API is unreachable) instead of silently returning empty sections
+
+### Changed
+
+- `nhtsa_get_vehicle_safety` — improved "no ratings" message with actionable guidance (suggests `nhtsa_get_safety_ratings` for specific variants or adjacent years)
+- `nhtsa_search_investigations` — clarified tool description: all filters are ANDed, make/model are free-text searches against subject/description (not structured fields)
+
+### Removed
+
+- Unused `NhtsaProductsResponse` type from `services/nhtsa/types.ts`
+
 ## [0.3.2] - 2026-04-04
 
 ### Added
