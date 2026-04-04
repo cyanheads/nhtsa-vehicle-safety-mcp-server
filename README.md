@@ -12,6 +12,12 @@
 
 </div>
 
+<div align="center">
+
+**Public Hosted Server:** [https://nhtsa.caseyjhand.com/mcp](https://nhtsa.caseyjhand.com/mcp)
+
+</div>
+
 ---
 
 ## Tools
@@ -114,6 +120,23 @@ NHTSA-specific:
 - No API key required — all NHTSA APIs are public
 
 ## Getting started
+
+### Public Hosted Instance
+
+A public instance is available at `https://nhtsa.caseyjhand.com/mcp` — no installation required. Point any MCP client at it via Streamable HTTP:
+
+```json
+{
+  "mcpServers": {
+    "nhtsa-vehicle-safety": {
+      "type": "streamable-http",
+      "url": "https://nhtsa.caseyjhand.com/mcp"
+    }
+  }
+}
+```
+
+### Self-Hosted / Local
 
 Add to your MCP client config (e.g., `claude_desktop_config.json`):
 
