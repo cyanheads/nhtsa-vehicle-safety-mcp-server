@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2] - 2026-04-04
+
+### Added
+
+- Public hosted server at `https://nhtsa.caseyjhand.com/mcp` — added to README and `server.json` remotes
+
 ## [0.3.1] - 2026-04-03
 
 ### Fixed
