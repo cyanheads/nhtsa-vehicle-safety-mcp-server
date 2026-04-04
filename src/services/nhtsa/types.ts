@@ -26,13 +26,6 @@ export interface NhtsaPaginatedResponse<T> {
   results: T[];
 }
 
-/** Products API (lowercase keys, no pagination). */
-export interface NhtsaProductsResponse<T> {
-  count: number;
-  message: string;
-  results: T[];
-}
-
 /** VPIC API wrapper. */
 export interface VpicResponse<T> {
   Count: number;

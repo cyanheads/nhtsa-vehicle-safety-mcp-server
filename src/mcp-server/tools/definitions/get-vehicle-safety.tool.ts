@@ -88,11 +88,16 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
         deathCount: z.number().describe('Total deaths across all complaints'),
       })
       .describe('Summary of consumer complaints'),
+    warnings: z
+      .array(z.string())
+      .describe('Warnings about sections that could not be loaded from NHTSA'),
   }),
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
     const { make, model, modelYear } = input;
+
+    const warnings: string[] = [];
 
     const [variants, recalls, complaints] = await Promise.all([
       svc.getSafetyRatingVariants(modelYear, make, model).catch((err) => {
@@ -102,10 +107,12 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
           modelYear,
           error: String(err),
         });
+        warnings.push('NCAP safety ratings could not be retrieved.');
         return [];
       }),
       svc.getRecallsByVehicle(make, model, modelYear).catch((err) => {
         ctx.log.warning('Failed to fetch recalls', { make, model, modelYear, error: String(err) });
+        warnings.push('Recall data could not be retrieved.');
         return [];
       }),
       svc.getComplaintsByVehicle(make, model, modelYear).catch((err) => {
@@ -115,6 +122,9 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
           modelYear,
           error: String(err),
         });
+        warnings.push(
+          'Complaint data could not be retrieved — the make/model/year combination may not match NHTSA records.',
+        );
         return [];
       }),
     ]);
@@ -176,11 +186,19 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
         injuryCount: complaints.reduce((sum, c) => sum + c.numberOfInjuries, 0),
         deathCount: complaints.reduce((sum, c) => sum + c.numberOfDeaths, 0),
       },
+      warnings,
     };
   },
 
   format: (result) => {
     const lines: string[] = [];
+
+    if (result.warnings.length > 0) {
+      for (const w of result.warnings) {
+        lines.push(`> **Warning:** ${w}`);
+      }
+      lines.push('');
+    }
 
     // Safety ratings
     if (result.safetyRatings.length > 0) {
@@ -203,7 +221,9 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
         lines.push('');
       }
     } else {
-      lines.push('## NCAP Safety Ratings\n\nNo crash test ratings available for this vehicle.\n');
+      lines.push(
+        '## NCAP Safety Ratings\n\nNo NCAP crash test ratings found. Not all vehicles are tested — coverage varies by trim, drivetrain, and model year. Use nhtsa_get_safety_ratings to check specific variants or adjacent years.\n',
+      );
     }
 
     // Recalls

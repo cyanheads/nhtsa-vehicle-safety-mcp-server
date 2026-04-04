@@ -162,6 +162,7 @@ describe('getVehicleSafety', () => {
           },
         ],
       },
+      warnings: [],
     };
     const blocks = getVehicleSafety.format!(output);
     expect(blocks).toHaveLength(1);

@@ -31,7 +31,7 @@ function matchesText(investigation: Investigation, text: string): boolean {
 
 export const searchInvestigations = tool('nhtsa_search_investigations', {
   description:
-    'Search NHTSA defect investigations (Preliminary Evaluations, Engineering Analyses, Defect Petitions, Recall Queries). First query may be slow (~10s) while the investigation index loads; subsequent queries use a cached index.',
+    'Search NHTSA defect investigations (Preliminary Evaluations, Engineering Analyses, Defect Petitions, Recall Queries). All filters are ANDed — each additional filter narrows results. The make, model, and query filters all search investigation subject/description text (there are no structured make/model fields in the investigations dataset). First query may be slow (~10s) while the investigation index loads; subsequent queries use a cached index.',
   annotations: { readOnlyHint: true },
   input: z.object({
     query: z
@@ -41,8 +41,15 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     make: z
       .string()
       .optional()
-      .describe('Filter by manufacturer (matched against subject/description).'),
-    model: z.string().optional().describe('Filter by model (matched against subject/description).'),
+      .describe(
+        'Free-text filter — matches manufacturer name against subject/description text. ANDed with other filters.',
+      ),
+    model: z
+      .string()
+      .optional()
+      .describe(
+        'Free-text filter — matches model name against subject/description text. ANDed with other filters.',
+      ),
     investigationType: z
       .string()
       .optional()
