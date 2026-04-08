@@ -135,6 +135,33 @@ describe('searchInvestigations', () => {
     expect(ea?.investigationTypeName).toBe('Engineering Analysis');
   });
 
+  it('accepts sparse investigation fields without inventing values', async () => {
+    mockService.getInvestigations.mockResolvedValue([
+      {
+        nhtsaId: undefined,
+        investigationType: undefined,
+        status: undefined,
+        subject: undefined,
+        description: undefined,
+        openDate: undefined,
+        latestActivityDate: undefined,
+        issueYear: undefined,
+      },
+    ]);
+
+    const ctx = createMockContext();
+    const input = searchInvestigations.input.parse({});
+    const result = await searchInvestigations.handler(input, ctx);
+    const parsed = searchInvestigations.output.parse(result);
+    const text = searchInvestigations.format!(parsed)[0].text;
+
+    expect(parsed.total).toBe(1);
+    expect(parsed.investigations[0].subject).toBeUndefined();
+    expect(parsed.investigations[0].statusName).toBeUndefined();
+    expect(text).toContain('Unknown ID');
+    expect(text).toContain('Not available');
+  });
+
   it('format renders investigation details', () => {
     const output = {
       total: 1,

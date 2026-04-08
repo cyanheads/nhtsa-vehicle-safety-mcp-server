@@ -10,6 +10,10 @@ import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
 const MAX_COMPLAINTS_RETURNED = 50;
 
+function formatText(value?: string): string {
+  return value || 'Not available';
+}
+
 export const searchComplaints = tool('nhtsa_search_complaints', {
   description:
     'Search consumer safety complaints filed with NHTSA for a specific vehicle. Returns a component breakdown and the most recent complaints. Use for common problems, failure patterns, or owner-reported issues.',
@@ -42,16 +46,16 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     complaints: z
       .array(
         z.object({
-          odiNumber: z.number().describe('NHTSA complaint ID'),
-          dateOfIncident: z.string().describe('Date the incident occurred'),
-          dateComplaintFiled: z.string().describe('Date complaint was filed'),
-          components: z.string().describe('Affected components (comma-separated)'),
-          summary: z.string().describe('Consumer-reported description'),
-          crash: z.boolean().describe('Involved a crash'),
-          fire: z.boolean().describe('Involved a fire'),
-          numberOfInjuries: z.number().describe('Number of injuries'),
-          numberOfDeaths: z.number().describe('Number of deaths'),
-          vin: z.string().describe('VIN prefix (partial)'),
+          odiNumber: z.number().optional().describe('NHTSA complaint ID'),
+          dateOfIncident: z.string().optional().describe('Date the incident occurred'),
+          dateComplaintFiled: z.string().optional().describe('Date complaint was filed'),
+          components: z.string().optional().describe('Affected components (comma-separated)'),
+          summary: z.string().optional().describe('Consumer-reported description'),
+          crash: z.boolean().optional().describe('Involved a crash'),
+          fire: z.boolean().optional().describe('Involved a fire'),
+          numberOfInjuries: z.number().optional().describe('Number of injuries'),
+          numberOfDeaths: z.number().optional().describe('Number of deaths'),
+          vin: z.string().optional().describe('VIN prefix (partial)'),
         }),
       )
       .describe('Most recent complaints (up to 50)'),
@@ -65,7 +69,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     if (input.component) {
       const filter = input.component.toUpperCase();
       complaints = complaints.filter((c) =>
-        c.components.split(',').some((comp) => comp.trim().toUpperCase().includes(filter)),
+        (c.components ?? '').split(',').some((comp) => comp.trim().toUpperCase().includes(filter)),
       );
     }
 
@@ -73,7 +77,9 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
 
     // Sort by date descending, return most recent
     const sorted = [...complaints].sort(
-      (a, b) => new Date(b.dateComplaintFiled).getTime() - new Date(a.dateComplaintFiled).getTime(),
+      (a, b) =>
+        new Date(b.dateComplaintFiled ?? 0).getTime() -
+        new Date(a.dateComplaintFiled ?? 0).getTime(),
     );
     const recent = sorted.slice(0, MAX_COMPLAINTS_RETURNED);
 
@@ -126,16 +132,16 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       const flags: string[] = [];
       if (c.crash) flags.push('CRASH');
       if (c.fire) flags.push('FIRE');
-      if (c.numberOfInjuries > 0) flags.push(`${c.numberOfInjuries} injuries`);
-      if (c.numberOfDeaths > 0) flags.push(`${c.numberOfDeaths} deaths`);
+      if ((c.numberOfInjuries ?? 0) > 0) flags.push(`${c.numberOfInjuries} injuries`);
+      if ((c.numberOfDeaths ?? 0) > 0) flags.push(`${c.numberOfDeaths} deaths`);
       const flagStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
 
       lines.push(
-        `**#${c.odiNumber}** — ${c.dateOfIncident} (filed ${c.dateComplaintFiled})${flagStr}`,
+        `**#${c.odiNumber ?? 'Unknown'}** — ${formatText(c.dateOfIncident)} (filed ${formatText(c.dateComplaintFiled)})${flagStr}`,
       );
       if (c.vin) lines.push(`VIN: ${c.vin}`);
-      lines.push(`Components: ${c.components}`);
-      lines.push(`${c.summary}\n`);
+      lines.push(`Components: ${formatText(c.components)}`);
+      lines.push(`${formatText(c.summary)}\n`);
     }
 
     return [{ type: 'text' as const, text: lines.join('\n') }];

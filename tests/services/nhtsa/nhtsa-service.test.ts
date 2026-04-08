@@ -135,6 +135,38 @@ describe('getRecallsByVehicle', () => {
     const svc = getNhtsaService();
     expect(await svc.getRecallsByVehicle('Fake', 'Car', 2020)).toEqual([]);
   });
+
+  it('preserves missing advisory flags as undefined', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [
+          {
+            Manufacturer: 'Toyota',
+            NHTSACampaignNumber: '20V682000',
+            ReportReceivedDate: '11/12/2020',
+            Component: 'FUEL/PROPULSION SYSTEM',
+            Summary: 'Fuel delivery pipe may leak.',
+            Consequence: 'Fire risk.',
+            Remedy: 'Replace fuel pipe.',
+            Notes: '',
+            ModelYear: '2020',
+            Make: 'TOYOTA',
+            Model: 'CAMRY',
+          },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const recalls = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
+
+    expect(recalls).toHaveLength(1);
+    expect(recalls[0].parkIt).toBeUndefined();
+    expect(recalls[0].parkOutSide).toBeUndefined();
+    expect(recalls[0].overTheAirUpdate).toBeUndefined();
+  });
 });
 
 describe('getComplaintsByVehicle', () => {
@@ -170,6 +202,25 @@ describe('getComplaintsByVehicle', () => {
       crash: true,
       components: 'ENGINE AND ENGINE COOLING',
     });
+  });
+
+  it('preserves missing complaint fields as undefined', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 12345 }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
+
+    expect(complaints).toHaveLength(1);
+    expect(complaints[0].odiNumber).toBe(12345);
+    expect(complaints[0].crash).toBeUndefined();
+    expect(complaints[0].components).toBeUndefined();
+    expect(complaints[0].summary).toBeUndefined();
   });
 });
 
@@ -240,6 +291,27 @@ describe('getSafetyRating', () => {
     expect(rating!.rollover.probability).toBe(0.099);
     expect(rating!.adasFeatures.electronicStabilityControl).toBe('Standard');
     expect(rating!.complaintsCount).toBe(255);
+  });
+
+  it('preserves missing safety rating fields as undefined', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        Results: [{ VehicleId: 14720 }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const rating = await svc.getSafetyRating(14720);
+
+    expect(rating).not.toBeNull();
+    expect(rating!.vehicleId).toBe(14720);
+    expect(rating!.vehicleDescription).toBeUndefined();
+    expect(rating!.overallRating).toBeUndefined();
+    expect(rating!.frontalCrash.overall).toBeUndefined();
+    expect(rating!.rollover.probability).toBeUndefined();
+    expect(rating!.complaintsCount).toBeUndefined();
   });
 
   it('returns null for empty results', async () => {
@@ -356,6 +428,24 @@ describe('getInvestigations caching', () => {
 
     // Only fetched once (cached)
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves missing investigation fields as undefined', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        meta: { pagination: { count: 1, max: 100, offset: 0, total: 1 } },
+        results: [{ id: 1, nhtsaId: 'PE12345' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const investigations = await svc.getInvestigations();
+
+    expect(investigations).toHaveLength(1);
+    expect(investigations[0].nhtsaId).toBe('PE12345');
+    expect(investigations[0].subject).toBeUndefined();
+    expect(investigations[0].description).toBeUndefined();
+    expect(investigations[0].openDate).toBeUndefined();
   });
 });
 
@@ -620,5 +710,64 @@ describe('getRecallCampaign binary search', () => {
     const svc = getNhtsaService();
     const result = await svc.getRecallCampaign('ZZZ999999');
     expect(result).toBeNull();
+  });
+
+  it('preserves missing advisory flags in campaign lookups', async () => {
+    const target = '20V682000';
+    mockFetch.mockImplementation(async (url: string) => {
+      const u = new URL(url);
+      const offset = Number(u.searchParams.get('offset') ?? 0);
+
+      if (offset === 0 && u.searchParams.get('max') === '1') {
+        return jsonResponse({
+          meta: { pagination: { count: 1, max: 1, offset: 0, total: 100 } },
+          results: [
+            {
+              id: 1,
+              campaignId: '10V100000',
+              nhtsaCampaignNumber: '10V100',
+              subject: 'Other recall',
+              description: 'Other desc',
+              consequence: 'None',
+              correctiveAction: 'None',
+              manufacturerName: 'Other',
+              potaff: 100,
+              recall573ReceivedDate: '2010-01-01T00:00:00Z',
+              recallType: 'V',
+              parkVehicleYn: false,
+              parkOutsideYn: false,
+              overTheAirUpdateYn: false,
+            },
+          ],
+        });
+      }
+
+      return jsonResponse({
+        meta: { pagination: { count: 1, max: 1, offset, total: 100 } },
+        results: [
+          {
+            id: 50,
+            campaignId: target,
+            nhtsaCampaignNumber: '20V682',
+            subject: 'Fuel leak',
+            description: 'Fuel delivery pipe leak',
+            consequence: 'Fire risk',
+            correctiveAction: 'Replace pipe',
+            manufacturerName: 'Toyota',
+            potaff: 5000,
+            recall573ReceivedDate: '2020-11-12T00:00:00Z',
+            recallType: 'V',
+          },
+        ],
+      });
+    });
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallCampaign(target);
+
+    expect(result).not.toBeNull();
+    expect(result!.parkIt).toBeUndefined();
+    expect(result!.parkOutSide).toBeUndefined();
+    expect(result!.overTheAirUpdate).toBeUndefined();
   });
 });

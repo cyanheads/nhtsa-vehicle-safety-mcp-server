@@ -112,6 +112,72 @@ describe('getVehicleSafety', () => {
     expect(result.complaintSummary.totalCount).toBe(0);
   });
 
+  it('accepts recalls without parkIt', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+    mockService.getRecallsByVehicle.mockResolvedValue([
+      {
+        campaignNumber: '20V682000',
+        manufacturer: 'Toyota',
+        component: 'FUEL SYSTEM',
+        summary: 'Fuel leak.',
+        consequence: 'Fire risk.',
+        remedy: 'Replace pipe.',
+        reportReceivedDate: '2020-12-11',
+      },
+    ]);
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    const result = await getVehicleSafety.handler(input, ctx);
+    const parsed = getVehicleSafety.output.parse(result);
+
+    expect(parsed.recalls).toHaveLength(1);
+    expect(parsed.recalls[0].parkIt).toBeUndefined();
+  });
+
+  it('accepts sparse safety rating fields without inventing values', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([{ vehicleId: 14720 }]);
+    mockService.getSafetyRating.mockResolvedValue({
+      vehicleId: 14720,
+      vehicleDescription: undefined,
+      overallRating: undefined,
+      frontalCrash: { overall: undefined, driverSide: undefined, passengerSide: undefined },
+      sideCrash: {
+        overall: undefined,
+        driverSide: undefined,
+        passengerSide: undefined,
+        combinedBarrierPoleFront: undefined,
+        combinedBarrierPoleRear: undefined,
+        barrierOverall: undefined,
+        pole: undefined,
+      },
+      rollover: { rating: undefined, probability: undefined, dynamicTipResult: undefined },
+      adasFeatures: {
+        electronicStabilityControl: undefined,
+        forwardCollisionWarning: undefined,
+        laneDepartureWarning: undefined,
+      },
+      complaintsCount: undefined,
+      recallsCount: undefined,
+      investigationCount: undefined,
+    });
+    mockService.getRecallsByVehicle.mockResolvedValue([]);
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    const result = await getVehicleSafety.handler(input, ctx);
+    const parsed = getVehicleSafety.output.parse(result);
+    const text = getVehicleSafety.format!(parsed)[0].text;
+
+    expect(parsed.safetyRatings).toHaveLength(1);
+    expect(parsed.safetyRatings[0].overallRating).toBeUndefined();
+    expect(parsed.safetyRatings[0].rollover.probability).toBeUndefined();
+    expect(text).toContain('Vehicle 14720');
+    expect(text).toContain('Not available');
+  });
+
   it('format renders all sections', () => {
     const output = {
       safetyRatings: [

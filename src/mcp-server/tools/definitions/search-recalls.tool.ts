@@ -59,9 +59,15 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
             .number()
             .optional()
             .describe('Units affected (campaign queries)'),
-          parkIt: z.boolean().describe('Do-not-drive advisory'),
-          parkOutSide: z.boolean().describe('Park-outside advisory'),
-          overTheAirUpdate: z.boolean().describe('OTA update available'),
+          parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
+          parkOutSide: z
+            .boolean()
+            .optional()
+            .describe('Park-outside advisory when provided by NHTSA'),
+          overTheAirUpdate: z
+            .boolean()
+            .optional()
+            .describe('OTA update availability when provided by NHTSA'),
         }),
       )
       .describe('Matching recall campaigns'),
@@ -97,9 +103,11 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
             remedy: campaign.remedy,
             reportReceivedDate: campaign.receivedDate,
             potentialUnitsAffected: campaign.potentialUnitsAffected,
-            parkIt: campaign.parkIt,
-            parkOutSide: campaign.parkOutSide,
-            overTheAirUpdate: campaign.overTheAirUpdate,
+            ...(campaign.parkIt !== undefined ? { parkIt: campaign.parkIt } : {}),
+            ...(campaign.parkOutSide !== undefined ? { parkOutSide: campaign.parkOutSide } : {}),
+            ...(campaign.overTheAirUpdate !== undefined
+              ? { overTheAirUpdate: campaign.overTheAirUpdate }
+              : {}),
           },
         ],
         totalCount: 1,
@@ -122,9 +130,9 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
         consequence: r.consequence,
         remedy: r.remedy,
         reportReceivedDate: r.reportReceivedDate,
-        parkIt: r.parkIt,
-        parkOutSide: r.parkOutSide,
-        overTheAirUpdate: r.overTheAirUpdate,
+        ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
+        ...(r.parkOutSide !== undefined ? { parkOutSide: r.parkOutSide } : {}),
+        ...(r.overTheAirUpdate !== undefined ? { overTheAirUpdate: r.overTheAirUpdate } : {}),
       }),
     );
 

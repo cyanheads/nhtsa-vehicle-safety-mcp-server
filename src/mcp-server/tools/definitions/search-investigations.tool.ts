@@ -24,8 +24,8 @@ const STATUS_MAP: Record<string, string> = {
 function matchesText(investigation: Investigation, text: string): boolean {
   const lower = text.toLowerCase();
   return (
-    investigation.subject.toLowerCase().includes(lower) ||
-    investigation.description.toLowerCase().includes(lower)
+    (investigation.subject ?? '').toLowerCase().includes(lower) ||
+    (investigation.description ?? '').toLowerCase().includes(lower)
   );
 }
 
@@ -65,15 +65,15 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     investigations: z
       .array(
         z.object({
-          nhtsaId: z.string().describe('NHTSA investigation ID'),
-          investigationType: z.string().describe('Investigation type code'),
-          investigationTypeName: z.string().describe('Investigation type name'),
-          status: z.string().describe('Status code (O=Open, C=Closed)'),
-          statusName: z.string().describe('Status name'),
-          subject: z.string().describe('Investigation subject'),
-          description: z.string().describe('Investigation description (HTML stripped)'),
-          openDate: z.string().describe('Date investigation opened'),
-          latestActivityDate: z.string().describe('Date of latest activity'),
+          nhtsaId: z.string().optional().describe('NHTSA investigation ID'),
+          investigationType: z.string().optional().describe('Investigation type code'),
+          investigationTypeName: z.string().optional().describe('Investigation type name'),
+          status: z.string().optional().describe('Status code (O=Open, C=Closed)'),
+          statusName: z.string().optional().describe('Status name'),
+          subject: z.string().optional().describe('Investigation subject'),
+          description: z.string().optional().describe('Investigation description (HTML stripped)'),
+          openDate: z.string().optional().describe('Date investigation opened'),
+          latestActivityDate: z.string().optional().describe('Date of latest activity'),
         }),
       )
       .describe('Matching investigations'),
@@ -124,9 +124,11 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       investigations: page.map((i) => ({
         nhtsaId: i.nhtsaId,
         investigationType: i.investigationType,
-        investigationTypeName: INVESTIGATION_TYPE_MAP[i.investigationType] ?? i.investigationType,
+        investigationTypeName: i.investigationType
+          ? (INVESTIGATION_TYPE_MAP[i.investigationType] ?? i.investigationType)
+          : undefined,
         status: i.status,
-        statusName: STATUS_MAP[i.status] ?? i.status,
+        statusName: i.status ? (STATUS_MAP[i.status] ?? i.status) : undefined,
         subject: i.subject,
         description: i.description,
         openDate: i.openDate,
@@ -150,11 +152,13 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     ];
 
     for (const i of result.investigations) {
-      const statusBadge = i.status === 'O' ? 'OPEN' : 'CLOSED';
-      lines.push(`### ${i.nhtsaId} [${statusBadge}]`);
-      lines.push(`**Type:** ${i.investigationTypeName}`);
-      lines.push(`**Subject:** ${i.subject}`);
-      lines.push(`**Opened:** ${i.openDate} | **Latest Activity:** ${i.latestActivityDate}`);
+      const statusBadge = i.status === 'O' ? 'OPEN' : i.status === 'C' ? 'CLOSED' : 'UNKNOWN';
+      lines.push(`### ${i.nhtsaId || 'Unknown ID'} [${statusBadge}]`);
+      lines.push(`**Type:** ${i.investigationTypeName || 'Not available'}`);
+      lines.push(`**Subject:** ${i.subject || 'Not available'}`);
+      lines.push(
+        `**Opened:** ${i.openDate || 'Not available'} | **Latest Activity:** ${i.latestActivityDate || 'Not available'}`,
+      );
       if (i.description) {
         const desc =
           i.description.length > 500 ? `${i.description.slice(0, 500)}...` : i.description;

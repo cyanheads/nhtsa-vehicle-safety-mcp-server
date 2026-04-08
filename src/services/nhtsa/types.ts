@@ -46,9 +46,9 @@ export interface RawRecallByVehicle {
   ModelYear: string;
   NHTSACampaignNumber: string;
   Notes: string;
-  overTheAirUpdate: boolean;
-  parkIt: boolean;
-  parkOutSide: boolean;
+  overTheAirUpdate?: boolean;
+  parkIt?: boolean;
+  parkOutSide?: boolean;
   Remedy: string;
   ReportReceivedDate: string;
   Summary: string;
@@ -63,9 +63,9 @@ export interface RawRecallBase {
   id: number;
   manufacturerName: string;
   nhtsaCampaignNumber: string;
-  overTheAirUpdateYn: boolean;
-  parkOutsideYn: boolean;
-  parkVehicleYn: boolean;
+  overTheAirUpdateYn?: boolean;
+  parkOutsideYn?: boolean;
+  parkVehicleYn?: boolean;
   potaff: number;
   recall573ReceivedDate: string;
   recallType: string;
@@ -74,62 +74,62 @@ export interface RawRecallBase {
 
 /** /complaints/complaintsByVehicle — camelCase. */
 export interface RawComplaint {
-  components: string;
-  crash: boolean;
-  dateComplaintFiled: string;
-  dateOfIncident: string;
-  fire: boolean;
-  manufacturer: string;
-  numberOfDeaths: number;
-  numberOfInjuries: number;
-  odiNumber: number;
-  summary: string;
-  vin: string;
+  components?: string;
+  crash?: boolean;
+  dateComplaintFiled?: string;
+  dateOfIncident?: string;
+  fire?: boolean;
+  manufacturer?: string;
+  numberOfDeaths?: number;
+  numberOfInjuries?: number;
+  odiNumber?: number;
+  summary?: string;
+  vin?: string;
 }
 
 /** /SafetyRatings/modelyear/.../make/.../model/... — variant list. */
 export interface RawSafetyRatingVariant {
-  VehicleDescription: string;
-  VehicleId: number;
+  VehicleDescription?: string;
+  VehicleId?: number;
 }
 
 /** /SafetyRatings/VehicleId/... — full detail. */
 export interface RawSafetyRating {
-  ComplaintsCount: number;
-  'combinedSideBarrierAndPoleRating-Front': string;
-  'combinedSideBarrierAndPoleRating-Rear': string;
-  dynamicTipResult: string;
-  FrontCrashDriversideRating: string;
-  FrontCrashPassengersideRating: string;
-  InvestigationCount: number;
-  NHTSAElectronicStabilityControl: string;
-  NHTSAForwardCollisionWarning: string;
-  NHTSALaneDepartureWarning: string;
-  OverallFrontCrashRating: string;
-  OverallRating: string;
-  OverallSideCrashRating: string;
-  RecallsCount: number;
-  RolloverPossibility: number;
-  RolloverRating: string;
-  SideCrashDriversideRating: string;
-  SideCrashPassengersideRating: string;
-  SidePoleCrashRating: string;
-  'sideBarrierRating-Overall': string;
-  VehicleDescription: string;
-  VehicleId: number;
+  ComplaintsCount?: number;
+  'combinedSideBarrierAndPoleRating-Front'?: string;
+  'combinedSideBarrierAndPoleRating-Rear'?: string;
+  dynamicTipResult?: string;
+  FrontCrashDriversideRating?: string;
+  FrontCrashPassengersideRating?: string;
+  InvestigationCount?: number;
+  NHTSAElectronicStabilityControl?: string;
+  NHTSAForwardCollisionWarning?: string;
+  NHTSALaneDepartureWarning?: string;
+  OverallFrontCrashRating?: string;
+  OverallRating?: string;
+  OverallSideCrashRating?: string;
+  RecallsCount?: number;
+  RolloverPossibility?: number;
+  RolloverRating?: string;
+  SideCrashDriversideRating?: string;
+  SideCrashPassengersideRating?: string;
+  SidePoleCrashRating?: string;
+  'sideBarrierRating-Overall'?: string;
+  VehicleDescription?: string;
+  VehicleId?: number;
 }
 
 /** /investigations — camelCase. */
 export interface RawInvestigation {
-  description: string;
-  id: number;
-  investigationType: string;
-  issueYear: string;
-  latestActivityDate: string;
-  nhtsaId: string;
-  openDate: string;
-  status: string;
-  subject: string;
+  description?: string;
+  id?: number;
+  investigationType?: string;
+  issueYear?: string;
+  latestActivityDate?: string;
+  nhtsaId?: string;
+  openDate?: string;
+  status?: string;
+  subject?: string;
 }
 
 /** VPIC DecodeVinValues — PascalCase, 157 fields. Indexed for selective extraction. */
@@ -145,9 +145,9 @@ export interface Recall {
   component: string;
   consequence: string;
   manufacturer: string;
-  overTheAirUpdate: boolean;
-  parkIt: boolean;
-  parkOutSide: boolean;
+  overTheAirUpdate?: boolean;
+  parkIt?: boolean;
+  parkOutSide?: boolean;
   remedy: string;
   reportReceivedDate: string;
   summary: string;
@@ -158,9 +158,9 @@ export interface RecallCampaign {
   campaignNumber: string;
   consequence: string;
   manufacturer: string;
-  overTheAirUpdate: boolean;
-  parkIt: boolean;
-  parkOutSide: boolean;
+  overTheAirUpdate?: boolean;
+  parkIt?: boolean;
+  parkOutSide?: boolean;
   potentialUnitsAffected: number;
   receivedDate: string;
   remedy: string;
@@ -169,17 +169,17 @@ export interface RecallCampaign {
 }
 
 export interface Complaint {
-  components: string;
-  crash: boolean;
-  dateComplaintFiled: string;
-  dateOfIncident: string;
-  fire: boolean;
-  manufacturer: string;
-  numberOfDeaths: number;
-  numberOfInjuries: number;
-  odiNumber: number;
-  summary: string;
-  vin: string;
+  components: string | undefined;
+  crash: boolean | undefined;
+  dateComplaintFiled: string | undefined;
+  dateOfIncident: string | undefined;
+  fire: boolean | undefined;
+  manufacturer: string | undefined;
+  numberOfDeaths: number | undefined;
+  numberOfInjuries: number | undefined;
+  odiNumber: number | undefined;
+  summary: string | undefined;
+  vin: string | undefined;
 }
 
 export interface ComponentBreakdown {
@@ -195,7 +195,7 @@ export interface ComponentBreakdown {
 export function buildComponentBreakdown(complaints: Complaint[]): ComponentBreakdown[] {
   const map = new Map<string, ComponentBreakdown>();
   for (const c of complaints) {
-    for (const component of c.components
+    for (const component of (c.components ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)) {
@@ -210,8 +210,8 @@ export function buildComponentBreakdown(complaints: Complaint[]): ComponentBreak
       entry.count++;
       if (c.crash) entry.crashCount++;
       if (c.fire) entry.fireCount++;
-      entry.injuryCount += c.numberOfInjuries;
-      entry.deathCount += c.numberOfDeaths;
+      entry.injuryCount += c.numberOfInjuries ?? 0;
+      entry.deathCount += c.numberOfDeaths ?? 0;
       map.set(component, entry);
     }
   }
@@ -219,40 +219,40 @@ export function buildComponentBreakdown(complaints: Complaint[]): ComponentBreak
 }
 
 export interface SafetyRatingVariant {
-  vehicleDescription: string;
+  vehicleDescription: string | undefined;
   vehicleId: number;
 }
 
 export interface SafetyRating {
   adasFeatures: {
-    electronicStabilityControl: string;
-    forwardCollisionWarning: string;
-    laneDepartureWarning: string;
+    electronicStabilityControl: string | undefined;
+    forwardCollisionWarning: string | undefined;
+    laneDepartureWarning: string | undefined;
   };
-  complaintsCount: number;
+  complaintsCount: number | undefined;
   frontalCrash: {
-    overall: string;
-    driverSide: string;
-    passengerSide: string;
+    overall: string | undefined;
+    driverSide: string | undefined;
+    passengerSide: string | undefined;
   };
-  investigationCount: number;
-  overallRating: string;
-  recallsCount: number;
+  investigationCount: number | undefined;
+  overallRating: string | undefined;
+  recallsCount: number | undefined;
   rollover: {
-    rating: string;
-    probability: number;
-    dynamicTipResult: string;
+    rating: string | undefined;
+    probability: number | undefined;
+    dynamicTipResult: string | undefined;
   };
   sideCrash: {
-    overall: string;
-    driverSide: string;
-    passengerSide: string;
-    combinedBarrierPoleFront: string;
-    combinedBarrierPoleRear: string;
-    barrierOverall: string;
-    pole: string;
+    overall: string | undefined;
+    driverSide: string | undefined;
+    passengerSide: string | undefined;
+    combinedBarrierPoleFront: string | undefined;
+    combinedBarrierPoleRear: string | undefined;
+    barrierOverall: string | undefined;
+    pole: string | undefined;
   };
-  vehicleDescription: string;
+  vehicleDescription: string | undefined;
   vehicleId: number;
 }
 
@@ -285,14 +285,14 @@ export interface DecodedVin {
 }
 
 export interface Investigation {
-  description: string;
-  investigationType: string;
-  issueYear: string;
-  latestActivityDate: string;
-  nhtsaId: string;
-  openDate: string;
-  status: string;
-  subject: string;
+  description: string | undefined;
+  investigationType: string | undefined;
+  issueYear: string | undefined;
+  latestActivityDate: string | undefined;
+  nhtsaId: string | undefined;
+  openDate: string | undefined;
+  status: string | undefined;
+  subject: string | undefined;
 }
 
 export interface VpicMake {

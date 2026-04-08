@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.1] - 2026-04-08
+
+### Fixed
+
+- `nhtsa_search_recalls` and `nhtsa_get_vehicle_safety` now accept recall records when NHTSA omits `parkIt`, `parkOutSide`, or `overTheAirUpdate`, resolving [issue #1](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/1)
+- `nhtsa_search_complaints`, `nhtsa_get_safety_ratings`, `nhtsa_search_investigations`, and `nhtsa_get_vehicle_safety` now preserve sparse upstream NHTSA fields instead of fabricating default values in tool outputs
+
+### Changed
+
+- Bumped `@cyanheads/mcp-ts-core` to `^0.3.2` and `vitest` to `^4.1.3`
+- Pinned patched transitive versions for `@hono/node-server`, `hono`, and `vite` to clear `bun audit` warnings
+- Added regression coverage for sparse recall, complaint, safety-rating, and investigation payloads
+- Updated package metadata and badges for the `0.4.1` release
+
 ## [0.4.0] - 2026-04-04
 
 ### Added

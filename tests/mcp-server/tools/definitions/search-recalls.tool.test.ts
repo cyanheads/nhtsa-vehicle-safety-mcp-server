@@ -50,6 +50,30 @@ describe('searchRecalls', () => {
     expect(mockService.getRecallsByVehicle).toHaveBeenCalledWith('Toyota', 'Camry', 2020);
   });
 
+  it('accepts missing advisory fields for vehicle recalls', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([
+      {
+        campaignNumber: '20V682000',
+        manufacturer: 'Toyota',
+        component: 'FUEL SYSTEM',
+        summary: 'Fuel leak.',
+        consequence: 'Fire risk.',
+        remedy: 'Replace pipe.',
+        reportReceivedDate: '2020-12-11',
+      },
+    ]);
+
+    const ctx = createMockContext();
+    const input = searchRecalls.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    const result = await searchRecalls.handler(input, ctx);
+    const parsed = searchRecalls.output.parse(result);
+
+    expect(parsed.totalCount).toBe(1);
+    expect(parsed.recalls[0].parkIt).toBeUndefined();
+    expect(parsed.recalls[0].parkOutSide).toBeUndefined();
+    expect(parsed.recalls[0].overTheAirUpdate).toBeUndefined();
+  });
+
   it('searches by campaign number', async () => {
     mockService.getRecallCampaign.mockResolvedValue({
       campaignNumber: '20V682000',
@@ -72,6 +96,29 @@ describe('searchRecalls', () => {
     expect(result.totalCount).toBe(1);
     expect(result.recalls[0].potentialUnitsAffected).toBe(5000);
     expect(result.recalls[0].parkOutSide).toBe(true);
+  });
+
+  it('accepts missing advisory fields for campaign lookups', async () => {
+    mockService.getRecallCampaign.mockResolvedValue({
+      campaignNumber: '20V682000',
+      manufacturer: 'Toyota',
+      subject: 'Fuel pipe',
+      summary: 'Fuel leak.',
+      consequence: 'Fire.',
+      remedy: 'Replace.',
+      receivedDate: '2020-11-12',
+      potentialUnitsAffected: 5000,
+    });
+
+    const ctx = createMockContext();
+    const input = searchRecalls.input.parse({ campaignNumber: '20V682000' });
+    const result = await searchRecalls.handler(input, ctx);
+    const parsed = searchRecalls.output.parse(result);
+
+    expect(parsed.totalCount).toBe(1);
+    expect(parsed.recalls[0].parkIt).toBeUndefined();
+    expect(parsed.recalls[0].parkOutSide).toBeUndefined();
+    expect(parsed.recalls[0].overTheAirUpdate).toBeUndefined();
   });
 
   it('throws when campaign not found', async () => {

@@ -166,10 +166,12 @@ export class NhtsaService {
     const data = await this.fetchJson<NhtsaResponse<RawSafetyRatingVariant>>(
       `${NHTSA_API}/SafetyRatings/modelyear/${modelYear}/make/${encodeURIComponent(make)}/model/${encodeURIComponent(model)}`,
     );
-    return (data.Results ?? []).map((r) => ({
-      vehicleId: r.VehicleId,
-      vehicleDescription: r.VehicleDescription,
-    }));
+    return (data.Results ?? [])
+      .filter((r): r is RawSafetyRatingVariant & { VehicleId: number } => r.VehicleId != null)
+      .map((r) => ({
+        vehicleId: r.VehicleId,
+        vehicleDescription: r.VehicleDescription,
+      }));
   }
 
   /** Get full safety rating detail for a specific vehicle ID. */
@@ -178,7 +180,7 @@ export class NhtsaService {
       `${NHTSA_API}/SafetyRatings/VehicleId/${vehicleId}`,
     );
     const raw = (data.Results ?? [])[0];
-    return raw ? normalizeSafetyRating(raw) : null;
+    return raw?.VehicleId != null ? normalizeSafetyRating(raw) : null;
   }
 
   // ── VIN Decode ───────────────────────────────────────────────────
@@ -311,8 +313,8 @@ export class NhtsaService {
  * or ISO 8601 and normalize to YYYY-MM-DD. Returns the original string
  * if parsing fails.
  */
-function normalizeDate(raw: string): string {
-  if (!raw) return raw;
+function normalizeDate(raw?: string): string {
+  if (!raw) return '';
   // DD/MM/YYYY — detect by slash separators with a 4-digit year at end
   const ddmmyyyy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (ddmmyyyy) {
@@ -334,9 +336,9 @@ function normalizeRecallByVehicle(r: RawRecallByVehicle): Recall {
     consequence: r.Consequence,
     remedy: r.Remedy,
     reportReceivedDate: normalizeDate(r.ReportReceivedDate),
-    parkIt: r.parkIt,
-    parkOutSide: r.parkOutSide,
-    overTheAirUpdate: r.overTheAirUpdate,
+    ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
+    ...(r.parkOutSide !== undefined ? { parkOutSide: r.parkOutSide } : {}),
+    ...(r.overTheAirUpdate !== undefined ? { overTheAirUpdate: r.overTheAirUpdate } : {}),
   };
 }
 
@@ -350,31 +352,31 @@ function normalizeBaseRecall(r: RawRecallBase): RecallCampaign {
     remedy: r.correctiveAction,
     receivedDate: normalizeDate(r.recall573ReceivedDate),
     potentialUnitsAffected: r.potaff,
-    parkIt: r.parkVehicleYn,
-    parkOutSide: r.parkOutsideYn,
-    overTheAirUpdate: r.overTheAirUpdateYn,
+    ...(r.parkVehicleYn !== undefined ? { parkIt: r.parkVehicleYn } : {}),
+    ...(r.parkOutsideYn !== undefined ? { parkOutSide: r.parkOutsideYn } : {}),
+    ...(r.overTheAirUpdateYn !== undefined ? { overTheAirUpdate: r.overTheAirUpdateYn } : {}),
   };
 }
 
 function normalizeComplaint(r: RawComplaint): Complaint {
   return {
     odiNumber: r.odiNumber,
-    manufacturer: r.manufacturer ?? '',
-    crash: r.crash ?? false,
-    fire: r.fire ?? false,
-    numberOfInjuries: r.numberOfInjuries ?? 0,
-    numberOfDeaths: r.numberOfDeaths ?? 0,
-    dateOfIncident: r.dateOfIncident ?? '',
-    dateComplaintFiled: r.dateComplaintFiled ?? '',
-    vin: r.vin ?? '',
-    components: r.components ?? '',
-    summary: r.summary ?? '',
+    manufacturer: r.manufacturer,
+    crash: r.crash,
+    fire: r.fire,
+    numberOfInjuries: r.numberOfInjuries,
+    numberOfDeaths: r.numberOfDeaths,
+    dateOfIncident: r.dateOfIncident,
+    dateComplaintFiled: r.dateComplaintFiled,
+    vin: r.vin,
+    components: r.components,
+    summary: r.summary,
   };
 }
 
 function normalizeSafetyRating(r: RawSafetyRating): SafetyRating {
   return {
-    vehicleId: r.VehicleId,
+    vehicleId: r.VehicleId ?? 0,
     vehicleDescription: r.VehicleDescription,
     overallRating: r.OverallRating,
     frontalCrash: {
@@ -445,7 +447,7 @@ function normalizeInvestigation(r: RawInvestigation): Investigation {
     investigationType: r.investigationType,
     status: r.status,
     subject: r.subject,
-    description: stripHtml(r.description ?? ''),
+    description: r.description ? stripHtml(r.description) : undefined,
     openDate: r.openDate,
     latestActivityDate: r.latestActivityDate,
     issueYear: r.issueYear,

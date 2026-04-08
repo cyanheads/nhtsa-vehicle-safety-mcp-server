@@ -8,38 +8,48 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
+function formatValue(value?: string): string {
+  return value || 'Not available';
+}
+
+function formatOverallRating(value?: string): string {
+  if (!value) return 'Not available';
+  const stars = Number.parseInt(value, 10);
+  return Number.isNaN(stars) ? value : `${stars} stars`;
+}
+
 const safetyRatingSchema = z.object({
   vehicleId: z.number().describe('NCAP vehicle ID for follow-up queries'),
-  vehicleDescription: z.string().describe('Vehicle variant description'),
-  overallRating: z.string().describe('Overall safety rating (1-5 stars or "Not Rated")'),
+  vehicleDescription: z.string().optional().describe('Vehicle variant description'),
+  overallRating: z.string().optional().describe('Overall safety rating (1-5 stars or "Not Rated")'),
   frontalCrash: z
     .object({
-      overall: z.string().describe('Overall frontal crash rating'),
-      driverSide: z.string().describe('Driver-side frontal crash rating'),
-      passengerSide: z.string().describe('Passenger-side frontal crash rating'),
+      overall: z.string().optional().describe('Overall frontal crash rating'),
+      driverSide: z.string().optional().describe('Driver-side frontal crash rating'),
+      passengerSide: z.string().optional().describe('Passenger-side frontal crash rating'),
     })
     .describe('Frontal crash test ratings'),
   sideCrash: z
     .object({
-      overall: z.string().describe('Overall side crash rating'),
-      driverSide: z.string().describe('Driver-side rating'),
-      passengerSide: z.string().describe('Passenger-side rating'),
-      barrierOverall: z.string().describe('Side barrier overall rating'),
-      pole: z.string().describe('Side pole crash rating'),
+      overall: z.string().optional().describe('Overall side crash rating'),
+      driverSide: z.string().optional().describe('Driver-side rating'),
+      passengerSide: z.string().optional().describe('Passenger-side rating'),
+      barrierOverall: z.string().optional().describe('Side barrier overall rating'),
+      pole: z.string().optional().describe('Side pole crash rating'),
     })
     .describe('Side crash test ratings'),
   rollover: z
     .object({
-      rating: z.string().describe('Rollover resistance rating'),
-      probability: z.number().describe('Rollover probability (0-1 scale)'),
-      dynamicTipResult: z.string().describe('Dynamic tip test result'),
+      rating: z.string().optional().describe('Rollover resistance rating'),
+      probability: z.number().optional().describe('Rollover probability (0-1 scale)'),
+      dynamicTipResult: z.string().optional().describe('Dynamic tip test result'),
     })
     .describe('Rollover risk assessment'),
   adasFeatures: z
     .object({
-      electronicStabilityControl: z.string().describe('ESC availability'),
-      forwardCollisionWarning: z.string().describe('FCW availability'),
-      laneDepartureWarning: z.string().describe('LDW availability'),
+      electronicStabilityControl: z.string().optional().describe('ESC availability'),
+      forwardCollisionWarning: z.string().optional().describe('FCW availability'),
+      laneDepartureWarning: z.string().optional().describe('LDW availability'),
     })
     .describe('Advanced driver assistance features'),
 });
@@ -50,7 +60,7 @@ const recallSchema = z.object({
   summary: z.string().describe('Recall summary'),
   remedy: z.string().describe('Corrective action'),
   reportReceivedDate: z.string().describe('Date recall was reported'),
-  parkIt: z.boolean().describe('Do-not-drive advisory'),
+  parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
 });
 
 const componentBreakdownSchema = z.object({
@@ -176,15 +186,15 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
         summary: r.summary,
         remedy: r.remedy,
         reportReceivedDate: r.reportReceivedDate,
-        parkIt: r.parkIt,
+        ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
       })),
       complaintSummary: {
         totalCount: complaints.length,
         componentBreakdown: breakdown,
         crashCount: complaints.filter((c) => c.crash).length,
         fireCount: complaints.filter((c) => c.fire).length,
-        injuryCount: complaints.reduce((sum, c) => sum + c.numberOfInjuries, 0),
-        deathCount: complaints.reduce((sum, c) => sum + c.numberOfDeaths, 0),
+        injuryCount: complaints.reduce((sum, c) => sum + (c.numberOfInjuries ?? 0), 0),
+        deathCount: complaints.reduce((sum, c) => sum + (c.numberOfDeaths ?? 0), 0),
       },
       warnings,
     };
@@ -204,19 +214,25 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
     if (result.safetyRatings.length > 0) {
       lines.push('## NCAP Safety Ratings\n');
       for (const r of result.safetyRatings) {
-        lines.push(`### ${r.vehicleDescription}`);
-        lines.push(`**Overall:** ${r.overallRating} stars`);
+        const label = r.vehicleDescription || `Vehicle ${r.vehicleId}`;
+        const rolloverProbability =
+          r.rollover.probability == null
+            ? 'Not available'
+            : `${(r.rollover.probability * 100).toFixed(1)}%`;
+
+        lines.push(`### ${label}`);
+        lines.push(`**Overall:** ${formatOverallRating(r.overallRating)}`);
         lines.push(
-          `**Frontal Crash:** ${r.frontalCrash.overall} (Driver: ${r.frontalCrash.driverSide}, Passenger: ${r.frontalCrash.passengerSide})`,
+          `**Frontal Crash:** ${formatValue(r.frontalCrash.overall)} (Driver: ${formatValue(r.frontalCrash.driverSide)}, Passenger: ${formatValue(r.frontalCrash.passengerSide)})`,
         );
         lines.push(
-          `**Side Crash:** ${r.sideCrash.overall} (Driver: ${r.sideCrash.driverSide}, Passenger: ${r.sideCrash.passengerSide}, Barrier: ${r.sideCrash.barrierOverall}, Pole: ${r.sideCrash.pole})`,
+          `**Side Crash:** ${formatValue(r.sideCrash.overall)} (Driver: ${formatValue(r.sideCrash.driverSide)}, Passenger: ${formatValue(r.sideCrash.passengerSide)}, Barrier: ${formatValue(r.sideCrash.barrierOverall)}, Pole: ${formatValue(r.sideCrash.pole)})`,
         );
         lines.push(
-          `**Rollover:** ${r.rollover.rating} (${(r.rollover.probability * 100).toFixed(1)}% probability, Tip test: ${r.rollover.dynamicTipResult})`,
+          `**Rollover:** ${formatValue(r.rollover.rating)} (${rolloverProbability} probability, Tip test: ${formatValue(r.rollover.dynamicTipResult)})`,
         );
         lines.push(
-          `**ADAS:** ESC: ${r.adasFeatures.electronicStabilityControl}, FCW: ${r.adasFeatures.forwardCollisionWarning}, LDW: ${r.adasFeatures.laneDepartureWarning}`,
+          `**ADAS:** ESC: ${formatValue(r.adasFeatures.electronicStabilityControl)}, FCW: ${formatValue(r.adasFeatures.forwardCollisionWarning)}, LDW: ${formatValue(r.adasFeatures.laneDepartureWarning)}`,
         );
         lines.push('');
       }

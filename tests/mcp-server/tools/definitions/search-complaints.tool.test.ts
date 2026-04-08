@@ -88,6 +88,37 @@ describe('searchComplaints', () => {
     expect(result.componentBreakdown).toEqual([]);
   });
 
+  it('accepts sparse complaint fields without inventing values', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue([
+      complaint({
+        odiNumber: undefined,
+        crash: undefined,
+        fire: undefined,
+        numberOfInjuries: undefined,
+        numberOfDeaths: undefined,
+        dateOfIncident: undefined,
+        dateComplaintFiled: undefined,
+        vin: undefined,
+        components: undefined,
+        summary: undefined,
+      }),
+    ]);
+
+    const ctx = createMockContext();
+    const input = searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    const result = await searchComplaints.handler(input, ctx);
+    const parsed = searchComplaints.output.parse(result);
+    const text = searchComplaints.format!(parsed)[0].text;
+
+    expect(parsed.totalCount).toBe(1);
+    expect(parsed.complaints[0].crash).toBeUndefined();
+    expect(parsed.complaints[0].components).toBeUndefined();
+    expect(text).toContain('#Unknown');
+    expect(text).toContain('Not available');
+    expect(text).not.toContain('CRASH');
+    expect(text).not.toContain('FIRE');
+  });
+
   it('limits returned complaints to 50', async () => {
     const many = Array.from({ length: 80 }, (_, i) =>
       complaint({

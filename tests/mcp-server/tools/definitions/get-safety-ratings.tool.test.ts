@@ -83,6 +83,46 @@ describe('getSafetyRatings', () => {
     expect(mockService.getSafetyRating).toHaveBeenCalledWith(14720);
   });
 
+  it('accepts sparse safety rating fields without inventing values', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([{ vehicleId: 14720 }]);
+    mockService.getSafetyRating.mockResolvedValue({
+      vehicleId: 14720,
+      vehicleDescription: undefined,
+      overallRating: undefined,
+      frontalCrash: { overall: undefined, driverSide: undefined, passengerSide: undefined },
+      sideCrash: {
+        overall: undefined,
+        driverSide: undefined,
+        passengerSide: undefined,
+        combinedBarrierPoleFront: undefined,
+        combinedBarrierPoleRear: undefined,
+        barrierOverall: undefined,
+        pole: undefined,
+      },
+      rollover: { rating: undefined, probability: undefined, dynamicTipResult: undefined },
+      adasFeatures: {
+        electronicStabilityControl: undefined,
+        forwardCollisionWarning: undefined,
+        laneDepartureWarning: undefined,
+      },
+      complaintsCount: undefined,
+      recallsCount: undefined,
+      investigationCount: undefined,
+    });
+
+    const ctx = createMockContext();
+    const input = getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    const result = await getSafetyRatings.handler(input, ctx);
+    const parsed = getSafetyRatings.output.parse(result);
+    const text = getSafetyRatings.format!(parsed)[0].text;
+
+    expect(parsed.ratings).toHaveLength(1);
+    expect(parsed.ratings[0].overallRating).toBeUndefined();
+    expect(parsed.ratings[0].rollover.probability).toBeUndefined();
+    expect(text).toContain('Vehicle 14720');
+    expect(text).toContain('Not available');
+  });
+
   it('returns empty when no variants found', async () => {
     mockService.getSafetyRatingVariants.mockResolvedValue([]);
 
