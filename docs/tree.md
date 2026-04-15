@@ -1,9 +1,10 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-04-03 20:15:04
+Generated on: 2026-04-15 12:33:23
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
+├── .agents/
 ├── .claude/
 ├── .github/
 │   └── ISSUE_TEMPLATE/
@@ -23,6 +24,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── lint-mcp.ts
 │   └── tree.ts
 ├── skills/
+│   ├── add-app-tool/
+│   │   └── SKILL.md
 │   ├── add-prompt/
 │   │   └── SKILL.md
 │   ├── add-resource/
@@ -117,6 +120,7 @@ nhtsa-vehicle-safety-mcp-server/
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
+├── AGENTS.md
 ├── biome.json
 ├── bun.lock
 ├── bunfig.toml
