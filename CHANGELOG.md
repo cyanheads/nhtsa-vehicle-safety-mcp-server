@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0] - 2026-04-15
+
+### Added
+
+- `nhtsa_get_vehicle_safety` now returns `sectionStatus` so clients can distinguish unavailable NCAP, recall, or complaint sections from genuine zero-result responses
+- `nhtsa_lookup_vehicles` now supports `limit` and `offset` pagination for the `makes` operation
+
+### Changed
+
+- `nhtsa_get_safety_ratings` now accepts either a direct `vehicleId` or the `make` + `model` + `modelYear` lookup path with explicit validation when inputs are incomplete
+- `nhtsa_decode_vin`, `nhtsa_get_vehicle_safety`, and VPIC manufacturer lookups now preserve sparse upstream fields instead of fabricating empty-string placeholders
+- Bumped `@cyanheads/mcp-ts-core` to `^0.3.5`, `@biomejs/biome` to `^2.4.12`, `@types/node` to `^25.6.0`, and `vitest` to `^4.1.4`
+- Added the `add-app-tool` skill and refreshed scaffold skills to match the current `createApp()` registration pattern and repo test layout
+- Refreshed release metadata and badges for the `0.5.0` release
+
+### Fixed
+
+- NHTSA service retries now cover network failures and invalid JSON bodies from otherwise successful upstream responses
+- `nhtsa_get_vehicle_safety` now reports unavailable sections without implying that no recalls or ratings exist
+- `nhtsa_decode_vin` now formats sparse decode results without blank summary or warning lines
+
 ## [0.4.1] - 2026-04-08
 
 ### Fixed

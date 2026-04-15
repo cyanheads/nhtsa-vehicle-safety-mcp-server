@@ -6,7 +6,7 @@
 
 <div align="center">
 
-[![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![Version](https://img.shields.io/badge/Version-0.4.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
+[![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![Version](https://img.shields.io/badge/Version-0.5.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
@@ -26,7 +26,7 @@ Seven tools for querying NHTSA vehicle safety data:
 
 | Tool Name | Description |
 |:----------|:------------|
-| `nhtsa_get_vehicle_safety` | Comprehensive safety profile combining crash test ratings, recalls, and complaint summary. |
+| `nhtsa_get_vehicle_safety` | Comprehensive safety profile combining crash test ratings, recalls, and complaint summary with per-section availability status. |
 | `nhtsa_search_recalls` | Search recall campaigns by vehicle or campaign number with optional date filtering. |
 | `nhtsa_search_complaints` | Consumer safety complaints with component breakdown and severity stats. |
 | `nhtsa_get_safety_ratings` | NCAP crash test ratings and ADAS feature availability. |
@@ -41,6 +41,7 @@ Composite safety profile — the default tool when asked about vehicle safety, r
 - Combines NCAP crash test ratings, recall history, and complaint summary in a single response
 - Frontal crash, side crash, and rollover ratings per vehicle variant
 - Complaint breakdown by component with crash, fire, injury, and death counts
+- Returns `sectionStatus` plus warnings so upstream outages are not mistaken for a clean record
 
 ---
 
@@ -60,7 +61,7 @@ Decode Vehicle Identification Numbers for manufacturing and safety details.
 
 - Single VIN or batch decode up to 50 VINs
 - Partial VINs accepted — use `*` for unknown positions
-- Returns make, model, year, body type, engine specs, airbag locations, ESC, ABS, and traction control
+- Preserves sparse VPIC fields instead of filling missing data with empty placeholders
 
 ---
 
@@ -90,6 +91,7 @@ NCAP crash test ratings and ADAS feature data.
 
 - Frontal crash, side crash (barrier + pole), and rollover ratings
 - ADAS features: ESC, forward collision warning, lane departure warning
+- Accepts either make/model/year or a follow-up `vehicleId` from earlier NCAP results
 - Counts of complaints, recalls, and investigations on file
 
 ---
@@ -99,6 +101,7 @@ NCAP crash test ratings and ADAS feature data.
 Reference lookups against NHTSA's VPIC database.
 
 - Four operations: `makes`, `models`, `vehicle_types`, `manufacturer`
+- `makes` supports `limit` and `offset` pagination for the full VPIC catalog
 - Use to resolve ambiguous vehicle names or verify correct spelling
 - Models can be filtered by year; manufacturers support partial match
 
@@ -115,7 +118,7 @@ Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core):
 
 NHTSA-specific:
 
-- Type-safe client wrapping five NHTSA public APIs with retry logic and field normalization
+- Type-safe client wrapping five NHTSA public APIs with retry logic and sparse-field normalization
 - Investigation index caching (1h TTL) for fast repeated queries
 - No API key required — all NHTSA APIs are public
 
