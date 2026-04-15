@@ -169,17 +169,17 @@ export interface RecallCampaign {
 }
 
 export interface Complaint {
-  components: string | undefined;
-  crash: boolean | undefined;
-  dateComplaintFiled: string | undefined;
-  dateOfIncident: string | undefined;
-  fire: boolean | undefined;
-  manufacturer: string | undefined;
-  numberOfDeaths: number | undefined;
-  numberOfInjuries: number | undefined;
-  odiNumber: number | undefined;
-  summary: string | undefined;
-  vin: string | undefined;
+  components?: string;
+  crash?: boolean;
+  dateComplaintFiled?: string;
+  dateOfIncident?: string;
+  fire?: boolean;
+  manufacturer?: string;
+  numberOfDeaths?: number;
+  numberOfInjuries?: number;
+  odiNumber?: number;
+  summary?: string;
+  vin?: string;
 }
 
 export interface ComponentBreakdown {
@@ -219,80 +219,80 @@ export function buildComponentBreakdown(complaints: Complaint[]): ComponentBreak
 }
 
 export interface SafetyRatingVariant {
-  vehicleDescription: string | undefined;
+  vehicleDescription?: string;
   vehicleId: number;
 }
 
 export interface SafetyRating {
   adasFeatures: {
-    electronicStabilityControl: string | undefined;
-    forwardCollisionWarning: string | undefined;
-    laneDepartureWarning: string | undefined;
+    electronicStabilityControl?: string;
+    forwardCollisionWarning?: string;
+    laneDepartureWarning?: string;
   };
-  complaintsCount: number | undefined;
+  complaintsCount?: number;
   frontalCrash: {
-    overall: string | undefined;
-    driverSide: string | undefined;
-    passengerSide: string | undefined;
+    overall?: string;
+    driverSide?: string;
+    passengerSide?: string;
   };
-  investigationCount: number | undefined;
-  overallRating: string | undefined;
-  recallsCount: number | undefined;
+  investigationCount?: number;
+  overallRating?: string;
+  recallsCount?: number;
   rollover: {
-    rating: string | undefined;
-    probability: number | undefined;
-    dynamicTipResult: string | undefined;
+    rating?: string;
+    probability?: number;
+    dynamicTipResult?: string;
   };
   sideCrash: {
-    overall: string | undefined;
-    driverSide: string | undefined;
-    passengerSide: string | undefined;
-    combinedBarrierPoleFront: string | undefined;
-    combinedBarrierPoleRear: string | undefined;
-    barrierOverall: string | undefined;
-    pole: string | undefined;
+    overall?: string;
+    driverSide?: string;
+    passengerSide?: string;
+    combinedBarrierPoleFront?: string;
+    combinedBarrierPoleRear?: string;
+    barrierOverall?: string;
+    pole?: string;
   };
-  vehicleDescription: string | undefined;
+  vehicleDescription?: string;
   vehicleId: number;
 }
 
 export interface DecodedVin {
-  abs: string;
-  airBagLocCurtain: string;
-  airBagLocFront: string;
-  airBagLocKnee: string;
-  airBagLocSide: string;
-  bodyClass: string;
-  driveType: string;
-  electronicStabilityControl: string;
-  engineCylinders: string;
-  engineDisplacementL: string;
-  engineHP: string;
-  errorCode: string;
-  errorText: string;
-  fuelType: string;
-  make: string;
-  manufacturer: string;
-  model: string;
-  modelYear: string;
-  plantCity: string;
-  plantCountry: string;
-  plantState: string;
-  tractionControl: string;
-  trim: string;
-  vehicleType: string;
+  abs?: string;
+  airBagLocCurtain?: string;
+  airBagLocFront?: string;
+  airBagLocKnee?: string;
+  airBagLocSide?: string;
+  bodyClass?: string;
+  driveType?: string;
+  electronicStabilityControl?: string;
+  engineCylinders?: string;
+  engineDisplacementL?: string;
+  engineHP?: string;
+  errorCode?: string;
+  errorText?: string;
+  fuelType?: string;
+  make?: string;
+  manufacturer?: string;
+  model?: string;
+  modelYear?: string;
+  plantCity?: string;
+  plantCountry?: string;
+  plantState?: string;
+  tractionControl?: string;
+  trim?: string;
+  vehicleType?: string;
   vin: string;
 }
 
 export interface Investigation {
-  description: string | undefined;
-  investigationType: string | undefined;
-  issueYear: string | undefined;
-  latestActivityDate: string | undefined;
-  nhtsaId: string | undefined;
-  openDate: string | undefined;
-  status: string | undefined;
-  subject: string | undefined;
+  description?: string;
+  investigationType?: string;
+  issueYear?: string;
+  latestActivityDate?: string;
+  nhtsaId?: string;
+  openDate?: string;
+  status?: string;
+  subject?: string;
 }
 
 export interface VpicMake {
@@ -313,7 +313,7 @@ export interface VpicVehicleType {
 }
 
 export interface VpicManufacturer {
-  country: string;
+  country?: string;
   manufacturerId: number;
   manufacturerName: string;
   vehicleTypes: Array<{ id?: number; name: string }>;

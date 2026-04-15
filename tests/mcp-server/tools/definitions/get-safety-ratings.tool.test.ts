@@ -70,17 +70,21 @@ describe('getSafetyRatings', () => {
     mockService.getSafetyRating.mockResolvedValue(sampleRating);
 
     const ctx = createMockContext();
-    const input = getSafetyRatings.input.parse({
-      make: 'Toyota',
-      model: 'Camry',
-      modelYear: 2020,
-      vehicleId: 14720,
-    });
+    const input = getSafetyRatings.input.parse({ vehicleId: 14720 });
     const result = await getSafetyRatings.handler(input, ctx);
 
     expect(result.ratings).toHaveLength(1);
     expect(mockService.getSafetyRatingVariants).not.toHaveBeenCalled();
     expect(mockService.getSafetyRating).toHaveBeenCalledWith(14720);
+  });
+
+  it('rejects incomplete vehicle lookup input when vehicleId is omitted', async () => {
+    const ctx = createMockContext();
+    const input = getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry' });
+
+    await expect(getSafetyRatings.handler(input, ctx)).rejects.toThrow(
+      /vehicleId.*make \+ model \+ modelYear/i,
+    );
   });
 
   it('accepts sparse safety rating fields without inventing values', async () => {

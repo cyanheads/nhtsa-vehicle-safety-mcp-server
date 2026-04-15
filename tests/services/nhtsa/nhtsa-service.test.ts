@@ -52,6 +52,33 @@ describe('fetchJson retry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it('retries on network errors and succeeds', async () => {
+    mockFetch
+      .mockRejectedValueOnce(new Error('socket hang up'))
+      .mockResolvedValueOnce(jsonResponse({ Count: 0, Message: 'OK', results: [] }));
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
+    expect(result).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries when a 200 response contains invalid JSON', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        new Response('not-json', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ Count: 0, Message: 'OK', results: [] }));
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
+    expect(result).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('throws immediately on 403', async () => {
     mockFetch.mockResolvedValue(jsonResponse({}, 403));
 
@@ -370,6 +397,26 @@ describe('decodeVin', () => {
     expect(vin.engineHP).toBe('160');
     expect(vin.errorCode).toBe('0');
   });
+
+  it('preserves missing VPIC fields as unknown instead of empty strings', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        SearchCriteria: 'VIN:1HGCM82633A004352',
+        Results: [{ VIN: '1HGCM82633A004352', ErrorCode: '0' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const vin = await svc.decodeVin('1HGCM82633A004352');
+
+    expect(vin.vin).toBe('1HGCM82633A004352');
+    expect(vin).not.toHaveProperty('make');
+    expect(vin).not.toHaveProperty('model');
+    expect(vin.errorCode).toBe('0');
+    expect(vin).not.toHaveProperty('errorText');
+  });
 });
 
 describe('decodeVinBatch', () => {
@@ -584,7 +631,29 @@ describe('VPIC lookups', () => {
     const svc = getNhtsaService();
     const mfrs = await svc.getManufacturer('Tesla');
     expect(mfrs[0].vehicleTypes).toHaveLength(3);
-    expect(mfrs[0].vehicleTypes[0]).toEqual({ id: undefined, name: 'Passenger Car' });
+    expect(mfrs[0].vehicleTypes[0]).toEqual({ name: 'Passenger Car' });
+  });
+
+  it('getManufacturer omits missing country instead of returning an empty string', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        SearchCriteria: '',
+        Results: [
+          {
+            Mfr_ID: 955,
+            Mfr_Name: 'TESLA, INC.',
+            VehicleTypes: [{ IsPrimary: true, Name: 'Passenger Car' }],
+          },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const mfrs = await svc.getManufacturer('Tesla');
+
+    expect(mfrs[0]).not.toHaveProperty('country');
   });
 });
 

@@ -96,6 +96,11 @@ describe('getVehicleSafety', () => {
     expect(result.complaintSummary.totalCount).toBe(1);
     expect(result.complaintSummary.crashCount).toBe(1);
     expect(result.complaintSummary.componentBreakdown).toHaveLength(2);
+    expect(result.sectionStatus).toEqual({
+      safetyRatings: 'available',
+      recalls: 'available',
+      complaints: 'available',
+    });
   });
 
   it('returns empty ratings when no variants found', async () => {
@@ -110,6 +115,11 @@ describe('getVehicleSafety', () => {
     expect(result.safetyRatings).toEqual([]);
     expect(result.recalls).toEqual([]);
     expect(result.complaintSummary.totalCount).toBe(0);
+    expect(result.sectionStatus).toEqual({
+      safetyRatings: 'available',
+      recalls: 'available',
+      complaints: 'available',
+    });
   });
 
   it('accepts recalls without parkIt', async () => {
@@ -134,6 +144,7 @@ describe('getVehicleSafety', () => {
 
     expect(parsed.recalls).toHaveLength(1);
     expect(parsed.recalls[0].parkIt).toBeUndefined();
+    expect(parsed.sectionStatus.recalls).toBe('available');
   });
 
   it('accepts sparse safety rating fields without inventing values', async () => {
@@ -176,6 +187,31 @@ describe('getVehicleSafety', () => {
     expect(parsed.safetyRatings[0].rollover.probability).toBeUndefined();
     expect(text).toContain('Vehicle 14720');
     expect(text).toContain('Not available');
+    expect(parsed.sectionStatus.safetyRatings).toBe('available');
+  });
+
+  it('marks unavailable sections instead of implying no data was found', async () => {
+    mockService.getSafetyRatingVariants.mockRejectedValue(new Error('ratings unavailable'));
+    mockService.getRecallsByVehicle.mockRejectedValue(new Error('recalls unavailable'));
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    const result = await getVehicleSafety.handler(input, ctx);
+    const parsed = getVehicleSafety.output.parse(result);
+    const text = getVehicleSafety.format!(parsed)[0].text;
+
+    expect(parsed.safetyRatings).toBeUndefined();
+    expect(parsed.recalls).toBeUndefined();
+    expect(parsed.complaintSummary?.totalCount).toBe(0);
+    expect(parsed.sectionStatus).toEqual({
+      safetyRatings: 'unavailable',
+      recalls: 'unavailable',
+      complaints: 'available',
+    });
+    expect(text).toContain('NCAP safety ratings were unavailable');
+    expect(text).toContain('Recall data was unavailable');
+    expect(text).not.toContain('No recalls found.');
   });
 
   it('format renders all sections', () => {
@@ -227,6 +263,11 @@ describe('getVehicleSafety', () => {
             deathCount: 0,
           },
         ],
+      },
+      sectionStatus: {
+        safetyRatings: 'available',
+        recalls: 'available',
+        complaints: 'available',
       },
       warnings: [],
     };

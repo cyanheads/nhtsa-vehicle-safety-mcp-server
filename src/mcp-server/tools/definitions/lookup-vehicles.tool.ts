@@ -8,6 +8,9 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { validationError } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
+const DEFAULT_MAKES_LIMIT = 100;
+const MAX_MAKES_LIMIT = 200;
+
 export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
   description:
     "Look up valid makes, models, and vehicle types in NHTSA's database. Use to resolve ambiguous vehicle names, find correct make/model spelling, or discover what models a manufacturer produces.",
@@ -16,7 +19,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     operation: z
       .enum(['makes', 'models', 'vehicle_types', 'manufacturer'])
       .describe(
-        '"makes" (all makes — warning: 12K+ results), "models" (models for a make), "vehicle_types" (types for a make), "manufacturer" (manufacturer details).',
+        `"makes" (paginated slice of all makes), "models" (models for a make), "vehicle_types" (types for a make), "manufacturer" (manufacturer details).`,
       ),
     make: z
       .string()
@@ -30,10 +33,33 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .string()
       .optional()
       .describe('Manufacturer name or ID (for "manufacturer" operation). Partial match supported.'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_MAKES_LIMIT)
+      .optional()
+      .describe(
+        `For "makes" only: maximum makes to return. Defaults to ${DEFAULT_MAKES_LIMIT}; max ${MAX_MAKES_LIMIT}. Ignored for other operations.`,
+      ),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        'For "makes" only: pagination offset into the full makes list. Defaults to 0. Ignored for other operations.',
+      ),
   }),
   output: z.object({
     operation: z.string().describe('The operation that was performed'),
-    count: z.number().describe('Number of results'),
+    count: z.number().describe('Number of results returned in this response'),
+    totalAvailable: z
+      .number()
+      .optional()
+      .describe('Total results available before pagination, when relevant'),
+    offset: z.number().optional().describe('Pagination offset used for this response'),
+    limit: z.number().optional().describe('Pagination limit used for this response'),
     makes: z
       .array(
         z.object({
@@ -68,7 +94,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         z.object({
           manufacturerId: z.number().describe('Manufacturer ID'),
           manufacturerName: z.string().describe('Manufacturer name'),
-          country: z.string().describe('Country of origin'),
+          country: z.string().optional().describe('Country of origin when provided'),
           vehicleTypes: z
             .array(
               z.object({
@@ -89,9 +115,23 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     switch (input.operation) {
       case 'makes': {
         const allMakes = await svc.getAllMakes();
-        const makes = allMakes.slice(0, 200);
-        ctx.log.info('VPIC makes lookup', { total: allMakes.length, returned: makes.length });
-        return { operation: 'makes', count: makes.length, makes };
+        const limit = input.limit ?? DEFAULT_MAKES_LIMIT;
+        const offset = input.offset ?? 0;
+        const makes = allMakes.slice(offset, offset + limit);
+        ctx.log.info('VPIC makes lookup', {
+          total: allMakes.length,
+          returned: makes.length,
+          offset,
+          limit,
+        });
+        return {
+          operation: 'makes',
+          count: makes.length,
+          totalAvailable: allMakes.length,
+          offset,
+          limit,
+          makes,
+        };
       }
 
       case 'models': {
@@ -132,6 +172,14 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
   format: (result) => {
     if (result.count === 0) {
+      if (result.operation === 'makes' && (result.totalAvailable ?? 0) > 0) {
+        return [
+          {
+            type: 'text' as const,
+            text: `No makes returned for this page. Total makes available: ${result.totalAvailable}. Try a smaller offset.`,
+          },
+        ];
+      }
       return [
         {
           type: 'text' as const,
@@ -143,12 +191,14 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     const lines = [`**${result.count} result(s)**\n`];
 
     if (result.makes) {
-      if (result.makes.length > 100) {
+      if ((result.totalAvailable ?? result.makes.length) > result.makes.length) {
+        const start = (result.offset ?? 0) + 1;
+        const end = (result.offset ?? 0) + result.makes.length;
         lines.push(
-          `*Showing first 100 of ${result.makes.length} makes. Consider using "models" with a specific make instead.*\n`,
+          `*Showing makes ${start}-${end} of ${result.totalAvailable}. Use limit/offset to page through the full list.*\n`,
         );
       }
-      for (const m of result.makes.slice(0, 100)) {
+      for (const m of result.makes) {
         lines.push(`- ${m.makeName} (ID: ${m.makeId})`);
       }
     }
@@ -168,7 +218,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     if (result.manufacturers) {
       for (const m of result.manufacturers) {
         lines.push(`### ${m.manufacturerName}`);
-        lines.push(`**Country:** ${m.country || 'N/A'}`);
+        lines.push(`**Country:** ${m.country ?? 'Not available'}`);
         if (m.vehicleTypes.length > 0) {
           lines.push(`**Vehicle Types:** ${m.vehicleTypes.map((vt) => vt.name).join(', ')}`);
         }

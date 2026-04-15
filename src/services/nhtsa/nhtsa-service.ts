@@ -51,6 +51,40 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+/** Normalize sparse upstream strings by trimming and omitting blank values. */
+function normalizeOptionalString(value?: string | null): string | undefined {
+  if (typeof value !== 'string') return;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Preserve numeric values only when the upstream actually provided them. */
+function normalizeOptionalNumber(value?: number | null): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+type DefinedOptionalFields<T extends Record<string, unknown>> = {
+  [K in keyof T]?: Exclude<T[K], undefined>;
+};
+
+function omitUndefined<T extends Record<string, unknown>>(value: T): DefinedOptionalFields<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as DefinedOptionalFields<T>;
+}
+
+function normalizeDisplacementLiters(value?: string): string | undefined {
+  if (!value) return value;
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return value;
+  const rounded = Math.round(numeric * 10) / 10;
+  return rounded === 0 ? value : String(rounded);
+}
+
+function toError(error: unknown, fallbackMessage: string): Error {
+  return error instanceof Error ? error : new Error(fallbackMessage);
+}
+
 export class NhtsaService {
   private investigationCache: { data: Investigation[]; fetchedAt: number } | null = null;
 
@@ -63,8 +97,21 @@ export class NhtsaService {
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** (attempt - 1)));
       }
-      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-      if (res.ok) return (await res.json()) as T;
+      let res: Response;
+      try {
+        res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      } catch (error) {
+        lastError = toError(error, `NHTSA API request failed for ${endpoint}`);
+        continue;
+      }
+      if (res.ok) {
+        try {
+          return (await res.json()) as T;
+        } catch (error) {
+          lastError = toError(error, `NHTSA API returned invalid JSON for ${endpoint}`);
+          continue;
+        }
+      }
       if (res.status === 429 || res.status >= 500) {
         lastError = new Error(`NHTSA API returned ${res.status} for ${endpoint}`);
         continue;
@@ -170,7 +217,9 @@ export class NhtsaService {
       .filter((r): r is RawSafetyRatingVariant & { VehicleId: number } => r.VehicleId != null)
       .map((r) => ({
         vehicleId: r.VehicleId,
-        vehicleDescription: r.VehicleDescription,
+        ...omitUndefined({
+          vehicleDescription: normalizeOptionalString(r.VehicleDescription),
+        }),
       }));
   }
 
@@ -193,7 +242,7 @@ export class NhtsaService {
     );
     const raw = data.Results[0];
     if (!raw) throw new Error(`No decode results for VIN: ${vin}`);
-    return normalizeDecodedVin(raw);
+    return normalizeDecodedVin(raw, vin);
   }
 
   /** Batch decode up to 50 VINs via VPIC POST endpoint. */
@@ -208,7 +257,7 @@ export class NhtsaService {
         body,
       },
     );
-    return data.Results.map(normalizeDecodedVin);
+    return data.Results.map((result, index) => normalizeDecodedVin(result, entries[index]?.vin));
   }
 
   // ── Investigations ───────────────────────────────────────────────
@@ -295,14 +344,21 @@ export class NhtsaService {
         VehicleTypes: Array<{ IsPrimary: boolean; Name: string; Id?: number }>;
       }>
     >(`${VPIC_API}/vehicles/GetManufacturerDetails/${encodeURIComponent(nameOrId)}?format=json`);
-    return data.Results.map((r) => ({
-      manufacturerId: r.Mfr_ID,
-      manufacturerName: r.Mfr_Name,
-      country: r.Country ?? '',
-      vehicleTypes: (r.VehicleTypes ?? [])
-        .filter((vt) => vt.Name)
-        .map((vt) => (vt.Id != null ? { id: vt.Id, name: vt.Name } : { name: vt.Name })),
-    }));
+    return data.Results.map((r) => {
+      const country = normalizeOptionalString(r.Country);
+      const vehicleTypes = (r.VehicleTypes ?? []).flatMap((vt) => {
+        const name = normalizeOptionalString(vt.Name);
+        if (!name) return [];
+        return [vt.Id != null ? { id: vt.Id, name } : { name }];
+      });
+
+      return {
+        manufacturerId: r.Mfr_ID,
+        manufacturerName: r.Mfr_Name,
+        ...omitUndefined({ country }),
+        vehicleTypes,
+      };
+    });
   }
 }
 
@@ -359,99 +415,157 @@ function normalizeBaseRecall(r: RawRecallBase): RecallCampaign {
 }
 
 function normalizeComplaint(r: RawComplaint): Complaint {
-  return {
-    odiNumber: r.odiNumber,
-    manufacturer: r.manufacturer,
-    crash: r.crash,
-    fire: r.fire,
-    numberOfInjuries: r.numberOfInjuries,
-    numberOfDeaths: r.numberOfDeaths,
-    dateOfIncident: r.dateOfIncident,
-    dateComplaintFiled: r.dateComplaintFiled,
-    vin: r.vin,
-    components: r.components,
-    summary: r.summary,
-  };
+  return omitUndefined({
+    odiNumber: normalizeOptionalNumber(r.odiNumber),
+    manufacturer: normalizeOptionalString(r.manufacturer),
+    crash: typeof r.crash === 'boolean' ? r.crash : undefined,
+    fire: typeof r.fire === 'boolean' ? r.fire : undefined,
+    numberOfInjuries: normalizeOptionalNumber(r.numberOfInjuries),
+    numberOfDeaths: normalizeOptionalNumber(r.numberOfDeaths),
+    dateOfIncident: normalizeOptionalString(r.dateOfIncident),
+    dateComplaintFiled: normalizeOptionalString(r.dateComplaintFiled),
+    vin: normalizeOptionalString(r.vin),
+    components: normalizeOptionalString(r.components),
+    summary: normalizeOptionalString(r.summary),
+  });
 }
 
 function normalizeSafetyRating(r: RawSafetyRating): SafetyRating {
+  if (r.VehicleId == null) {
+    throw new Error('Safety rating response missing VehicleId');
+  }
+
+  const vehicleDescription = normalizeOptionalString(r.VehicleDescription);
+  const overallRating = normalizeOptionalString(r.OverallRating);
+  const frontalOverall = normalizeOptionalString(r.OverallFrontCrashRating);
+  const frontalDriverSide = normalizeOptionalString(r.FrontCrashDriversideRating);
+  const frontalPassengerSide = normalizeOptionalString(r.FrontCrashPassengersideRating);
+  const sideOverall = normalizeOptionalString(r.OverallSideCrashRating);
+  const sideDriverSide = normalizeOptionalString(r.SideCrashDriversideRating);
+  const sidePassengerSide = normalizeOptionalString(r.SideCrashPassengersideRating);
+  const combinedBarrierPoleFront = normalizeOptionalString(
+    r['combinedSideBarrierAndPoleRating-Front'],
+  );
+  const combinedBarrierPoleRear = normalizeOptionalString(
+    r['combinedSideBarrierAndPoleRating-Rear'],
+  );
+  const barrierOverall = normalizeOptionalString(r['sideBarrierRating-Overall']);
+  const pole = normalizeOptionalString(r.SidePoleCrashRating);
+  const rolloverRating = normalizeOptionalString(r.RolloverRating);
+  const rolloverProbability = normalizeOptionalNumber(r.RolloverPossibility);
+  const dynamicTipResult = normalizeOptionalString(r.dynamicTipResult);
+  const electronicStabilityControl = normalizeOptionalString(r.NHTSAElectronicStabilityControl);
+  const forwardCollisionWarning = normalizeOptionalString(r.NHTSAForwardCollisionWarning);
+  const laneDepartureWarning = normalizeOptionalString(r.NHTSALaneDepartureWarning);
+  const complaintsCount = normalizeOptionalNumber(r.ComplaintsCount);
+  const recallsCount = normalizeOptionalNumber(r.RecallsCount);
+  const investigationCount = normalizeOptionalNumber(r.InvestigationCount);
+
   return {
-    vehicleId: r.VehicleId ?? 0,
-    vehicleDescription: r.VehicleDescription,
-    overallRating: r.OverallRating,
-    frontalCrash: {
-      overall: r.OverallFrontCrashRating,
-      driverSide: r.FrontCrashDriversideRating,
-      passengerSide: r.FrontCrashPassengersideRating,
-    },
-    sideCrash: {
-      overall: r.OverallSideCrashRating,
-      driverSide: r.SideCrashDriversideRating,
-      passengerSide: r.SideCrashPassengersideRating,
-      combinedBarrierPoleFront: r['combinedSideBarrierAndPoleRating-Front'],
-      combinedBarrierPoleRear: r['combinedSideBarrierAndPoleRating-Rear'],
-      barrierOverall: r['sideBarrierRating-Overall'],
-      pole: r.SidePoleCrashRating,
-    },
-    rollover: {
-      rating: r.RolloverRating,
-      probability: r.RolloverPossibility,
-      dynamicTipResult: r.dynamicTipResult,
-    },
-    adasFeatures: {
-      electronicStabilityControl: r.NHTSAElectronicStabilityControl,
-      forwardCollisionWarning: r.NHTSAForwardCollisionWarning,
-      laneDepartureWarning: r.NHTSALaneDepartureWarning,
-    },
-    complaintsCount: r.ComplaintsCount,
-    recallsCount: r.RecallsCount,
-    investigationCount: r.InvestigationCount,
+    vehicleId: r.VehicleId,
+    ...omitUndefined({
+      vehicleDescription,
+      overallRating,
+      complaintsCount,
+      recallsCount,
+      investigationCount,
+    }),
+    frontalCrash: omitUndefined({
+      overall: frontalOverall,
+      driverSide: frontalDriverSide,
+      passengerSide: frontalPassengerSide,
+    }),
+    sideCrash: omitUndefined({
+      overall: sideOverall,
+      driverSide: sideDriverSide,
+      passengerSide: sidePassengerSide,
+      combinedBarrierPoleFront,
+      combinedBarrierPoleRear,
+      barrierOverall,
+      pole,
+    }),
+    rollover: omitUndefined({
+      rating: rolloverRating,
+      probability: rolloverProbability,
+      dynamicTipResult,
+    }),
+    adasFeatures: omitUndefined({
+      electronicStabilityControl,
+      forwardCollisionWarning,
+      laneDepartureWarning,
+    }),
   };
 }
 
-function normalizeDecodedVin(r: RawVpicDecodedVin): DecodedVin {
+function normalizeDecodedVin(r: RawVpicDecodedVin, fallbackVin?: string): DecodedVin {
+  const vin = normalizeOptionalString(r.VIN) ?? normalizeOptionalString(fallbackVin) ?? '';
+  const make = normalizeOptionalString(r.Make);
+  const model = normalizeOptionalString(r.Model);
+  const modelYear = normalizeOptionalString(r.ModelYear);
+  const bodyClass = normalizeOptionalString(r.BodyClass);
+  const vehicleType = normalizeOptionalString(r.VehicleType);
+  const driveType = normalizeOptionalString(r.DriveType);
+  const engineCylinders = normalizeOptionalString(r.EngineCylinders);
+  const engineDisplacementL = normalizeDisplacementLiters(normalizeOptionalString(r.DisplacementL));
+  const engineHP = normalizeOptionalString(r.EngineHP);
+  const fuelType = normalizeOptionalString(r.FuelTypePrimary);
+  const trim = normalizeOptionalString(r.Trim);
+  const manufacturer = normalizeOptionalString(r.Manufacturer);
+  const plantCity = normalizeOptionalString(r.PlantCity);
+  const plantState = normalizeOptionalString(r.PlantState);
+  const plantCountry = normalizeOptionalString(r.PlantCountry);
+  const airBagLocFront = normalizeOptionalString(r.AirBagLocFront);
+  const airBagLocSide = normalizeOptionalString(r.AirBagLocSide);
+  const airBagLocCurtain = normalizeOptionalString(r.AirBagLocCurtain);
+  const airBagLocKnee = normalizeOptionalString(r.AirBagLocKnee);
+  const electronicStabilityControl = normalizeOptionalString(r.ESC);
+  const abs = normalizeOptionalString(r.ABS);
+  const tractionControl = normalizeOptionalString(r.TractionControl);
+  const errorCode = normalizeOptionalString(r.ErrorCode);
+  const errorText = normalizeOptionalString(r.ErrorText);
+
   return {
-    vin: r.VIN ?? '',
-    make: r.Make ?? '',
-    model: r.Model ?? '',
-    modelYear: r.ModelYear ?? '',
-    bodyClass: r.BodyClass ?? '',
-    vehicleType: r.VehicleType ?? '',
-    driveType: r.DriveType ?? '',
-    engineCylinders: r.EngineCylinders ?? '',
-    engineDisplacementL: r.DisplacementL
-      ? String(Math.round(Number(r.DisplacementL) * 10) / 10 || r.DisplacementL)
-      : '',
-    engineHP: r.EngineHP ?? '',
-    fuelType: r.FuelTypePrimary ?? '',
-    trim: r.Trim ?? '',
-    manufacturer: r.Manufacturer ?? '',
-    plantCity: r.PlantCity ?? '',
-    plantState: r.PlantState ?? '',
-    plantCountry: r.PlantCountry ?? '',
-    airBagLocFront: r.AirBagLocFront ?? '',
-    airBagLocSide: r.AirBagLocSide ?? '',
-    airBagLocCurtain: r.AirBagLocCurtain ?? '',
-    airBagLocKnee: r.AirBagLocKnee ?? '',
-    electronicStabilityControl: r.ESC ?? '',
-    abs: r.ABS ?? '',
-    tractionControl: r.TractionControl ?? '',
-    errorCode: r.ErrorCode ?? '',
-    errorText: r.ErrorText ?? '',
+    vin,
+    ...omitUndefined({
+      make,
+      model,
+      modelYear,
+      bodyClass,
+      vehicleType,
+      driveType,
+      engineCylinders,
+      engineDisplacementL,
+      engineHP,
+      fuelType,
+      trim,
+      manufacturer,
+      plantCity,
+      plantState,
+      plantCountry,
+      airBagLocFront,
+      airBagLocSide,
+      airBagLocCurtain,
+      airBagLocKnee,
+      electronicStabilityControl,
+      abs,
+      tractionControl,
+      errorCode,
+      errorText,
+    }),
   };
 }
 
 function normalizeInvestigation(r: RawInvestigation): Investigation {
-  return {
-    nhtsaId: r.nhtsaId,
-    investigationType: r.investigationType,
-    status: r.status,
-    subject: r.subject,
-    description: r.description ? stripHtml(r.description) : undefined,
-    openDate: r.openDate,
-    latestActivityDate: r.latestActivityDate,
-    issueYear: r.issueYear,
-  };
+  return omitUndefined({
+    nhtsaId: normalizeOptionalString(r.nhtsaId),
+    investigationType: normalizeOptionalString(r.investigationType),
+    status: normalizeOptionalString(r.status),
+    subject: normalizeOptionalString(r.subject),
+    description: r.description ? normalizeOptionalString(stripHtml(r.description)) : undefined,
+    openDate: normalizeOptionalString(r.openDate),
+    latestActivityDate: normalizeOptionalString(r.latestActivityDate),
+    issueYear: normalizeOptionalString(r.issueYear),
+  });
 }
 
 // ── Init / Accessor ──────────────────────────────────────────────────

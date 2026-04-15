@@ -5,6 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { validationError } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { SafetyRating } from '@/services/nhtsa/types.js';
 
@@ -24,9 +25,22 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
     'Get NCAP crash test ratings and ADAS feature availability for a vehicle. Use when the user specifically wants crash test stars, rollover risk, or wants to compare safety features across vehicles. NCAP data available from 1990+, best coverage for 2011+.',
   annotations: { readOnlyHint: true },
   input: z.object({
-    make: z.string().describe('Vehicle manufacturer.'),
-    model: z.string().describe('Vehicle model.'),
-    modelYear: z.number().describe('Model year. NCAP coverage increases significantly for 2011+.'),
+    make: z
+      .string()
+      .optional()
+      .describe(
+        'Vehicle manufacturer. Required with model and modelYear when vehicleId is omitted.',
+      ),
+    model: z
+      .string()
+      .optional()
+      .describe('Vehicle model. Required with make and modelYear when vehicleId is omitted.'),
+    modelYear: z
+      .number()
+      .optional()
+      .describe(
+        'Model year. Required with make and model when vehicleId is omitted. NCAP coverage increases significantly for 2011+.',
+      ),
     vehicleId: z
       .number()
       .optional()
@@ -101,13 +115,18 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
     const svc = getNhtsaService();
     let ratings: SafetyRating[] = [];
 
-    if (input.vehicleId) {
+    if (input.vehicleId != null) {
       const rating = await svc.getSafetyRating(input.vehicleId);
       if (rating) ratings = [rating];
     } else {
+      if (!input.make || !input.model || input.modelYear == null) {
+        throw validationError(
+          'Provide either vehicleId, or make + model + modelYear to look up NCAP safety ratings.',
+        );
+      }
       const variants = await svc.getSafetyRatingVariants(input.modelYear, input.make, input.model);
       ratings = (await Promise.all(variants.map((v) => svc.getSafetyRating(v.vehicleId)))).filter(
-        (r) => r !== null,
+        (r): r is NonNullable<typeof r> => r !== null,
       );
     }
 

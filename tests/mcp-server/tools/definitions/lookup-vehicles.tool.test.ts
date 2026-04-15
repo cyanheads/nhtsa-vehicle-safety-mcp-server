@@ -39,7 +39,28 @@ describe('lookupVehicles', () => {
 
     expect(result.operation).toBe('makes');
     expect(result.count).toBe(2);
+    expect(result.totalAvailable).toBe(2);
+    expect(result.offset).toBe(0);
+    expect(result.limit).toBe(100);
     expect(result.makes).toHaveLength(2);
+  });
+
+  it('"makes" operation applies limit and offset pagination', async () => {
+    mockService.getAllMakes.mockResolvedValue([
+      { makeId: 1, makeName: 'A' },
+      { makeId: 2, makeName: 'B' },
+      { makeId: 3, makeName: 'C' },
+    ]);
+
+    const ctx = createMockContext();
+    const input = lookupVehicles.input.parse({ operation: 'makes', limit: 1, offset: 1 });
+    const result = await lookupVehicles.handler(input, ctx);
+
+    expect(result.count).toBe(1);
+    expect(result.totalAvailable).toBe(3);
+    expect(result.offset).toBe(1);
+    expect(result.limit).toBe(1);
+    expect(result.makes).toEqual([{ makeId: 2, makeName: 'B' }]);
   });
 
   it('"models" operation returns models', async () => {
@@ -111,6 +132,9 @@ describe('lookupVehicles', () => {
     const output = {
       operation: 'makes',
       count: 2,
+      totalAvailable: 2,
+      offset: 0,
+      limit: 100,
       makes: [
         { makeId: 1, makeName: 'TOYOTA' },
         { makeId: 2, makeName: 'HONDA' },
