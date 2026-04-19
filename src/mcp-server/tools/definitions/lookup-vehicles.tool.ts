@@ -60,6 +60,10 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .describe('Total results available before pagination, when relevant'),
     offset: z.number().optional().describe('Pagination offset used for this response'),
     limit: z.number().optional().describe('Pagination limit used for this response'),
+    message: z
+      .string()
+      .optional()
+      .describe('Contextual guidance populated when the result set is empty'),
     makes: z
       .array(
         z.object({
@@ -144,7 +148,17 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           modelYear: input.modelYear,
           count: models.length,
         });
-        return { operation: 'models', count: models.length, models };
+        const yearPart = input.modelYear ? ` for model year ${input.modelYear}` : '';
+        const message =
+          models.length === 0
+            ? `No models found for make "${input.make}"${yearPart}. Verify the make spelling with operation="makes" — partial matches are supported.`
+            : undefined;
+        return {
+          operation: 'models',
+          count: models.length,
+          models,
+          ...(message ? { message } : {}),
+        };
       }
 
       case 'vehicle_types': {
@@ -153,7 +167,16 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         }
         const vehicleTypes = await svc.getVehicleTypes(input.make);
         ctx.log.info('VPIC vehicle types lookup', { make: input.make, count: vehicleTypes.length });
-        return { operation: 'vehicle_types', count: vehicleTypes.length, vehicleTypes };
+        const message =
+          vehicleTypes.length === 0
+            ? `No vehicle types found for make "${input.make}". Verify the make spelling with operation="makes".`
+            : undefined;
+        return {
+          operation: 'vehicle_types',
+          count: vehicleTypes.length,
+          vehicleTypes,
+          ...(message ? { message } : {}),
+        };
       }
 
       case 'manufacturer': {
@@ -165,7 +188,16 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           manufacturer: input.manufacturer,
           count: manufacturers.length,
         });
-        return { operation: 'manufacturer', count: manufacturers.length, manufacturers };
+        const message =
+          manufacturers.length === 0
+            ? `No manufacturer matched "${input.manufacturer}". Partial matches are supported — try a shorter or different query.`
+            : undefined;
+        return {
+          operation: 'manufacturer',
+          count: manufacturers.length,
+          manufacturers,
+          ...(message ? { message } : {}),
+        };
       }
     }
   },
@@ -183,7 +215,9 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       return [
         {
           type: 'text' as const,
-          text: `No results for "${result.operation}" lookup. Check the spelling of the make/manufacturer name — partial matches are supported.`,
+          text:
+            result.message ??
+            `No results for "${result.operation}" lookup. Check the spelling of the make/manufacturer name — partial matches are supported.`,
         },
       ];
     }
