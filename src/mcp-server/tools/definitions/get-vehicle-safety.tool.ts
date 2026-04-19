@@ -40,6 +40,11 @@ const safetyRatingSchema = z.object({
       overall: z.string().optional().describe('Overall side crash rating'),
       driverSide: z.string().optional().describe('Driver-side rating'),
       passengerSide: z.string().optional().describe('Passenger-side rating'),
+      combinedBarrierPoleFront: z
+        .string()
+        .optional()
+        .describe('Combined barrier/pole front rating'),
+      combinedBarrierPoleRear: z.string().optional().describe('Combined barrier/pole rear rating'),
       barrierOverall: z.string().optional().describe('Side barrier overall rating'),
       pole: z.string().optional().describe('Side pole crash rating'),
     })
@@ -174,6 +179,8 @@ function mapSafetyRatings(ratings: SafetyRating[]): SafetyRatingsResult {
       overall: rating.sideCrash.overall,
       driverSide: rating.sideCrash.driverSide,
       passengerSide: rating.sideCrash.passengerSide,
+      combinedBarrierPoleFront: rating.sideCrash.combinedBarrierPoleFront,
+      combinedBarrierPoleRear: rating.sideCrash.combinedBarrierPoleRear,
       barrierOverall: rating.sideCrash.barrierOverall,
       pole: rating.sideCrash.pole,
     }),
@@ -442,6 +449,14 @@ async function resolveSafetyRatings(
   sectionStatus: SectionStatus,
 ): Promise<SafetyRatingsResult | undefined> {
   if (!variants || sectionStatus.safetyRatings === 'unavailable') {
+    return;
+  }
+
+  if (variants.length === 0) {
+    sectionStatus.safetyRatings = 'unavailable';
+    warnings.push(
+      'NCAP crash test data is not available for this vehicle. NCAP coverage starts from 1990, with best coverage for 2011+.',
+    );
     return;
   }
 

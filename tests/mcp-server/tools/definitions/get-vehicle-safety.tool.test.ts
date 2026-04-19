@@ -103,7 +103,7 @@ describe('getVehicleSafety', () => {
     });
   });
 
-  it('returns empty ratings when no variants found', async () => {
+  it('marks safetyRatings unavailable with a warning when NCAP has no variants', async () => {
     mockService.getSafetyRatingVariants.mockResolvedValue([]);
     mockService.getRecallsByVehicle.mockResolvedValue([]);
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
@@ -112,14 +112,13 @@ describe('getVehicleSafety', () => {
     const input = getVehicleSafety.input.parse({ make: 'Fake', model: 'Car', modelYear: 1990 });
     const result = await getVehicleSafety.handler(input, ctx);
 
-    expect(result.safetyRatings).toEqual([]);
+    expect(result.safetyRatings).toBeUndefined();
     expect(result.recalls).toEqual([]);
-    expect(result.complaintSummary.totalCount).toBe(0);
-    expect(result.sectionStatus).toEqual({
-      safetyRatings: 'available',
-      recalls: 'available',
-      complaints: 'available',
-    });
+    expect(result.complaintSummary?.totalCount).toBe(0);
+    expect(result.sectionStatus.safetyRatings).toBe('unavailable');
+    expect(result.sectionStatus.recalls).toBe('available');
+    expect(result.sectionStatus.complaints).toBe('available');
+    expect(result.warnings.some((w) => w.includes('NCAP'))).toBe(true);
   });
 
   it('accepts recalls without parkIt', async () => {
