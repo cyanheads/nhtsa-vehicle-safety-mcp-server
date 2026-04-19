@@ -63,6 +63,18 @@ function normalizeOptionalNumber(value?: number | null): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * NHTSA returns "12/31/1969" (Unix epoch at US local TZ) for missing dateOfIncident values.
+ * Any date before 1990 (the earliest plausible NHTSA complaint) is treated as missing.
+ */
+function normalizeComplaintIncidentDate(value?: string | null): string | undefined {
+  const date = normalizeOptionalString(value);
+  if (!date) return;
+  const parsed = Date.parse(date);
+  if (Number.isNaN(parsed)) return date;
+  return new Date(parsed).getUTCFullYear() < 1990 ? undefined : date;
+}
+
 type DefinedOptionalFields<T extends Record<string, unknown>> = {
   [K in keyof T]?: Exclude<T[K], undefined>;
 };
@@ -422,7 +434,7 @@ function normalizeComplaint(r: RawComplaint): Complaint {
     fire: typeof r.fire === 'boolean' ? r.fire : undefined,
     numberOfInjuries: normalizeOptionalNumber(r.numberOfInjuries),
     numberOfDeaths: normalizeOptionalNumber(r.numberOfDeaths),
-    dateOfIncident: normalizeOptionalString(r.dateOfIncident),
+    dateOfIncident: normalizeComplaintIncidentDate(r.dateOfIncident),
     dateComplaintFiled: normalizeOptionalString(r.dateComplaintFiled),
     vin: normalizeOptionalString(r.vin),
     components: normalizeOptionalString(r.components),

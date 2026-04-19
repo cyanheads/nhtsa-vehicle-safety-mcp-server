@@ -119,7 +119,7 @@ describe('searchComplaints', () => {
     expect(text).not.toContain('FIRE');
   });
 
-  it('limits returned complaints to 50', async () => {
+  it('paginates complaints with default limit of 20', async () => {
     const many = Array.from({ length: 80 }, (_, i) =>
       complaint({
         odiNumber: i,
@@ -133,12 +133,45 @@ describe('searchComplaints', () => {
     const result = await searchComplaints.handler(input, ctx);
 
     expect(result.totalCount).toBe(80);
-    expect(result.complaints).toHaveLength(50);
+    expect(result.returned).toBe(20);
+    expect(result.offset).toBe(0);
+    expect(result.limit).toBe(20);
+    expect(result.complaints).toHaveLength(20);
+  });
+
+  it('honors explicit limit and offset', async () => {
+    const many = Array.from({ length: 80 }, (_, i) =>
+      complaint({
+        odiNumber: i,
+        dateComplaintFiled: `2021-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
+      }),
+    );
+    mockService.getComplaintsByVehicle.mockResolvedValue(many);
+
+    const ctx = createMockContext();
+    const input = searchComplaints.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      limit: 10,
+      offset: 20,
+    });
+    const result = await searchComplaints.handler(input, ctx);
+
+    expect(result.totalCount).toBe(80);
+    expect(result.returned).toBe(10);
+    expect(result.offset).toBe(20);
+    expect(result.limit).toBe(10);
+    expect(result.complaints).toHaveLength(10);
+    expect(result.componentBreakdown.length).toBeGreaterThan(0);
   });
 
   it('format renders breakdown and complaints', () => {
     const output = {
       totalCount: 2,
+      returned: 1,
+      offset: 0,
+      limit: 20,
       componentBreakdown: [
         {
           component: 'ENGINE',
@@ -169,5 +202,6 @@ describe('searchComplaints', () => {
     expect(text).toContain('2 complaint(s)');
     expect(text).toContain('ENGINE');
     expect(text).toContain('CRASH');
+    expect(text).toContain('Use offset=1');
   });
 });

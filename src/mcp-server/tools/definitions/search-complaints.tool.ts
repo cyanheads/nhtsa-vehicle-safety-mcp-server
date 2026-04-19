@@ -8,7 +8,8 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
-const MAX_COMPLAINTS_RETURNED = 50;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 50;
 
 function formatText(value?: string): string {
   return value || 'Not available';
@@ -16,7 +17,7 @@ function formatText(value?: string): string {
 
 export const searchComplaints = tool('nhtsa_search_complaints', {
   description:
-    'Search consumer safety complaints filed with NHTSA for a specific vehicle. Returns a component breakdown and the most recent complaints. Use for common problems, failure patterns, or owner-reported issues.',
+    'Search consumer safety complaints filed with NHTSA for a specific vehicle. Returns a component breakdown over all matching complaints plus a paginated slice of the most recent complaints. Use for common problems, failure patterns, or owner-reported issues.',
   annotations: { readOnlyHint: true },
   input: z.object({
     make: z.string().describe('Vehicle manufacturer.'),
@@ -28,9 +29,29 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       .describe(
         'Filter to a specific component (uppercase, e.g., "ENGINE", "AIR BAGS", "ELECTRICAL SYSTEM"). Matches within comma-separated component lists. Omit to see all.',
       ),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_LIMIT)
+      .optional()
+      .describe(
+        `Max complaint narratives to return. Defaults to ${DEFAULT_LIMIT}; max ${MAX_LIMIT}. componentBreakdown always reflects all matching complaints.`,
+      ),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        'Pagination offset into the date-descending complaint list. Defaults to 0. componentBreakdown is unaffected by pagination.',
+      ),
   }),
   output: z.object({
     totalCount: z.number().describe('Total complaints matching criteria'),
+    returned: z.number().describe('Number of complaints in this page'),
+    offset: z.number().describe('Pagination offset used for this page'),
+    limit: z.number().describe('Pagination limit used for this page'),
     componentBreakdown: z
       .array(
         z.object({
@@ -58,14 +79,15 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
           vin: z.string().optional().describe('VIN prefix (partial)'),
         }),
       )
-      .describe('Most recent complaints (up to 50)'),
+      .describe('Paginated slice of the most recent complaints, date-descending'),
   }),
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
+    const limit = input.limit ?? DEFAULT_LIMIT;
+    const offset = input.offset ?? 0;
     let complaints = await svc.getComplaintsByVehicle(input.make, input.model, input.modelYear);
 
-    // Filter by component (substring match within comma-separated list)
     if (input.component) {
       const filter = input.component.toUpperCase();
       complaints = complaints.filter((c) =>
@@ -75,13 +97,12 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
 
     const breakdown = buildComponentBreakdown(complaints);
 
-    // Sort by date descending, return most recent
     const sorted = [...complaints].sort(
       (a, b) =>
         new Date(b.dateComplaintFiled ?? 0).getTime() -
         new Date(a.dateComplaintFiled ?? 0).getTime(),
     );
-    const recent = sorted.slice(0, MAX_COMPLAINTS_RETURNED);
+    const page = sorted.slice(offset, offset + limit);
 
     ctx.log.info('Complaint search', {
       make: input.make,
@@ -89,13 +110,18 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       modelYear: input.modelYear,
       component: input.component,
       total: complaints.length,
-      returned: recent.length,
+      returned: page.length,
+      offset,
+      limit,
     });
 
     return {
       totalCount: complaints.length,
+      returned: page.length,
+      offset,
+      limit,
       componentBreakdown: breakdown,
-      complaints: recent,
+      complaints: page,
     };
   },
 
@@ -125,9 +151,14 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       lines.push(`- **${b.component}:** ${b.count} complaints${flags ? ` (${flags})` : ''}`);
     }
 
-    // Recent complaints
-    const shown = result.complaints.length;
-    lines.push(`\n## Recent Complaints (${shown} of ${result.totalCount})\n`);
+    const start = result.offset + 1;
+    const end = result.offset + result.returned;
+    lines.push(
+      `\n## Recent Complaints (showing ${start}-${end} of ${result.totalCount}, date-descending)\n`,
+    );
+    if (result.offset + result.returned < result.totalCount) {
+      lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
+    }
     for (const c of result.complaints) {
       const flags: string[] = [];
       if (c.crash) flags.push('CRASH');
