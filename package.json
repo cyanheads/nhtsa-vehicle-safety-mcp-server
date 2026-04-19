@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.",
   "type": "module",
   "main": "dist/index.js",
@@ -64,18 +64,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "overrides": {
-    "@hono/node-server": "1.19.13",
-    "brace-expansion": ">=2.0.3",
-    "express-rate-limit": ">=8.2.2",
-    "hono": "4.12.12",
-    "path-to-regexp": ">=8.4.0",
-    "picomatch": ">=4.0.4",
-    "vite": "8.0.7",
-    "yaml": ">=2.8.3"
-  },
   "dependencies": {
-    "@cyanheads/mcp-ts-core": "^0.3.5",
+    "@cyanheads/mcp-ts-core": "^0.3.8",
     "pino-pretty": "^13.1.3"
   },
   "devDependencies": {
@@ -85,7 +75,7 @@
     "depcheck": "^1.4.7",
     "ignore": "^7.0.5",
     "tsc-alias": "^1.8.16",
-    "typescript": "^6.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.4"
   }
 }

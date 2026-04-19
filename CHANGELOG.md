@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.0] - 2026-04-19
+
+### Added
+
+- `nhtsa_search_complaints` now supports `limit` (default 20, max 50) and `offset` pagination; `componentBreakdown` continues to reflect all matching complaints regardless of pagination ([#4](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/4))
+- `nhtsa_lookup_vehicles`, `nhtsa_get_safety_ratings`, and `nhtsa_search_investigations` now surface an optional `message` field when the result set is empty, echoing applied filters and pointing at recovery actions ([#7](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/7))
+- `combinedBarrierPoleFront` and `combinedBarrierPoleRear` on `nhtsa_get_vehicle_safety`'s `sideCrash` — now at parity with `nhtsa_get_safety_ratings` ([#3](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/3))
+
+### Fixed
+
+- `nhtsa_get_vehicle_safety` now marks `sectionStatus.safetyRatings` as `unavailable` (with a coverage-gap warning) when NCAP returns no variants for the vehicle, instead of reporting `available` alongside an empty array ([#2](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/2))
+- `nhtsa_search_complaints` no longer passes Unix-epoch `dateOfIncident` values (`12/31/1969`) through to consumers — any pre-1990 date is dropped as missing data ([#5](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/5))
+
+### Changed
+
+- Bumped `@cyanheads/mcp-ts-core` to `^0.3.8` and `typescript` to `^6.0.3`
+- Removed stale transitive-dependency overrides (`hono`, `@hono/node-server`, `vite`, `picomatch`, etc.) — upstream has caught up and the audit remains clean without them
+- Refreshed `add-tool` (v1.4) and `design-mcp-server` (v2.3) skills from the framework
+
+### Won't Fix
+
+- [#6](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/6) — adding `subject`/`potentialUnitsAffected` to `nhtsa_search_recalls` vehicle lookups. NHTSA's API doesn't expose `subject` on either per-vehicle or per-campaign endpoints; the binary-searched base endpoint would cost ~15 requests per recall. `potentialUnitsAffected` alone wasn't worth the extra network call.
+
 ## [0.5.0] - 2026-04-15
 
 ### Added
