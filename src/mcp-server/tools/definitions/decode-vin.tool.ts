@@ -75,11 +75,12 @@ export const decodeVin = tool('nhtsa_decode_vin', {
     const [firstVin] = nonEmpty;
     const vehicles =
       firstVin && nonEmpty.length === 1
-        ? [await svc.decodeVin(firstVin, input.modelYear)]
+        ? [await svc.decodeVin(firstVin, input.modelYear, ctx.signal)]
         : await svc.decodeVinBatch(
             nonEmpty.map((vin) =>
               input.modelYear != null ? { vin, modelYear: input.modelYear } : { vin },
             ),
+            ctx.signal,
           );
 
     ctx.log.info('VIN decode', { count: nonEmpty.length, results: vehicles.length });
@@ -98,7 +99,9 @@ export const decodeVin = tool('nhtsa_decode_vin', {
 
       const hasError = v.errorCode != null && v.errorCode !== '0';
       if (hasError) {
-        lines.push(`**Warning:** ${v.errorText ?? 'VPIC returned a decode warning.'}\n`);
+        lines.push(
+          `**Warning (errorCode: ${v.errorCode}):** ${v.errorText ?? 'VPIC returned a decode warning.'}\n`,
+        );
       }
 
       const summaryParts = [v.modelYear, v.make, v.model].filter(Boolean);

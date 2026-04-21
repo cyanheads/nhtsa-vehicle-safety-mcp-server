@@ -86,7 +86,12 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     const svc = getNhtsaService();
     const limit = input.limit ?? DEFAULT_LIMIT;
     const offset = input.offset ?? 0;
-    let complaints = await svc.getComplaintsByVehicle(input.make, input.model, input.modelYear);
+    let complaints = await svc.getComplaintsByVehicle(
+      input.make,
+      input.model,
+      input.modelYear,
+      ctx.signal,
+    );
 
     if (input.component) {
       const filter = input.component.toUpperCase();
@@ -151,10 +156,8 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       lines.push(`- **${b.component}:** ${b.count} complaints${flags ? ` (${flags})` : ''}`);
     }
 
-    const start = result.offset + 1;
-    const end = result.offset + result.returned;
     lines.push(
-      `\n## Recent Complaints (showing ${start}-${end} of ${result.totalCount}, date-descending)\n`,
+      `\n## Recent Complaints (returned ${result.returned} of ${result.totalCount}, offset ${result.offset}, limit ${result.limit}, date-descending)\n`,
     );
     if (result.offset + result.returned < result.totalCount) {
       lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);

@@ -62,7 +62,11 @@ describe('decodeVin', () => {
 
     expect(result.vehicles).toHaveLength(1);
     expect(result.vehicles[0].make).toBe('HONDA');
-    expect(mockService.decodeVin).toHaveBeenCalledWith('1HGCM82633A004352', undefined);
+    expect(mockService.decodeVin).toHaveBeenCalledWith(
+      '1HGCM82633A004352',
+      undefined,
+      expect.anything(),
+    );
   });
 
   it('passes modelYear when provided', async () => {
@@ -72,7 +76,11 @@ describe('decodeVin', () => {
     const input = decodeVin.input.parse({ vin: '1HGCM82633A004352', modelYear: 2003 });
     await decodeVin.handler(input, ctx);
 
-    expect(mockService.decodeVin).toHaveBeenCalledWith('1HGCM82633A004352', 2003);
+    expect(mockService.decodeVin).toHaveBeenCalledWith(
+      '1HGCM82633A004352',
+      2003,
+      expect.anything(),
+    );
   });
 
   it('decodes batch of VINs', async () => {

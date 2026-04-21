@@ -181,7 +181,7 @@ describe('searchInvestigations', () => {
     };
     const blocks = searchInvestigations.format!(output);
     const text = blocks[0].text;
-    expect(text).toContain('OPEN');
+    expect(text).toContain('Open');
     expect(text).toContain('Preliminary Evaluation');
     expect(text).toContain('Brake failure');
   });

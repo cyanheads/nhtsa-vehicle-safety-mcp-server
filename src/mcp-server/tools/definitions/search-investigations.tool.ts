@@ -88,7 +88,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const limit = input.limit ?? 20;
     const offset = input.offset ?? 0;
 
-    let investigations = await svc.getInvestigations();
+    let investigations = await svc.getInvestigations(ctx.signal);
 
     // Apply filters locally
     if (input.investigationType) {
@@ -171,11 +171,14 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const lines = [
       `**${result.total} investigation(s) found** (showing ${result.investigations.length})\n`,
     ];
+    if (result.message) lines.push(`*${result.message}*\n`);
 
     for (const i of result.investigations) {
-      const statusBadge = i.status === 'O' ? 'OPEN' : i.status === 'C' ? 'CLOSED' : 'UNKNOWN';
-      lines.push(`### ${i.nhtsaId || 'Unknown ID'} [${statusBadge}]`);
-      lines.push(`**Type:** ${i.investigationTypeName || 'Not available'}`);
+      const statusLabel = i.statusName || 'Unknown';
+      lines.push(`### ${i.nhtsaId || 'Unknown ID'} [${i.status ?? 'N/A'}: ${statusLabel}]`);
+      lines.push(
+        `**Type:** ${i.investigationType ?? 'N/A'} — ${i.investigationTypeName || 'Not available'}`,
+      );
       lines.push(`**Subject:** ${i.subject || 'Not available'}`);
       lines.push(
         `**Opened:** ${i.openDate || 'Not available'} | **Latest Activity:** ${i.latestActivityDate || 'Not available'}`,

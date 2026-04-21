@@ -47,7 +47,12 @@ describe('searchRecalls', () => {
 
     expect(result.totalCount).toBe(1);
     expect(result.recalls[0].campaignNumber).toBe('20V682000');
-    expect(mockService.getRecallsByVehicle).toHaveBeenCalledWith('Toyota', 'Camry', 2020);
+    expect(mockService.getRecallsByVehicle).toHaveBeenCalledWith(
+      'Toyota',
+      'Camry',
+      2020,
+      expect.anything(),
+    );
   });
 
   it('accepts missing advisory fields for vehicle recalls', async () => {

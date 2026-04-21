@@ -76,7 +76,7 @@ describe('lookupVehicles', () => {
     expect(result.operation).toBe('models');
     expect(result.count).toBe(2);
     expect(result.models?.[0].modelName).toBe('CAMRY');
-    expect(mockService.getModels).toHaveBeenCalledWith('Toyota', undefined);
+    expect(mockService.getModels).toHaveBeenCalledWith('Toyota', undefined, expect.anything());
   });
 
   it('"models" with modelYear passes year to service', async () => {
@@ -90,7 +90,7 @@ describe('lookupVehicles', () => {
     });
     await lookupVehicles.handler(input, ctx);
 
-    expect(mockService.getModels).toHaveBeenCalledWith('Toyota', 2020);
+    expect(mockService.getModels).toHaveBeenCalledWith('Toyota', 2020, expect.anything());
   });
 
   it('"models" throws when make missing', async () => {

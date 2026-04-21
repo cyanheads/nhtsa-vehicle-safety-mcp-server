@@ -83,7 +83,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
 
     // Campaign number lookup
     if (input.campaignNumber) {
-      const campaign = await svc.getRecallCampaign(input.campaignNumber);
+      const campaign = await svc.getRecallCampaign(input.campaignNumber, ctx.signal);
       ctx.log.info('Campaign lookup', { campaignNumber: input.campaignNumber, found: !!campaign });
 
       if (!campaign) {
@@ -121,20 +121,20 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       );
     }
 
-    let recalls = (await svc.getRecallsByVehicle(input.make, input.model, input.modelYear)).map(
-      (r) => ({
-        campaignNumber: r.campaignNumber,
-        manufacturer: r.manufacturer,
-        component: r.component,
-        summary: r.summary,
-        consequence: r.consequence,
-        remedy: r.remedy,
-        reportReceivedDate: r.reportReceivedDate,
-        ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
-        ...(r.parkOutSide !== undefined ? { parkOutSide: r.parkOutSide } : {}),
-        ...(r.overTheAirUpdate !== undefined ? { overTheAirUpdate: r.overTheAirUpdate } : {}),
-      }),
-    );
+    let recalls = (
+      await svc.getRecallsByVehicle(input.make, input.model, input.modelYear, ctx.signal)
+    ).map((r) => ({
+      campaignNumber: r.campaignNumber,
+      manufacturer: r.manufacturer,
+      component: r.component,
+      summary: r.summary,
+      consequence: r.consequence,
+      remedy: r.remedy,
+      reportReceivedDate: r.reportReceivedDate,
+      ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
+      ...(r.parkOutSide !== undefined ? { parkOutSide: r.parkOutSide } : {}),
+      ...(r.overTheAirUpdate !== undefined ? { overTheAirUpdate: r.overTheAirUpdate } : {}),
+    }));
 
     // Apply date filtering locally
     if (input.dateRange?.after || input.dateRange?.before) {
@@ -183,7 +183,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       if (r.component) lines.push(`**Component:** ${r.component}`);
       if (r.subject) lines.push(`**Subject:** ${r.subject}`);
       if (r.potentialUnitsAffected != null) {
-        lines.push(`**Units Affected:** ${r.potentialUnitsAffected.toLocaleString()}`);
+        lines.push(`**Units Affected:** ${r.potentialUnitsAffected}`);
       }
       lines.push(`**Date:** ${r.reportReceivedDate}`);
       lines.push(`**Manufacturer:** ${r.manufacturer}`);

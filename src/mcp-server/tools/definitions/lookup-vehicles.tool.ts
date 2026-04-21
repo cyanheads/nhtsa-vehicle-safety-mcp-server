@@ -118,7 +118,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
     switch (input.operation) {
       case 'makes': {
-        const allMakes = await svc.getAllMakes();
+        const allMakes = await svc.getAllMakes(ctx.signal);
         const limit = input.limit ?? DEFAULT_MAKES_LIMIT;
         const offset = input.offset ?? 0;
         const makes = allMakes.slice(offset, offset + limit);
@@ -142,7 +142,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         if (!input.make) {
           throw validationError('"make" is required for the "models" operation.');
         }
-        const models = await svc.getModels(input.make, input.modelYear);
+        const models = await svc.getModels(input.make, input.modelYear, ctx.signal);
         ctx.log.info('VPIC models lookup', {
           make: input.make,
           modelYear: input.modelYear,
@@ -165,7 +165,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         if (!input.make) {
           throw validationError('"make" is required for the "vehicle_types" operation.');
         }
-        const vehicleTypes = await svc.getVehicleTypes(input.make);
+        const vehicleTypes = await svc.getVehicleTypes(input.make, ctx.signal);
         ctx.log.info('VPIC vehicle types lookup', { make: input.make, count: vehicleTypes.length });
         const message =
           vehicleTypes.length === 0
@@ -183,7 +183,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         if (!input.manufacturer) {
           throw validationError('"manufacturer" is required for the "manufacturer" operation.');
         }
-        const manufacturers = await svc.getManufacturer(input.manufacturer);
+        const manufacturers = await svc.getManufacturer(input.manufacturer, ctx.signal);
         ctx.log.info('VPIC manufacturer lookup', {
           manufacturer: input.manufacturer,
           count: manufacturers.length,
@@ -208,7 +208,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         return [
           {
             type: 'text' as const,
-            text: `No makes returned for this page. Total makes available: ${result.totalAvailable}. Try a smaller offset.`,
+            text: `No makes returned for this page (offset ${result.offset ?? 0}). Total makes available: ${result.totalAvailable}. Try a smaller offset.`,
           },
         ];
       }
@@ -222,14 +222,13 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       ];
     }
 
-    const lines = [`**${result.count} result(s)**\n`];
+    const lines = [`**${result.count} ${result.operation} result(s)**\n`];
+    if (result.message) lines.push(`*${result.message}*\n`);
 
     if (result.makes) {
       if ((result.totalAvailable ?? result.makes.length) > result.makes.length) {
-        const start = (result.offset ?? 0) + 1;
-        const end = (result.offset ?? 0) + result.makes.length;
         lines.push(
-          `*Showing makes ${start}-${end} of ${result.totalAvailable}. Use limit/offset to page through the full list.*\n`,
+          `*Showing ${result.makes.length} of ${result.totalAvailable} makes (offset ${result.offset ?? 0}, limit ${result.limit ?? result.makes.length}). Use limit/offset to page through the full list.*\n`,
         );
       }
       for (const m of result.makes) {
@@ -239,7 +238,9 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
     if (result.models) {
       for (const m of result.models) {
-        lines.push(`- **${m.modelName}** — ${m.makeName} (Model ID: ${m.modelId})`);
+        lines.push(
+          `- **${m.modelName}** — ${m.makeName} (Model ID: ${m.modelId}, Make ID: ${m.makeId})`,
+        );
       }
     }
 
@@ -251,10 +252,12 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
     if (result.manufacturers) {
       for (const m of result.manufacturers) {
-        lines.push(`### ${m.manufacturerName}`);
+        lines.push(`### ${m.manufacturerName} (Manufacturer ID: ${m.manufacturerId})`);
         lines.push(`**Country:** ${m.country ?? 'Not available'}`);
         if (m.vehicleTypes.length > 0) {
-          lines.push(`**Vehicle Types:** ${m.vehicleTypes.map((vt) => vt.name).join(', ')}`);
+          lines.push(
+            `**Vehicle Types:** ${m.vehicleTypes.map((vt) => `${vt.name} (ID: ${vt.id ?? 'N/A'})`).join(', ')}`,
+          );
         }
         lines.push('');
       }

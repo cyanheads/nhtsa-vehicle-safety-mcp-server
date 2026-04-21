@@ -121,7 +121,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
     let message: string | undefined;
 
     if (input.vehicleId != null) {
-      const rating = await svc.getSafetyRating(input.vehicleId);
+      const rating = await svc.getSafetyRating(input.vehicleId, ctx.signal);
       if (rating) {
         ratings = [rating];
       } else {
@@ -133,13 +133,18 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
           'Provide either vehicleId, or make + model + modelYear to look up NCAP safety ratings.',
         );
       }
-      const variants = await svc.getSafetyRatingVariants(input.modelYear, input.make, input.model);
+      const variants = await svc.getSafetyRatingVariants(
+        input.modelYear,
+        input.make,
+        input.model,
+        ctx.signal,
+      );
       if (variants.length === 0) {
         message = `No NCAP crash test data for ${input.make} ${input.model} ${input.modelYear}. NCAP coverage starts from 1990, with best coverage for 2011+. Adjacent model years or a different trim/drivetrain may have ratings.`;
       } else {
-        ratings = (await Promise.all(variants.map((v) => svc.getSafetyRating(v.vehicleId)))).filter(
-          (r): r is NonNullable<typeof r> => r !== null,
-        );
+        ratings = (
+          await Promise.all(variants.map((v) => svc.getSafetyRating(v.vehicleId, ctx.signal)))
+        ).filter((r): r is NonNullable<typeof r> => r !== null);
       }
     }
 
@@ -166,8 +171,11 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
     }
 
     const lines: string[] = [];
+    if (result.message) lines.push(`*${result.message}*\n`);
     for (const r of result.ratings) {
-      const label = r.vehicleDescription || `Vehicle ${r.vehicleId}`;
+      const label = r.vehicleDescription
+        ? `${r.vehicleDescription} (vehicleId: ${r.vehicleId})`
+        : `Vehicle ${r.vehicleId}`;
       const rolloverProbability =
         r.rollover.probability == null
           ? 'Not available'
@@ -188,7 +196,10 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
         `Driver: ${formatStars(r.sideCrash.driverSide)} | Passenger: ${formatStars(r.sideCrash.passengerSide)}`,
       );
       lines.push(
-        `Barrier: ${formatStars(r.sideCrash.barrierOverall)} | Pole: ${formatStars(r.sideCrash.pole)}\n`,
+        `Barrier: ${formatStars(r.sideCrash.barrierOverall)} | Pole: ${formatStars(r.sideCrash.pole)}`,
+      );
+      lines.push(
+        `Combined Barrier/Pole — Front: ${formatStars(r.sideCrash.combinedBarrierPoleFront)} | Rear: ${formatStars(r.sideCrash.combinedBarrierPoleRear)}\n`,
       );
 
       lines.push('### Rollover');

@@ -221,7 +221,9 @@ function formatSafetyRatingsSection(result: VehicleSafetyOutput): string[] {
   }
 
   for (const rating of ratings) {
-    const label = rating.vehicleDescription || `Vehicle ${rating.vehicleId}`;
+    const label = rating.vehicleDescription
+      ? `${rating.vehicleDescription} (vehicleId: ${rating.vehicleId})`
+      : `Vehicle ${rating.vehicleId}`;
     const rolloverProbability =
       rating.rollover.probability == null
         ? 'Not available'
@@ -233,7 +235,7 @@ function formatSafetyRatingsSection(result: VehicleSafetyOutput): string[] {
       `**Frontal Crash:** ${formatValue(rating.frontalCrash.overall)} (Driver: ${formatValue(rating.frontalCrash.driverSide)}, Passenger: ${formatValue(rating.frontalCrash.passengerSide)})`,
     );
     lines.push(
-      `**Side Crash:** ${formatValue(rating.sideCrash.overall)} (Driver: ${formatValue(rating.sideCrash.driverSide)}, Passenger: ${formatValue(rating.sideCrash.passengerSide)}, Barrier: ${formatValue(rating.sideCrash.barrierOverall)}, Pole: ${formatValue(rating.sideCrash.pole)})`,
+      `**Side Crash:** ${formatValue(rating.sideCrash.overall)} (Driver: ${formatValue(rating.sideCrash.driverSide)}, Passenger: ${formatValue(rating.sideCrash.passengerSide)}, Barrier: ${formatValue(rating.sideCrash.barrierOverall)}, Pole: ${formatValue(rating.sideCrash.pole)}, Combined Front: ${formatValue(rating.sideCrash.combinedBarrierPoleFront)}, Combined Rear: ${formatValue(rating.sideCrash.combinedBarrierPoleRear)})`,
     );
     lines.push(
       `**Rollover:** ${formatValue(rating.rollover.rating)} (${rolloverProbability} probability, Tip test: ${formatValue(rating.rollover.dynamicTipResult)})`,
@@ -264,7 +266,7 @@ function formatRecallsSection(result: VehicleSafetyOutput): string[] {
   }
 
   for (const recall of recalls) {
-    const alert = recall.parkIt ? ' **DO NOT DRIVE**' : '';
+    const alert = recall.parkIt ? ' **PARK IT — DO NOT DRIVE**' : '';
     lines.push(`**${recall.campaignNumber}** — ${recall.component}${alert}`);
     lines.push(recall.summary);
     lines.push(`*Remedy:* ${recall.remedy}`);
@@ -297,7 +299,7 @@ function formatComplaintsSection(result: VehicleSafetyOutput): string[] {
   lines.push('**Top Components:**');
   for (const component of summary.componentBreakdown.slice(0, 10)) {
     lines.push(
-      `- ${component.component}: ${component.count} complaints (${component.crashCount} crashes, ${component.fireCount} fires)`,
+      `- ${component.component}: ${component.count} complaints (${component.crashCount} crashes, ${component.fireCount} fires, ${component.injuryCount} injuries, ${component.deathCount} deaths)`,
     );
   }
 
@@ -330,7 +332,7 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
     const [variants, recalls, complaints] = await Promise.all([
       loadVehicleDataSection({
         ctx,
-        request: svc.getSafetyRatingVariants(modelYear, make, model),
+        request: svc.getSafetyRatingVariants(modelYear, make, model, ctx.signal),
         section: 'safetyRatings',
         sectionStatus,
         warnings,
@@ -340,7 +342,7 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
       }),
       loadVehicleDataSection({
         ctx,
-        request: svc.getRecallsByVehicle(make, model, modelYear),
+        request: svc.getRecallsByVehicle(make, model, modelYear, ctx.signal),
         section: 'recalls',
         sectionStatus,
         warnings,
@@ -350,7 +352,7 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
       }),
       loadVehicleDataSection({
         ctx,
-        request: svc.getComplaintsByVehicle(make, model, modelYear),
+        request: svc.getComplaintsByVehicle(make, model, modelYear, ctx.signal),
         section: 'complaints',
         sectionStatus,
         warnings,
@@ -361,7 +363,14 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
       }),
     ]);
 
-    const safetyRatings = await resolveSafetyRatings(svc, variants, ctx, warnings, sectionStatus);
+    const safetyRatings = await resolveSafetyRatings(
+      svc,
+      variants,
+      ctx,
+      warnings,
+      sectionStatus,
+      ctx.signal,
+    );
     const recallResults =
       sectionStatus.recalls === 'available' && recalls ? mapRecalls(recalls) : undefined;
     const complaintSummary =
@@ -447,6 +456,7 @@ async function resolveSafetyRatings(
   ctx: VehicleSafetyLogContext,
   warnings: string[],
   sectionStatus: SectionStatus,
+  signal?: AbortSignal,
 ): Promise<SafetyRatingsResult | undefined> {
   if (!variants || sectionStatus.safetyRatings === 'unavailable') {
     return;
@@ -464,7 +474,7 @@ async function resolveSafetyRatings(
   const ratings = (
     await Promise.all(
       variants.map((variant) =>
-        loadSection(svc.getSafetyRating(variant.vehicleId), (error) => {
+        loadSection(svc.getSafetyRating(variant.vehicleId, signal), (error) => {
           failedVariantCount++;
           ctx.log.warning('Failed to fetch safety rating for variant', {
             vehicleId: variant.vehicleId,

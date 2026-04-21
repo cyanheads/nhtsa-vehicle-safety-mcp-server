@@ -4,6 +4,8 @@
  * @module services/nhtsa/nhtsa-service
  */
 
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import type {
   Complaint,
   DecodedVin,
@@ -97,22 +99,31 @@ function toError(error: unknown, fallbackMessage: string): Error {
   return error instanceof Error ? error : new Error(fallbackMessage);
 }
 
+/** Internal fetchJson init — widens RequestInit.signal to allow `undefined` under exactOptionalPropertyTypes. */
+type FetchInit = Omit<RequestInit, 'signal'> & { signal?: AbortSignal | undefined };
+
 export class NhtsaService {
   private investigationCache: { data: Investigation[]; fetchedAt: number } | null = null;
 
   // ── HTTP ─────────────────────────────────────────────────────────
 
-  private async fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  private async fetchJson<T>(url: string, init?: FetchInit): Promise<T> {
+    const signal = init?.signal ?? undefined;
     let lastError: Error | undefined;
     const endpoint = new URL(url).pathname;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      signal?.throwIfAborted();
       if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** (attempt - 1)));
+        await sleep(RETRY_BASE_MS * 2 ** (attempt - 1), undefined, { signal });
       }
+      const composed = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+        : AbortSignal.timeout(REQUEST_TIMEOUT_MS);
       let res: Response;
       try {
-        res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+        res = await fetch(url, { ...init, signal: composed });
       } catch (error) {
+        signal?.throwIfAborted();
         lastError = toError(error, `NHTSA API request failed for ${endpoint}`);
         continue;
       }
@@ -141,10 +152,16 @@ export class NhtsaService {
   // ── Recalls ──────────────────────────────────────────────────────
 
   /** Fetch all recalls for a specific vehicle (no pagination). */
-  async getRecallsByVehicle(make: string, model: string, modelYear: number): Promise<Recall[]> {
+  async getRecallsByVehicle(
+    make: string,
+    model: string,
+    modelYear: number,
+    signal?: AbortSignal,
+  ): Promise<Recall[]> {
     const params = new URLSearchParams({ make, model, modelYear: String(modelYear) });
     const data = await this.fetchJson<NhtsaResponse<RawRecallByVehicle>>(
       `${NHTSA_API}/recalls/recallsByVehicle?${params}`,
+      { signal },
     );
     return (data.results ?? []).map(normalizeRecallByVehicle);
   }
@@ -153,10 +170,14 @@ export class NhtsaService {
    * Look up a recall campaign by campaignId using binary search on the sorted base endpoint.
    * Returns null if the campaign is not found.
    */
-  async getRecallCampaign(campaignId: string): Promise<RecallCampaign | null> {
+  async getRecallCampaign(
+    campaignId: string,
+    signal?: AbortSignal,
+  ): Promise<RecallCampaign | null> {
     // Get total count
     const initial = await this.fetchJson<NhtsaPaginatedResponse<RawRecallBase>>(
       `${NHTSA_API}/recalls?offset=0&max=1&sort=campaignId&order=asc`,
+      { signal },
     );
     const total = initial.meta.pagination.total;
     if (total === 0) return null;
@@ -168,6 +189,7 @@ export class NhtsaService {
       const mid = Math.floor((lo + hi) / 2);
       const page = await this.fetchJson<NhtsaPaginatedResponse<RawRecallBase>>(
         `${NHTSA_API}/recalls?offset=${mid}&max=1&sort=campaignId&order=asc`,
+        { signal },
       );
       const first = page.results[0];
       if (!first) break;
@@ -180,23 +202,10 @@ export class NhtsaService {
     const nearOffset = Math.max(0, lo - 2);
     const nearby = await this.fetchJson<NhtsaPaginatedResponse<RawRecallBase>>(
       `${NHTSA_API}/recalls?offset=${nearOffset}&max=10&sort=campaignId&order=asc`,
+      { signal },
     );
     const match = nearby.results.find((r) => r.campaignId === campaignId);
     return match ? normalizeBaseRecall(match) : null;
-  }
-
-  /** Fetch paginated recalls from the base endpoint, sorted by date descending. */
-  async getRecallsPaginated(
-    offset: number,
-    max: number,
-  ): Promise<{ results: RecallCampaign[]; total: number }> {
-    const data = await this.fetchJson<NhtsaPaginatedResponse<RawRecallBase>>(
-      `${NHTSA_API}/recalls?offset=${offset}&max=${max}&sort=recall573ReceivedDate&order=desc`,
-    );
-    return {
-      results: data.results.map(normalizeBaseRecall),
-      total: data.meta.pagination.total,
-    };
   }
 
   // ── Complaints ───────────────────────────────────────────────────
@@ -206,10 +215,12 @@ export class NhtsaService {
     make: string,
     model: string,
     modelYear: number,
+    signal?: AbortSignal,
   ): Promise<Complaint[]> {
     const params = new URLSearchParams({ make, model, modelYear: String(modelYear) });
     const data = await this.fetchJson<NhtsaResponse<RawComplaint>>(
       `${NHTSA_API}/complaints/complaintsByVehicle?${params}`,
+      { signal },
     );
     return (data.results ?? []).map(normalizeComplaint);
   }
@@ -221,9 +232,11 @@ export class NhtsaService {
     modelYear: number,
     make: string,
     model: string,
+    signal?: AbortSignal,
   ): Promise<SafetyRatingVariant[]> {
     const data = await this.fetchJson<NhtsaResponse<RawSafetyRatingVariant>>(
       `${NHTSA_API}/SafetyRatings/modelyear/${modelYear}/make/${encodeURIComponent(make)}/model/${encodeURIComponent(model)}`,
+      { signal },
     );
     return (data.Results ?? [])
       .filter((r): r is RawSafetyRatingVariant & { VehicleId: number } => r.VehicleId != null)
@@ -236,9 +249,10 @@ export class NhtsaService {
   }
 
   /** Get full safety rating detail for a specific vehicle ID. */
-  async getSafetyRating(vehicleId: number): Promise<SafetyRating | null> {
+  async getSafetyRating(vehicleId: number, signal?: AbortSignal): Promise<SafetyRating | null> {
     const data = await this.fetchJson<NhtsaResponse<RawSafetyRating>>(
       `${NHTSA_API}/SafetyRatings/VehicleId/${vehicleId}`,
+      { signal },
     );
     const raw = (data.Results ?? [])[0];
     return raw?.VehicleId != null ? normalizeSafetyRating(raw) : null;
@@ -247,10 +261,11 @@ export class NhtsaService {
   // ── VIN Decode ───────────────────────────────────────────────────
 
   /** Decode a single VIN via VPIC. */
-  async decodeVin(vin: string, modelYear?: number): Promise<DecodedVin> {
+  async decodeVin(vin: string, modelYear?: number, signal?: AbortSignal): Promise<DecodedVin> {
     const yearParam = modelYear ? `&modelyear=${modelYear}` : '';
     const data = await this.fetchJson<VpicResponse<RawVpicDecodedVin>>(
       `${VPIC_API}/vehicles/DecodeVinValues/${encodeURIComponent(vin)}?format=json${yearParam}`,
+      { signal },
     );
     const raw = data.Results[0];
     if (!raw) throw new Error(`No decode results for VIN: ${vin}`);
@@ -258,7 +273,10 @@ export class NhtsaService {
   }
 
   /** Batch decode up to 50 VINs via VPIC POST endpoint. */
-  async decodeVinBatch(entries: Array<{ vin: string; modelYear?: number }>): Promise<DecodedVin[]> {
+  async decodeVinBatch(
+    entries: Array<{ vin: string; modelYear?: number }>,
+    signal?: AbortSignal,
+  ): Promise<DecodedVin[]> {
     const dataStr = entries.map((e) => (e.modelYear ? `${e.vin},${e.modelYear}` : e.vin)).join(';');
     const body = `DATA=${dataStr}&format=json`;
     const data = await this.fetchJson<VpicResponse<RawVpicDecodedVin>>(
@@ -267,6 +285,7 @@ export class NhtsaService {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
+        signal,
       },
     );
     return data.Results.map((result, index) => normalizeDecodedVin(result, entries[index]?.vin));
@@ -275,19 +294,19 @@ export class NhtsaService {
   // ── Investigations ───────────────────────────────────────────────
 
   /** Get all investigations from cache, refreshing if stale. */
-  async getInvestigations(): Promise<Investigation[]> {
+  async getInvestigations(signal?: AbortSignal): Promise<Investigation[]> {
     if (
       this.investigationCache &&
       Date.now() - this.investigationCache.fetchedAt < INVESTIGATION_CACHE_TTL_MS
     ) {
       return this.investigationCache.data;
     }
-    const data = await this.fetchAllInvestigations();
+    const data = await this.fetchAllInvestigations(signal);
     this.investigationCache = { data, fetchedAt: Date.now() };
     return data;
   }
 
-  private async fetchAllInvestigations(): Promise<Investigation[]> {
+  private async fetchAllInvestigations(signal?: AbortSignal): Promise<Investigation[]> {
     const all: Investigation[] = [];
     let offset = 0;
     let total = Infinity;
@@ -295,6 +314,7 @@ export class NhtsaService {
     while (offset < total) {
       const page = await this.fetchJson<NhtsaPaginatedResponse<RawInvestigation>>(
         `${NHTSA_API}/investigations?offset=${offset}&max=${INVESTIGATION_PAGE_SIZE}&sort=openDate&order=desc`,
+        { signal },
       );
       total = page.meta.pagination.total;
       all.push(...page.results.map(normalizeInvestigation));
@@ -306,22 +326,22 @@ export class NhtsaService {
   // ── VPIC Lookups ─────────────────────────────────────────────────
 
   /** Get all makes from VPIC (warning: ~12K results, ~700KB). */
-  async getAllMakes(): Promise<VpicMake[]> {
+  async getAllMakes(signal?: AbortSignal): Promise<VpicMake[]> {
     const data = await this.fetchJson<VpicResponse<{ Make_ID: number; Make_Name: string }>>(
       `${VPIC_API}/vehicles/GetAllMakes?format=json`,
+      { signal },
     );
     return data.Results.map((r) => ({ makeId: r.Make_ID, makeName: r.Make_Name }));
   }
 
   /** Get models for a make, optionally filtered by year. */
-  async getModels(make: string, modelYear?: number): Promise<VpicModel[]> {
+  async getModels(make: string, modelYear?: number, signal?: AbortSignal): Promise<VpicModel[]> {
     const url = modelYear
       ? `${VPIC_API}/vehicles/GetModelsForMakeYear/make/${encodeURIComponent(make)}/modelyear/${modelYear}?format=json`
       : `${VPIC_API}/vehicles/GetModelsForMake/${encodeURIComponent(make)}?format=json`;
-    const data =
-      await this.fetchJson<
-        VpicResponse<{ Make_ID: number; Make_Name: string; Model_ID: number; Model_Name: string }>
-      >(url);
+    const data = await this.fetchJson<
+      VpicResponse<{ Make_ID: number; Make_Name: string; Model_ID: number; Model_Name: string }>
+    >(url, { signal });
     return data.Results.map((r) => ({
       modelId: r.Model_ID,
       modelName: r.Model_Name,
@@ -331,10 +351,12 @@ export class NhtsaService {
   }
 
   /** Get vehicle types for a make (deduplicated by ID). */
-  async getVehicleTypes(make: string): Promise<VpicVehicleType[]> {
+  async getVehicleTypes(make: string, signal?: AbortSignal): Promise<VpicVehicleType[]> {
     const data = await this.fetchJson<
       VpicResponse<{ VehicleTypeId: number; VehicleTypeName: string }>
-    >(`${VPIC_API}/vehicles/GetVehicleTypesForMake/${encodeURIComponent(make)}?format=json`);
+    >(`${VPIC_API}/vehicles/GetVehicleTypesForMake/${encodeURIComponent(make)}?format=json`, {
+      signal,
+    });
     const seen = new Set<number>();
     return data.Results.filter((r) => {
       if (seen.has(r.VehicleTypeId)) return false;
@@ -347,7 +369,7 @@ export class NhtsaService {
   }
 
   /** Get manufacturer details by name or ID (partial match supported). */
-  async getManufacturer(nameOrId: string): Promise<VpicManufacturer[]> {
+  async getManufacturer(nameOrId: string, signal?: AbortSignal): Promise<VpicManufacturer[]> {
     const data = await this.fetchJson<
       VpicResponse<{
         Mfr_ID: number;
@@ -355,7 +377,9 @@ export class NhtsaService {
         Country: string;
         VehicleTypes: Array<{ IsPrimary: boolean; Name: string; Id?: number }>;
       }>
-    >(`${VPIC_API}/vehicles/GetManufacturerDetails/${encodeURIComponent(nameOrId)}?format=json`);
+    >(`${VPIC_API}/vehicles/GetManufacturerDetails/${encodeURIComponent(nameOrId)}?format=json`, {
+      signal,
+    });
     return data.Results.map((r) => {
       const country = normalizeOptionalString(r.Country);
       const vehicleTypes = (r.VehicleTypes ?? []).flatMap((vt) => {

@@ -63,7 +63,12 @@ describe('getSafetyRatings', () => {
     expect(result.ratings).toHaveLength(1);
     expect(result.ratings[0].overallRating).toBe('5');
     expect(result.ratings[0].frontalCrash.driverSide).toBe('4');
-    expect(mockService.getSafetyRatingVariants).toHaveBeenCalledWith(2020, 'Toyota', 'Camry');
+    expect(mockService.getSafetyRatingVariants).toHaveBeenCalledWith(
+      2020,
+      'Toyota',
+      'Camry',
+      expect.anything(),
+    );
   });
 
   it('fetches rating by vehicleId directly', async () => {
@@ -75,7 +80,7 @@ describe('getSafetyRatings', () => {
 
     expect(result.ratings).toHaveLength(1);
     expect(mockService.getSafetyRatingVariants).not.toHaveBeenCalled();
-    expect(mockService.getSafetyRating).toHaveBeenCalledWith(14720);
+    expect(mockService.getSafetyRating).toHaveBeenCalledWith(14720, expect.anything());
   });
 
   it('rejects incomplete vehicle lookup input when vehicleId is omitted', async () => {
