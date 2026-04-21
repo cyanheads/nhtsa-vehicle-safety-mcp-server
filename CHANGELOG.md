@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.1] - 2026-04-20
+
+### Added
+
+- All tool handlers now propagate `ctx.signal` through the NHTSA service layer so in-flight requests (and exponential-backoff retry delays) cancel cleanly when the client aborts
+- `nhtsa_search_investigations` now returns `statusName` alongside `status` and renders both in `format()` (e.g. `[O: Open]`) so the status code is no longer opaque
+- `nhtsa_lookup_vehicles` now surfaces `Make ID`, `Manufacturer ID`, and per-type `Vehicle Type ID` in its rendered output, matching the IDs already present in `structuredContent`
+- `nhtsa_get_safety_ratings` now renders `combinedBarrierPoleFront` / `combinedBarrierPoleRear` star ratings (previously only present in `structuredContent`)
+- `nhtsa_get_vehicle_safety` complaint component breakdown now shows injury and death counts per component (not just crashes/fires)
+
+### Changed
+
+- Bumped `@cyanheads/mcp-ts-core` to `^0.5.3` (from `^0.3.8`) — brings new framework error factories and refreshed scaffolding
+- `NhtsaService.fetchJson` now composes the caller's `AbortSignal` with the per-request timeout via `AbortSignal.any` and uses `node:timers/promises` for retry delay — no more manual abort listener wiring, no listener leak
+- `nhtsa_decode_vin` warning line now includes the VPIC `errorCode` (e.g. `Warning (errorCode: 6): ...`) so partial-decode callers can distinguish warning classes
+- `nhtsa_get_vehicle_safety` do-not-drive advisory renders as `PARK IT — DO NOT DRIVE` to match NHTSA's own label
+- Refreshed `add-tool` (v1.6), `api-config` (v1.2), `design-mcp-server` (v2.4), `field-test` (v1.2), `maintenance` (v1.3), `polish-docs-meta` (v1.4), and `setup` (v1.3) skills from the framework
+
+### Removed
+
+- Unused `NhtsaService.getRecallsPaginated` method (also had a typo'd `sort=recall573ReceivedDate` URL parameter)
+
 ## [0.6.0] - 2026-04-19
 
 ### Added
