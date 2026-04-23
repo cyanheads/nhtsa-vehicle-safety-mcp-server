@@ -8,8 +8,8 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { validationError } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
-const DEFAULT_MAKES_LIMIT = 100;
-const MAX_MAKES_LIMIT = 200;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 200;
 
 export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
   description:
@@ -19,7 +19,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     operation: z
       .enum(['makes', 'models', 'vehicle_types', 'manufacturer'])
       .describe(
-        `"makes" (paginated slice of all makes), "models" (models for a make), "vehicle_types" (types for a make), "manufacturer" (manufacturer details).`,
+        `"makes" (all NHTSA makes), "models" (models for a make), "vehicle_types" (types for a make), "manufacturer" (manufacturer details).`,
       ),
     make: z
       .string()
@@ -37,29 +37,24 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .number()
       .int()
       .min(1)
-      .max(MAX_MAKES_LIMIT)
+      .max(MAX_LIMIT)
       .optional()
       .describe(
-        `For "makes" only: maximum makes to return. Defaults to ${DEFAULT_MAKES_LIMIT}; max ${MAX_MAKES_LIMIT}. Ignored for other operations.`,
+        `Max results in the returned slice. Defaults to ${DEFAULT_LIMIT}; max ${MAX_LIMIT}.`,
       ),
     offset: z
       .number()
       .int()
       .min(0)
       .optional()
-      .describe(
-        'For "makes" only: pagination offset into the full makes list. Defaults to 0. Ignored for other operations.',
-      ),
+      .describe('Pagination offset into the full result list. Defaults to 0.'),
   }),
   output: z.object({
     operation: z.string().describe('The operation that was performed'),
-    count: z.number().describe('Number of results returned in this response'),
-    totalAvailable: z
-      .number()
-      .optional()
-      .describe('Total results available before pagination, when relevant'),
-    offset: z.number().optional().describe('Pagination offset used for this response'),
-    limit: z.number().optional().describe('Pagination limit used for this response'),
+    totalCount: z.number().describe('Total results matching before pagination'),
+    returned: z.number().describe('Number of results in the returned slice'),
+    offset: z.number().describe('Pagination offset used for this response'),
+    limit: z.number().describe('Pagination limit used for this response'),
     message: z
       .string()
       .optional()
@@ -115,26 +110,35 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
+    const limit = input.limit ?? DEFAULT_LIMIT;
+    const offset = input.offset ?? 0;
+
+    const emptyMessage = (subject: string, recovery: string): string =>
+      `No ${subject} found. ${recovery}`;
+
+    const outOfBoundsMessage = (totalCount: number): string =>
+      `No results for this page (offset ${offset}, limit ${limit}). ${totalCount} total — try a smaller offset.`;
 
     switch (input.operation) {
       case 'makes': {
-        const allMakes = await svc.getAllMakes(ctx.signal);
-        const limit = input.limit ?? DEFAULT_MAKES_LIMIT;
-        const offset = input.offset ?? 0;
-        const makes = allMakes.slice(offset, offset + limit);
+        const all = await svc.getAllMakes(ctx.signal);
+        const slice = all.slice(offset, offset + limit);
         ctx.log.info('VPIC makes lookup', {
-          total: allMakes.length,
-          returned: makes.length,
+          totalCount: all.length,
+          returned: slice.length,
           offset,
           limit,
         });
+        const message =
+          all.length > 0 && slice.length === 0 ? outOfBoundsMessage(all.length) : undefined;
         return {
           operation: 'makes',
-          count: makes.length,
-          totalAvailable: allMakes.length,
+          totalCount: all.length,
+          returned: slice.length,
           offset,
           limit,
-          makes,
+          makes: slice,
+          ...(message ? { message } : {}),
         };
       }
 
@@ -142,21 +146,33 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         if (!input.make) {
           throw validationError('"make" is required for the "models" operation.');
         }
-        const models = await svc.getModels(input.make, input.modelYear, ctx.signal);
+        const all = await svc.getModels(input.make, input.modelYear, ctx.signal);
+        const slice = all.slice(offset, offset + limit);
         ctx.log.info('VPIC models lookup', {
           make: input.make,
           modelYear: input.modelYear,
-          count: models.length,
+          totalCount: all.length,
+          returned: slice.length,
+          offset,
+          limit,
         });
         const yearPart = input.modelYear ? ` for model year ${input.modelYear}` : '';
         const message =
-          models.length === 0
-            ? `No models found for make "${input.make}"${yearPart}. Verify the make spelling with operation="makes" — partial matches are supported.`
-            : undefined;
+          all.length === 0
+            ? emptyMessage(
+                `models for make "${input.make}"${yearPart}`,
+                'Verify the make spelling with operation="makes" — partial matches are supported.',
+              )
+            : slice.length === 0
+              ? outOfBoundsMessage(all.length)
+              : undefined;
         return {
           operation: 'models',
-          count: models.length,
-          models,
+          totalCount: all.length,
+          returned: slice.length,
+          offset,
+          limit,
+          models: slice,
           ...(message ? { message } : {}),
         };
       }
@@ -165,16 +181,31 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         if (!input.make) {
           throw validationError('"make" is required for the "vehicle_types" operation.');
         }
-        const vehicleTypes = await svc.getVehicleTypes(input.make, ctx.signal);
-        ctx.log.info('VPIC vehicle types lookup', { make: input.make, count: vehicleTypes.length });
+        const all = await svc.getVehicleTypes(input.make, ctx.signal);
+        const slice = all.slice(offset, offset + limit);
+        ctx.log.info('VPIC vehicle types lookup', {
+          make: input.make,
+          totalCount: all.length,
+          returned: slice.length,
+          offset,
+          limit,
+        });
         const message =
-          vehicleTypes.length === 0
-            ? `No vehicle types found for make "${input.make}". Verify the make spelling with operation="makes".`
-            : undefined;
+          all.length === 0
+            ? emptyMessage(
+                `vehicle types for make "${input.make}"`,
+                'Verify the make spelling with operation="makes".',
+              )
+            : slice.length === 0
+              ? outOfBoundsMessage(all.length)
+              : undefined;
         return {
           operation: 'vehicle_types',
-          count: vehicleTypes.length,
-          vehicleTypes,
+          totalCount: all.length,
+          returned: slice.length,
+          offset,
+          limit,
+          vehicleTypes: slice,
           ...(message ? { message } : {}),
         };
       }
@@ -183,19 +214,31 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         if (!input.manufacturer) {
           throw validationError('"manufacturer" is required for the "manufacturer" operation.');
         }
-        const manufacturers = await svc.getManufacturer(input.manufacturer, ctx.signal);
+        const all = await svc.getManufacturer(input.manufacturer, ctx.signal);
+        const slice = all.slice(offset, offset + limit);
         ctx.log.info('VPIC manufacturer lookup', {
           manufacturer: input.manufacturer,
-          count: manufacturers.length,
+          totalCount: all.length,
+          returned: slice.length,
+          offset,
+          limit,
         });
         const message =
-          manufacturers.length === 0
-            ? `No manufacturer matched "${input.manufacturer}". Partial matches are supported — try a shorter or different query.`
-            : undefined;
+          all.length === 0
+            ? emptyMessage(
+                `manufacturers matching "${input.manufacturer}"`,
+                'Partial matches are supported — try a shorter or different query.',
+              )
+            : slice.length === 0
+              ? outOfBoundsMessage(all.length)
+              : undefined;
         return {
           operation: 'manufacturer',
-          count: manufacturers.length,
-          manufacturers,
+          totalCount: all.length,
+          returned: slice.length,
+          offset,
+          limit,
+          manufacturers: slice,
           ...(message ? { message } : {}),
         };
       }
@@ -203,15 +246,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
   },
 
   format: (result) => {
-    if (result.count === 0) {
-      if (result.operation === 'makes' && (result.totalAvailable ?? 0) > 0) {
-        return [
-          {
-            type: 'text' as const,
-            text: `No makes returned for this page (offset ${result.offset ?? 0}). Total makes available: ${result.totalAvailable}. Try a smaller offset.`,
-          },
-        ];
-      }
+    if (result.returned === 0) {
       return [
         {
           type: 'text' as const,
@@ -222,15 +257,13 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       ];
     }
 
-    const lines = [`**${result.count} ${result.operation} result(s)**\n`];
+    const lines = [`**${result.totalCount} ${result.operation} result(s)**\n`];
+    lines.push(
+      `*Showing ${result.returned} of ${result.totalCount} (offset ${result.offset}, limit ${result.limit})*\n`,
+    );
     if (result.message) lines.push(`*${result.message}*\n`);
 
     if (result.makes) {
-      if ((result.totalAvailable ?? result.makes.length) > result.makes.length) {
-        lines.push(
-          `*Showing ${result.makes.length} of ${result.totalAvailable} makes (offset ${result.offset ?? 0}, limit ${result.limit ?? result.makes.length}). Use limit/offset to page through the full list.*\n`,
-        );
-      }
       for (const m of result.makes) {
         lines.push(`- ${m.makeName} (ID: ${m.makeId})`);
       }

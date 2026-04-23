@@ -38,8 +38,8 @@ describe('lookupVehicles', () => {
     const result = await lookupVehicles.handler(input, ctx);
 
     expect(result.operation).toBe('makes');
-    expect(result.count).toBe(2);
-    expect(result.totalAvailable).toBe(2);
+    expect(result.totalCount).toBe(2);
+    expect(result.returned).toBe(2);
     expect(result.offset).toBe(0);
     expect(result.limit).toBe(100);
     expect(result.makes).toHaveLength(2);
@@ -56,25 +56,32 @@ describe('lookupVehicles', () => {
     const input = lookupVehicles.input.parse({ operation: 'makes', limit: 1, offset: 1 });
     const result = await lookupVehicles.handler(input, ctx);
 
-    expect(result.count).toBe(1);
-    expect(result.totalAvailable).toBe(3);
+    expect(result.totalCount).toBe(3);
+    expect(result.returned).toBe(1);
     expect(result.offset).toBe(1);
     expect(result.limit).toBe(1);
     expect(result.makes).toEqual([{ makeId: 2, makeName: 'B' }]);
   });
 
-  it('"models" operation returns models', async () => {
+  it('"models" operation returns models and paginates', async () => {
     mockService.getModels.mockResolvedValue([
       { modelId: 1, modelName: 'CAMRY', makeId: 441, makeName: 'TOYOTA' },
       { modelId: 2, modelName: 'COROLLA', makeId: 441, makeName: 'TOYOTA' },
+      { modelId: 3, modelName: 'RAV4', makeId: 441, makeName: 'TOYOTA' },
     ]);
 
     const ctx = createMockContext();
-    const input = lookupVehicles.input.parse({ operation: 'models', make: 'Toyota' });
+    const input = lookupVehicles.input.parse({
+      operation: 'models',
+      make: 'Toyota',
+      limit: 2,
+    });
     const result = await lookupVehicles.handler(input, ctx);
 
     expect(result.operation).toBe('models');
-    expect(result.count).toBe(2);
+    expect(result.totalCount).toBe(3);
+    expect(result.returned).toBe(2);
+    expect(result.models).toHaveLength(2);
     expect(result.models?.[0].modelName).toBe('CAMRY');
     expect(mockService.getModels).toHaveBeenCalledWith('Toyota', undefined, expect.anything());
   });
@@ -125,14 +132,38 @@ describe('lookupVehicles', () => {
     const input = lookupVehicles.input.parse({ operation: 'manufacturer', manufacturer: 'Toyota' });
     const result = await lookupVehicles.handler(input, ctx);
 
+    expect(result.totalCount).toBe(1);
     expect(result.manufacturers?.[0].country).toBe('JAPAN');
+  });
+
+  it('out-of-bounds offset surfaces a recovery message', async () => {
+    mockService.getAllMakes.mockResolvedValue([{ makeId: 1, makeName: 'A' }]);
+
+    const ctx = createMockContext();
+    const input = lookupVehicles.input.parse({ operation: 'makes', offset: 50 });
+    const result = await lookupVehicles.handler(input, ctx);
+
+    expect(result.totalCount).toBe(1);
+    expect(result.returned).toBe(0);
+    expect(result.message).toMatch(/try a smaller offset/i);
+  });
+
+  it('empty models result carries a recovery message', async () => {
+    mockService.getModels.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = lookupVehicles.input.parse({ operation: 'models', make: 'Nope' });
+    const result = await lookupVehicles.handler(input, ctx);
+
+    expect(result.totalCount).toBe(0);
+    expect(result.message).toMatch(/verify the make spelling/i);
   });
 
   it('format renders makes list', () => {
     const output = {
       operation: 'makes',
-      count: 2,
-      totalAvailable: 2,
+      totalCount: 2,
+      returned: 2,
       offset: 0,
       limit: 100,
       makes: [
@@ -149,7 +180,10 @@ describe('lookupVehicles', () => {
   it('format renders manufacturer details', () => {
     const output = {
       operation: 'manufacturer',
-      count: 1,
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 100,
       manufacturers: [
         {
           manufacturerId: 987,
@@ -164,5 +198,20 @@ describe('lookupVehicles', () => {
     expect(text).toContain('TOYOTA');
     expect(text).toContain('JAPAN');
     expect(text).toContain('Passenger Car');
+  });
+
+  it('format shows pagination line when slice is smaller than total', () => {
+    const output = {
+      operation: 'makes',
+      totalCount: 500,
+      returned: 100,
+      offset: 0,
+      limit: 100,
+      makes: [{ makeId: 1, makeName: 'A' }],
+    };
+    const text = lookupVehicles.format!(output)[0].text;
+    expect(text).toContain('Showing 100 of 500');
+    expect(text).toContain('offset 0');
+    expect(text).toContain('limit 100');
   });
 });

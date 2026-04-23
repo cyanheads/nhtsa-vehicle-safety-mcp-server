@@ -61,7 +61,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     offset: z.number().optional().describe('Pagination offset. Default: 0.'),
   }),
   output: z.object({
-    total: z.number().describe('Total matching investigations'),
+    totalCount: z.number().describe('Total matching investigations'),
     message: z
       .string()
       .optional()
@@ -112,14 +112,14 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       investigations = investigations.filter((i) => matchesText(i, query));
     }
 
-    const total = investigations.length;
+    const totalCount = investigations.length;
     const page = investigations.slice(offset, offset + limit);
 
     ctx.log.info('Investigation search', {
       query: input.query,
       make: input.make,
       model: input.model,
-      total,
+      totalCount,
       returned: page.length,
     });
 
@@ -131,14 +131,14 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       input.status ? `status="${input.status}"` : null,
     ].filter((f): f is string => f !== null);
     const message =
-      total === 0
+      totalCount === 0
         ? appliedFilters.length === 0
           ? 'No investigations found. This is unexpected — the investigations dataset should contain thousands of records.'
           : `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter or searching make-only. make/model/query all search subject+description text — try a shorter term.`
         : undefined;
 
     return {
-      total,
+      totalCount,
       ...(message ? { message } : {}),
       investigations: page.map((i) => ({
         nhtsaId: i.nhtsaId,
@@ -157,7 +157,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
   },
 
   format: (result) => {
-    if (result.total === 0) {
+    if (result.totalCount === 0) {
       return [
         {
           type: 'text' as const,
@@ -169,7 +169,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     }
 
     const lines = [
-      `**${result.total} investigation(s) found** (showing ${result.investigations.length})\n`,
+      `**${result.totalCount} investigation(s) found** (showing ${result.investigations.length})\n`,
     ];
     if (result.message) lines.push(`*${result.message}*\n`);
 

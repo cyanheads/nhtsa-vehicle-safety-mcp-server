@@ -62,7 +62,7 @@ describe('searchInvestigations', () => {
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
 
-    expect(result.total).toBe(3);
+    expect(result.totalCount).toBe(3);
     expect(result.investigations).toHaveLength(3);
   });
 
@@ -73,7 +73,7 @@ describe('searchInvestigations', () => {
     const input = searchInvestigations.input.parse({ investigationType: 'PE' });
     const result = await searchInvestigations.handler(input, ctx);
 
-    expect(result.total).toBe(2);
+    expect(result.totalCount).toBe(2);
     expect(result.investigations.every((i) => i.investigationType === 'PE')).toBe(true);
   });
 
@@ -84,7 +84,7 @@ describe('searchInvestigations', () => {
     const input = searchInvestigations.input.parse({ status: 'C' });
     const result = await searchInvestigations.handler(input, ctx);
 
-    expect(result.total).toBe(1);
+    expect(result.totalCount).toBe(1);
     expect(result.investigations[0].nhtsaId).toBe('EA21002');
   });
 
@@ -95,7 +95,7 @@ describe('searchInvestigations', () => {
     const input = searchInvestigations.input.parse({ make: 'Toyota' });
     const result = await searchInvestigations.handler(input, ctx);
 
-    expect(result.total).toBe(1);
+    expect(result.totalCount).toBe(1);
     expect(result.investigations[0].nhtsaId).toBe('PE20001');
   });
 
@@ -106,7 +106,7 @@ describe('searchInvestigations', () => {
     const input = searchInvestigations.input.parse({ query: 'transmission' });
     const result = await searchInvestigations.handler(input, ctx);
 
-    expect(result.total).toBe(1);
+    expect(result.totalCount).toBe(1);
     expect(result.investigations[0].nhtsaId).toBe('PE22003');
   });
 
@@ -117,7 +117,7 @@ describe('searchInvestigations', () => {
     const input = searchInvestigations.input.parse({ limit: 1, offset: 1 });
     const result = await searchInvestigations.handler(input, ctx);
 
-    expect(result.total).toBe(3);
+    expect(result.totalCount).toBe(3);
     expect(result.investigations).toHaveLength(1);
     expect(result.investigations[0].nhtsaId).toBe('EA21002');
   });
@@ -155,7 +155,7 @@ describe('searchInvestigations', () => {
     const parsed = searchInvestigations.output.parse(result);
     const text = searchInvestigations.format!(parsed)[0].text;
 
-    expect(parsed.total).toBe(1);
+    expect(parsed.totalCount).toBe(1);
     expect(parsed.investigations[0].subject).toBeUndefined();
     expect(parsed.investigations[0].statusName).toBeUndefined();
     expect(text).toContain('Unknown ID');
@@ -164,7 +164,7 @@ describe('searchInvestigations', () => {
 
   it('format renders investigation details', () => {
     const output = {
-      total: 1,
+      totalCount: 1,
       investigations: [
         {
           nhtsaId: 'PE20001',
