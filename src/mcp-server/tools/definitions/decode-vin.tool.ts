@@ -40,7 +40,7 @@ const decodedVinSchema = z.object({
 
 export const decodeVin = tool('nhtsa_decode_vin', {
   description:
-    'Decode a Vehicle Identification Number to extract make, model, year, body type, engine, safety equipment, and manufacturing details. Supports single VINs or batch decode (up to 50). Partial VINs accepted — use * for unknown positions.',
+    'Decode a Vehicle Identification Number to extract make, model, year, body type, engine, safety equipment, and manufacturing details. Pass a single 17-character VIN string, or an array of up to 50 VINs for batch decode. Partial VINs accepted — use * for unknown positions.',
   annotations: { readOnlyHint: true },
   input: z.object({
     vin: z
