@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0] - 2026-04-23
+
+### Changed
+
+- **Breaking:** `nhtsa_search_investigations` output field `total` renamed to `totalCount` for naming parity with sibling tools
+- **Breaking:** `nhtsa_lookup_vehicles` output reshaped — `count` and `totalAvailable` dropped in favor of unified `totalCount` + `returned` + `offset` + `limit` across every operation
+- **Breaking:** `nhtsa_lookup_vehicles` `limit`/`offset` now apply to all operations (`makes`, `models`, `vehicle_types`, `manufacturer`) via client-side slicing; previously ignored for operations other than `makes`. Out-of-bounds offsets now return a recovery message uniformly across operations
+- `nhtsa_decode_vin` description clarified — explicit "pass a single VIN string, or an array of up to 50 VINs for batch decode" (was ambiguous about the batch form)
+- Bumped `@cyanheads/mcp-ts-core` to `^0.6.12` (from `^0.5.3`) — adds landing page at `/`, SEP-1649 Server Card at `/.well-known/mcp.json`, new format-parity linter rule, `HtmlExtractor` utility
+- Bumped `@biomejs/biome` to `^2.4.13`, `vitest` to `^4.1.5`
+- `createApp()` now configures `landing.tagline` + `landing.repoRoot` for per-tool view-source links on the hosted deployment
+- Documented `MCP_PUBLIC_URL` env var in `.env.example` for the TLS-proxied hosted deployment
+
+### Added
+
+- `skills/api-linter` and `skills/release-and-publish` — new skills from the framework
+- Refreshed 13 skills from the framework: `add-app-tool` v1.3, `add-prompt` v1.2, `add-resource` v1.3, `add-service` v1.3, `add-tool` v1.8, `api-context` v1.1, `api-services` v1.3, `api-utils` v2.1, `design-mcp-server` v2.7, `field-test` v2.0, `maintenance` v1.4, `polish-docs-meta` v1.7, `setup` v1.5, `report-issue-framework` v1.2, `report-issue-local` v1.2
+
 ## [0.6.1] - 2026-04-20
 
 ### Added
