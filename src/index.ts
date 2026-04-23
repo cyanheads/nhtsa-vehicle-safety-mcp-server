@@ -28,6 +28,11 @@ await createApp({
   ],
   resources: [],
   prompts: [],
+  landing: {
+    tagline:
+      'Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.',
+    repoRoot: 'https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server',
+  },
   setup() {
     initNhtsaService();
   },
