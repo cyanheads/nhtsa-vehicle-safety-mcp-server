@@ -10,33 +10,35 @@ import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 const MAX_BATCH_SIZE = 50;
 
-const decodedVinSchema = z.object({
-  vin: z.string().describe('The decoded VIN'),
-  make: z.string().optional().describe('Vehicle manufacturer when provided by VPIC'),
-  model: z.string().optional().describe('Vehicle model when provided by VPIC'),
-  modelYear: z.string().optional().describe('Model year when provided by VPIC'),
-  bodyClass: z.string().optional().describe('Body class (e.g., "Sedan/Saloon", "SUV")'),
-  vehicleType: z.string().optional().describe('Vehicle type (e.g., "PASSENGER CAR")'),
-  driveType: z.string().optional().describe('Drive type (e.g., "FWD", "AWD")'),
-  engineCylinders: z.string().optional().describe('Number of engine cylinders'),
-  engineDisplacementL: z.string().optional().describe('Engine displacement in liters'),
-  engineHP: z.string().optional().describe('Engine horsepower'),
-  fuelType: z.string().optional().describe('Primary fuel type'),
-  trim: z.string().optional().describe('Trim level'),
-  manufacturer: z.string().optional().describe('Full manufacturer name'),
-  plantCity: z.string().optional().describe('Manufacturing plant city'),
-  plantState: z.string().optional().describe('Manufacturing plant state'),
-  plantCountry: z.string().optional().describe('Manufacturing plant country'),
-  airBagLocFront: z.string().optional().describe('Front airbag locations'),
-  airBagLocSide: z.string().optional().describe('Side airbag locations'),
-  airBagLocCurtain: z.string().optional().describe('Curtain airbag info'),
-  airBagLocKnee: z.string().optional().describe('Knee airbag info'),
-  electronicStabilityControl: z.string().optional().describe('ESC availability'),
-  abs: z.string().optional().describe('ABS availability'),
-  tractionControl: z.string().optional().describe('Traction control availability'),
-  errorCode: z.string().optional().describe('VPIC error code (0 = no error)'),
-  errorText: z.string().optional().describe('VPIC error or warning text'),
-});
+const decodedVinSchema = z
+  .object({
+    vin: z.string().describe('The decoded VIN, echoed back from the request'),
+    make: z.string().optional().describe('Vehicle manufacturer when provided by VPIC'),
+    model: z.string().optional().describe('Vehicle model when provided by VPIC'),
+    modelYear: z.string().optional().describe('Model year when provided by VPIC'),
+    bodyClass: z.string().optional().describe('Body class (e.g., "Sedan/Saloon", "SUV")'),
+    vehicleType: z.string().optional().describe('Vehicle type (e.g., "PASSENGER CAR")'),
+    driveType: z.string().optional().describe('Drive type (e.g., "FWD", "AWD")'),
+    engineCylinders: z.string().optional().describe('Number of engine cylinders'),
+    engineDisplacementL: z.string().optional().describe('Engine displacement in liters'),
+    engineHP: z.string().optional().describe('Engine horsepower'),
+    fuelType: z.string().optional().describe('Primary fuel type'),
+    trim: z.string().optional().describe('Trim level'),
+    manufacturer: z.string().optional().describe('Full manufacturer name'),
+    plantCity: z.string().optional().describe('Manufacturing plant city'),
+    plantState: z.string().optional().describe('Manufacturing plant state'),
+    plantCountry: z.string().optional().describe('Manufacturing plant country'),
+    airBagLocFront: z.string().optional().describe('Front airbag locations'),
+    airBagLocSide: z.string().optional().describe('Side airbag locations'),
+    airBagLocCurtain: z.string().optional().describe('Curtain airbag info'),
+    airBagLocKnee: z.string().optional().describe('Knee airbag info'),
+    electronicStabilityControl: z.string().optional().describe('ESC availability'),
+    abs: z.string().optional().describe('ABS availability'),
+    tractionControl: z.string().optional().describe('Traction control availability'),
+    errorCode: z.string().optional().describe('VPIC error code (0 = no error)'),
+    errorText: z.string().optional().describe('VPIC error or warning text'),
+  })
+  .describe('Decoded details for a single VIN');
 
 export const decodeVin = tool('nhtsa_decode_vin', {
   description:
@@ -44,7 +46,10 @@ export const decodeVin = tool('nhtsa_decode_vin', {
   annotations: { readOnlyHint: true },
   input: z.object({
     vin: z
-      .union([z.string(), z.array(z.string())])
+      .union([
+        z.string().describe('A single VIN string (up to 17 characters, * for unknown positions)'),
+        z.array(z.string()).describe('An array of up to 50 VINs for batch decode'),
+      ])
       .describe(
         'A single 17-character VIN (e.g., "1HGCM82633A004352") or an array of up to 50 VINs for batch decode. Partial VINs accepted — use * for unknown positions.',
       ),

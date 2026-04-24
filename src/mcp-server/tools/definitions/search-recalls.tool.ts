@@ -46,29 +46,34 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
   output: z.object({
     recalls: z
       .array(
-        z.object({
-          campaignNumber: z.string().describe('NHTSA campaign number'),
-          manufacturer: z.string().describe('Vehicle/equipment manufacturer'),
-          component: z.string().optional().describe('Affected component (vehicle-scoped queries)'),
-          subject: z.string().optional().describe('Recall subject (campaign queries)'),
-          summary: z.string().describe('Recall summary'),
-          consequence: z.string().describe('Safety consequence'),
-          remedy: z.string().describe('Corrective action'),
-          reportReceivedDate: z.string().describe('Date received by NHTSA'),
-          potentialUnitsAffected: z
-            .number()
-            .optional()
-            .describe('Units affected (campaign queries)'),
-          parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
-          parkOutSide: z
-            .boolean()
-            .optional()
-            .describe('Park-outside advisory when provided by NHTSA'),
-          overTheAirUpdate: z
-            .boolean()
-            .optional()
-            .describe('OTA update availability when provided by NHTSA'),
-        }),
+        z
+          .object({
+            campaignNumber: z.string().describe('NHTSA campaign number'),
+            manufacturer: z.string().describe('Vehicle/equipment manufacturer'),
+            component: z
+              .string()
+              .optional()
+              .describe('Affected component (vehicle-scoped queries)'),
+            subject: z.string().optional().describe('Recall subject (campaign queries)'),
+            summary: z.string().describe('Recall summary'),
+            consequence: z.string().describe('Safety consequence'),
+            remedy: z.string().describe('Corrective action'),
+            reportReceivedDate: z.string().describe('Date received by NHTSA'),
+            potentialUnitsAffected: z
+              .number()
+              .optional()
+              .describe('Units affected (campaign queries)'),
+            parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
+            parkOutSide: z
+              .boolean()
+              .optional()
+              .describe('Park-outside advisory when provided by NHTSA'),
+            overTheAirUpdate: z
+              .boolean()
+              .optional()
+              .describe('OTA update availability when provided by NHTSA'),
+          })
+          .describe('A single recall campaign'),
       )
       .describe('Matching recall campaigns'),
     totalCount: z.number().describe('Total recalls matching criteria'),

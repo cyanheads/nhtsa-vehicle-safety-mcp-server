@@ -54,30 +54,34 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     limit: z.number().describe('Pagination limit used for this page'),
     componentBreakdown: z
       .array(
-        z.object({
-          component: z.string().describe('Component name'),
-          count: z.number().describe('Number of complaints'),
-          crashCount: z.number().describe('Complaints involving crashes'),
-          fireCount: z.number().describe('Complaints involving fires'),
-          injuryCount: z.number().describe('Total injuries reported'),
-          deathCount: z.number().describe('Total deaths reported'),
-        }),
+        z
+          .object({
+            component: z.string().describe('Component name'),
+            count: z.number().describe('Number of complaints'),
+            crashCount: z.number().describe('Complaints involving crashes'),
+            fireCount: z.number().describe('Complaints involving fires'),
+            injuryCount: z.number().describe('Total injuries reported'),
+            deathCount: z.number().describe('Total deaths reported'),
+          })
+          .describe('Complaint counts for a single component'),
       )
       .describe('Complaints grouped by component, sorted by frequency'),
     complaints: z
       .array(
-        z.object({
-          odiNumber: z.number().optional().describe('NHTSA complaint ID'),
-          dateOfIncident: z.string().optional().describe('Date the incident occurred'),
-          dateComplaintFiled: z.string().optional().describe('Date complaint was filed'),
-          components: z.string().optional().describe('Affected components (comma-separated)'),
-          summary: z.string().optional().describe('Consumer-reported description'),
-          crash: z.boolean().optional().describe('Involved a crash'),
-          fire: z.boolean().optional().describe('Involved a fire'),
-          numberOfInjuries: z.number().optional().describe('Number of injuries'),
-          numberOfDeaths: z.number().optional().describe('Number of deaths'),
-          vin: z.string().optional().describe('VIN prefix (partial)'),
-        }),
+        z
+          .object({
+            odiNumber: z.number().optional().describe('NHTSA complaint ID'),
+            dateOfIncident: z.string().optional().describe('Date the incident occurred'),
+            dateComplaintFiled: z.string().optional().describe('Date complaint was filed'),
+            components: z.string().optional().describe('Affected components (comma-separated)'),
+            summary: z.string().optional().describe('Consumer-reported description'),
+            crash: z.boolean().optional().describe('Involved a crash'),
+            fire: z.boolean().optional().describe('Involved a fire'),
+            numberOfInjuries: z.number().optional().describe('Number of injuries'),
+            numberOfDeaths: z.number().optional().describe('Number of deaths'),
+            vin: z.string().optional().describe('VIN prefix (partial)'),
+          })
+          .describe('A single consumer complaint'),
       )
       .describe('Paginated slice of the most recent complaints, date-descending'),
   }),

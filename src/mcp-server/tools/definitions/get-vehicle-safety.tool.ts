@@ -24,64 +24,76 @@ function formatOverallRating(value?: string): string {
   return Number.isNaN(stars) ? value : `${stars} stars`;
 }
 
-const safetyRatingSchema = z.object({
-  vehicleId: z.number().describe('NCAP vehicle ID for follow-up queries'),
-  vehicleDescription: z.string().optional().describe('Vehicle variant description'),
-  overallRating: z.string().optional().describe('Overall safety rating (1-5 stars or "Not Rated")'),
-  frontalCrash: z
-    .object({
-      overall: z.string().optional().describe('Overall frontal crash rating'),
-      driverSide: z.string().optional().describe('Driver-side frontal crash rating'),
-      passengerSide: z.string().optional().describe('Passenger-side frontal crash rating'),
-    })
-    .describe('Frontal crash test ratings'),
-  sideCrash: z
-    .object({
-      overall: z.string().optional().describe('Overall side crash rating'),
-      driverSide: z.string().optional().describe('Driver-side rating'),
-      passengerSide: z.string().optional().describe('Passenger-side rating'),
-      combinedBarrierPoleFront: z
-        .string()
-        .optional()
-        .describe('Combined barrier/pole front rating'),
-      combinedBarrierPoleRear: z.string().optional().describe('Combined barrier/pole rear rating'),
-      barrierOverall: z.string().optional().describe('Side barrier overall rating'),
-      pole: z.string().optional().describe('Side pole crash rating'),
-    })
-    .describe('Side crash test ratings'),
-  rollover: z
-    .object({
-      rating: z.string().optional().describe('Rollover resistance rating'),
-      probability: z.number().optional().describe('Rollover probability (0-1 scale)'),
-      dynamicTipResult: z.string().optional().describe('Dynamic tip test result'),
-    })
-    .describe('Rollover risk assessment'),
-  adasFeatures: z
-    .object({
-      electronicStabilityControl: z.string().optional().describe('ESC availability'),
-      forwardCollisionWarning: z.string().optional().describe('FCW availability'),
-      laneDepartureWarning: z.string().optional().describe('LDW availability'),
-    })
-    .describe('Advanced driver assistance features'),
-});
+const safetyRatingSchema = z
+  .object({
+    vehicleId: z.number().describe('NCAP vehicle ID for follow-up queries'),
+    vehicleDescription: z.string().optional().describe('Vehicle variant description'),
+    overallRating: z
+      .string()
+      .optional()
+      .describe('Overall safety rating (1-5 stars or "Not Rated")'),
+    frontalCrash: z
+      .object({
+        overall: z.string().optional().describe('Overall frontal crash rating'),
+        driverSide: z.string().optional().describe('Driver-side frontal crash rating'),
+        passengerSide: z.string().optional().describe('Passenger-side frontal crash rating'),
+      })
+      .describe('Frontal crash test ratings'),
+    sideCrash: z
+      .object({
+        overall: z.string().optional().describe('Overall side crash rating'),
+        driverSide: z.string().optional().describe('Driver-side rating'),
+        passengerSide: z.string().optional().describe('Passenger-side rating'),
+        combinedBarrierPoleFront: z
+          .string()
+          .optional()
+          .describe('Combined barrier/pole front rating'),
+        combinedBarrierPoleRear: z
+          .string()
+          .optional()
+          .describe('Combined barrier/pole rear rating'),
+        barrierOverall: z.string().optional().describe('Side barrier overall rating'),
+        pole: z.string().optional().describe('Side pole crash rating'),
+      })
+      .describe('Side crash test ratings'),
+    rollover: z
+      .object({
+        rating: z.string().optional().describe('Rollover resistance rating'),
+        probability: z.number().optional().describe('Rollover probability (0-1 scale)'),
+        dynamicTipResult: z.string().optional().describe('Dynamic tip test result'),
+      })
+      .describe('Rollover risk assessment'),
+    adasFeatures: z
+      .object({
+        electronicStabilityControl: z.string().optional().describe('ESC availability'),
+        forwardCollisionWarning: z.string().optional().describe('FCW availability'),
+        laneDepartureWarning: z.string().optional().describe('LDW availability'),
+      })
+      .describe('Advanced driver assistance features'),
+  })
+  .describe('Safety ratings for a single vehicle variant');
 
-const recallSchema = z.object({
-  campaignNumber: z.string().describe('NHTSA campaign number'),
-  component: z.string().describe('Affected component'),
-  summary: z.string().describe('Recall summary'),
-  remedy: z.string().describe('Corrective action'),
-  reportReceivedDate: z.string().describe('Date recall was reported'),
-  parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
-});
+const recallSchema = z
+  .object({
+    campaignNumber: z.string().describe('NHTSA campaign number'),
+    component: z.string().describe('Affected component'),
+    summary: z.string().describe('Recall summary'),
+    remedy: z.string().describe('Corrective action'),
+    reportReceivedDate: z.string().describe('Date recall was reported'),
+    parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
+  })
+  .describe('A single recall campaign');
 
-const componentBreakdownSchema = z.object({
-  component: z.string().describe('Component name'),
-  count: z.number().describe('Number of complaints'),
-  crashCount: z.number().describe('Complaints involving crashes'),
-  fireCount: z.number().describe('Complaints involving fires'),
-  injuryCount: z.number().describe('Total injuries reported'),
-  deathCount: z.number().describe('Total deaths reported'),
-});
+const componentBreakdownSchema = z
+  .object({
+    component: z.string().describe('Component name'),
+    count: z.number().describe('Number of complaints'),
+    crashCount: z.number().describe('Complaints involving crashes'),
+    fireCount: z.number().describe('Complaints involving fires'),
+    injuryCount: z.number().describe('Total injuries reported'),
+    deathCount: z.number().describe('Total deaths reported'),
+  })
+  .describe('Complaint counts for a single component');
 
 const complaintSummarySchema = z.object({
   totalCount: z.number().describe('Total complaints filed'),

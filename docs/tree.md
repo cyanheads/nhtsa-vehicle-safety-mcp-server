@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-04-23 18:07:30
+Generated on: 2026-04-24 17:12:03
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -18,7 +18,10 @@ nhtsa-vehicle-safety-mcp-server/
 ├── docs/
 │   └── design.md
 ├── scripts/
+│   ├── build-changelog.ts
 │   ├── build.ts
+│   ├── check-docs-sync.ts
+│   ├── check-skills-sync.ts
 │   ├── clean.ts
 │   ├── devcheck.ts
 │   ├── lint-mcp.ts
@@ -84,6 +87,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── report-issue-framework/
 │   │   └── SKILL.md
 │   ├── report-issue-local/
+│   │   └── SKILL.md
+│   ├── security-pass/
 │   │   └── SKILL.md
 │   └── setup/
 │       └── SKILL.md

@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.7.1] - 2026-04-24
+
+### Changed
+
+- Bumped `@cyanheads/mcp-ts-core` to `^0.7.0` (from `^0.6.12`) — adopts flattened ZodError messages, structured `issues` on `McpError.data`, locale-aware `format-parity` numeric matching, directory-based changelog convention, and the recursive `describe-on-fields` linter
+- Added `.describe()` on array-element objects and `z.union()` variants across all 7 tool definitions to satisfy the new recursive `describe-on-fields` linter — no behavioral change, tighter JSON Schema for LLM consumption
+- `CLAUDE.md` / `AGENTS.md` now reference `security-pass` in the "What's Next?" sequence and skills table; added three external-API checklist items covering upstream sparsity, uncertainty preservation in `format()`, and sparse-payload test coverage
+
+### Added
+
+- `skills/security-pass` v1.1 — MCP-flavored security audit skill covering output injection, scope blast radius, destructive ops, upstream auth, input sinks, tenant isolation, leakage, resource bounds, and HTTP deployment surface
+- `scripts/build-changelog.ts`, `scripts/check-docs-sync.ts`, `scripts/check-skills-sync.ts` — framework scripts synced from the package; devcheck now enforces `CLAUDE.md` / `AGENTS.md` byte-parity and `skills/` ↔ agent-mirror parity
+- `.github/ISSUE_TEMPLATE/bug_report.yml` and `feature_request.yml` synced to framework template — scoped package name, auto-assign to `cyanheads`, secondary-labels guidance (`regression`, `performance`, `security`, `breaking-change`)
+
+### Framework skill refresh
+
+- `api-linter` v1.0 → v1.1 (recursion rules, union asymmetry callout)
+- `maintenance` v1.4 → v1.5 (default-adopt tier for framework changes, "Open decisions" rename)
+- `release-and-publish` v2.0 → v2.1 (retry transient network failures, `docker builder prune -f` before retry)
+- `report-issue-framework` v1.2 → v1.3, `report-issue-local` v1.2 → v1.3 (primary/secondary label split, `--assignee @me`)
+
 ## [0.7.0] - 2026-04-23
 
 ### Changed

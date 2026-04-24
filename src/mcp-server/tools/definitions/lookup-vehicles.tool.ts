@@ -61,48 +61,58 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .describe('Contextual guidance populated when the result set is empty'),
     makes: z
       .array(
-        z.object({
-          makeId: z.number().describe('VPIC make ID'),
-          makeName: z.string().describe('Make name'),
-        }),
+        z
+          .object({
+            makeId: z.number().describe('VPIC make ID'),
+            makeName: z.string().describe('Make name'),
+          })
+          .describe('A single make entry'),
       )
       .optional()
       .describe('Results for "makes" operation'),
     models: z
       .array(
-        z.object({
-          modelId: z.number().describe('VPIC model ID'),
-          modelName: z.string().describe('Model name'),
-          makeId: z.number().describe('VPIC make ID'),
-          makeName: z.string().describe('Make name'),
-        }),
+        z
+          .object({
+            modelId: z.number().describe('VPIC model ID'),
+            modelName: z.string().describe('Model name'),
+            makeId: z.number().describe('VPIC make ID'),
+            makeName: z.string().describe('Make name'),
+          })
+          .describe('A single model entry'),
       )
       .optional()
       .describe('Results for "models" operation'),
     vehicleTypes: z
       .array(
-        z.object({
-          vehicleTypeId: z.number().describe('Vehicle type ID'),
-          vehicleTypeName: z.string().describe('Vehicle type name'),
-        }),
+        z
+          .object({
+            vehicleTypeId: z.number().describe('Vehicle type ID'),
+            vehicleTypeName: z.string().describe('Vehicle type name'),
+          })
+          .describe('A single vehicle-type entry'),
       )
       .optional()
       .describe('Results for "vehicle_types" operation'),
     manufacturers: z
       .array(
-        z.object({
-          manufacturerId: z.number().describe('Manufacturer ID'),
-          manufacturerName: z.string().describe('Manufacturer name'),
-          country: z.string().optional().describe('Country of origin when provided'),
-          vehicleTypes: z
-            .array(
-              z.object({
-                id: z.number().optional().describe('Vehicle type ID'),
-                name: z.string().describe('Vehicle type name'),
-              }),
-            )
-            .describe('Vehicle types produced'),
-        }),
+        z
+          .object({
+            manufacturerId: z.number().describe('Manufacturer ID'),
+            manufacturerName: z.string().describe('Manufacturer name'),
+            country: z.string().optional().describe('Country of origin when provided'),
+            vehicleTypes: z
+              .array(
+                z
+                  .object({
+                    id: z.number().optional().describe('Vehicle type ID'),
+                    name: z.string().describe('Vehicle type name'),
+                  })
+                  .describe('A single vehicle-type entry produced by this manufacturer'),
+              )
+              .describe('Vehicle types produced'),
+          })
+          .describe('A single manufacturer entry'),
       )
       .optional()
       .describe('Results for "manufacturer" operation'),

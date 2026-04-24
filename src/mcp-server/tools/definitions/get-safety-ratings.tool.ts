@@ -49,64 +49,66 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
   output: z.object({
     ratings: z
       .array(
-        z.object({
-          vehicleId: z.number().describe('NCAP vehicle ID'),
-          vehicleDescription: z.string().optional().describe('Vehicle variant description'),
-          overallRating: z
-            .string()
-            .optional()
-            .describe('Overall safety rating (1-5 stars or "Not Rated")'),
-          frontalCrash: z
-            .object({
-              overall: z.string().optional().describe('Overall frontal crash rating'),
-              driverSide: z.string().optional().describe('Driver-side rating'),
-              passengerSide: z.string().optional().describe('Passenger-side rating'),
-            })
-            .describe('Frontal crash test results'),
-          sideCrash: z
-            .object({
-              overall: z.string().optional().describe('Overall side crash rating'),
-              driverSide: z.string().optional().describe('Driver-side rating'),
-              passengerSide: z.string().optional().describe('Passenger-side rating'),
-              combinedBarrierPoleFront: z
-                .string()
-                .optional()
-                .describe('Combined barrier/pole front rating'),
-              combinedBarrierPoleRear: z
-                .string()
-                .optional()
-                .describe('Combined barrier/pole rear rating'),
-              barrierOverall: z.string().optional().describe('Side barrier overall rating'),
-              pole: z.string().optional().describe('Side pole crash rating'),
-            })
-            .describe('Side crash test results'),
-          rollover: z
-            .object({
-              rating: z.string().optional().describe('Rollover resistance rating'),
-              probability: z.number().optional().describe('Rollover probability (0-1 scale)'),
-              dynamicTipResult: z.string().optional().describe('Dynamic tip test result'),
-            })
-            .describe('Rollover risk assessment'),
-          adasFeatures: z
-            .object({
-              electronicStabilityControl: z
-                .string()
-                .optional()
-                .describe('"Standard", "Optional", or "Not Available"'),
-              forwardCollisionWarning: z
-                .string()
-                .optional()
-                .describe('Forward collision warning availability'),
-              laneDepartureWarning: z
-                .string()
-                .optional()
-                .describe('Lane departure warning availability'),
-            })
-            .describe('Advanced driver assistance features'),
-          complaintsCount: z.number().optional().describe('Number of complaints on file'),
-          recallsCount: z.number().optional().describe('Number of recalls on file'),
-          investigationCount: z.number().optional().describe('Number of investigations on file'),
-        }),
+        z
+          .object({
+            vehicleId: z.number().describe('NCAP vehicle ID'),
+            vehicleDescription: z.string().optional().describe('Vehicle variant description'),
+            overallRating: z
+              .string()
+              .optional()
+              .describe('Overall safety rating (1-5 stars or "Not Rated")'),
+            frontalCrash: z
+              .object({
+                overall: z.string().optional().describe('Overall frontal crash rating'),
+                driverSide: z.string().optional().describe('Driver-side rating'),
+                passengerSide: z.string().optional().describe('Passenger-side rating'),
+              })
+              .describe('Frontal crash test results'),
+            sideCrash: z
+              .object({
+                overall: z.string().optional().describe('Overall side crash rating'),
+                driverSide: z.string().optional().describe('Driver-side rating'),
+                passengerSide: z.string().optional().describe('Passenger-side rating'),
+                combinedBarrierPoleFront: z
+                  .string()
+                  .optional()
+                  .describe('Combined barrier/pole front rating'),
+                combinedBarrierPoleRear: z
+                  .string()
+                  .optional()
+                  .describe('Combined barrier/pole rear rating'),
+                barrierOverall: z.string().optional().describe('Side barrier overall rating'),
+                pole: z.string().optional().describe('Side pole crash rating'),
+              })
+              .describe('Side crash test results'),
+            rollover: z
+              .object({
+                rating: z.string().optional().describe('Rollover resistance rating'),
+                probability: z.number().optional().describe('Rollover probability (0-1 scale)'),
+                dynamicTipResult: z.string().optional().describe('Dynamic tip test result'),
+              })
+              .describe('Rollover risk assessment'),
+            adasFeatures: z
+              .object({
+                electronicStabilityControl: z
+                  .string()
+                  .optional()
+                  .describe('"Standard", "Optional", or "Not Available"'),
+                forwardCollisionWarning: z
+                  .string()
+                  .optional()
+                  .describe('Forward collision warning availability'),
+                laneDepartureWarning: z
+                  .string()
+                  .optional()
+                  .describe('Lane departure warning availability'),
+              })
+              .describe('Advanced driver assistance features'),
+            complaintsCount: z.number().optional().describe('Number of complaints on file'),
+            recallsCount: z.number().optional().describe('Number of recalls on file'),
+            investigationCount: z.number().optional().describe('Number of investigations on file'),
+          })
+          .describe('Safety ratings for a single vehicle variant'),
       )
       .describe('Safety ratings per vehicle variant'),
     message: z

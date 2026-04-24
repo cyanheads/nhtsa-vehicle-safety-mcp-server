@@ -68,17 +68,22 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .describe('Contextual guidance populated when no investigations match the filters'),
     investigations: z
       .array(
-        z.object({
-          nhtsaId: z.string().optional().describe('NHTSA investigation ID'),
-          investigationType: z.string().optional().describe('Investigation type code'),
-          investigationTypeName: z.string().optional().describe('Investigation type name'),
-          status: z.string().optional().describe('Status code (O=Open, C=Closed)'),
-          statusName: z.string().optional().describe('Status name'),
-          subject: z.string().optional().describe('Investigation subject'),
-          description: z.string().optional().describe('Investigation description (HTML stripped)'),
-          openDate: z.string().optional().describe('Date investigation opened'),
-          latestActivityDate: z.string().optional().describe('Date of latest activity'),
-        }),
+        z
+          .object({
+            nhtsaId: z.string().optional().describe('NHTSA investigation ID'),
+            investigationType: z.string().optional().describe('Investigation type code'),
+            investigationTypeName: z.string().optional().describe('Investigation type name'),
+            status: z.string().optional().describe('Status code (O=Open, C=Closed)'),
+            statusName: z.string().optional().describe('Status name'),
+            subject: z.string().optional().describe('Investigation subject'),
+            description: z
+              .string()
+              .optional()
+              .describe('Investigation description (HTML stripped)'),
+            openDate: z.string().optional().describe('Date investigation opened'),
+            latestActivityDate: z.string().optional().describe('Date of latest activity'),
+          })
+          .describe('A single NHTSA investigation'),
       )
       .describe('Matching investigations'),
   }),
