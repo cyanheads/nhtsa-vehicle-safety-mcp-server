@@ -129,13 +129,13 @@ describe('searchRecalls', () => {
   it('throws when campaign not found', async () => {
     mockService.getRecallCampaign.mockResolvedValue(null);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ campaignNumber: 'ZZZ999999' });
     await expect(searchRecalls.handler(input, ctx)).rejects.toThrow(/no recall found/i);
   });
 
   it('throws when both campaignNumber and vehicle params provided', async () => {
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({
       campaignNumber: '20V682000',
       make: 'Toyota',
@@ -146,7 +146,7 @@ describe('searchRecalls', () => {
   });
 
   it('throws when vehicle params incomplete', async () => {
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ make: 'Toyota' });
     await expect(searchRecalls.handler(input, ctx)).rejects.toThrow(/campaignNumber/i);
   });

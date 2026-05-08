@@ -5,6 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { formatRolloverProbability, formatStars, pluralize } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type {
   Complaint,
@@ -16,12 +17,6 @@ import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
 function formatValue(value?: string): string {
   return value || 'Not available';
-}
-
-function formatOverallRating(value?: string): string {
-  if (!value) return 'Not available';
-  const stars = Number.parseInt(value, 10);
-  return Number.isNaN(stars) ? value : `${stars} stars`;
 }
 
 const safetyRatingSchema = z
@@ -236,24 +231,20 @@ function formatSafetyRatingsSection(result: VehicleSafetyOutput): string[] {
     const label = rating.vehicleDescription
       ? `${rating.vehicleDescription} (vehicleId: ${rating.vehicleId})`
       : `Vehicle ${rating.vehicleId}`;
-    const rolloverProbability =
-      rating.rollover.probability == null
-        ? 'Not available'
-        : `${(rating.rollover.probability * 100).toFixed(1)}%`;
 
     lines.push(`### ${label}`);
-    lines.push(`**Overall:** ${formatOverallRating(rating.overallRating)}`);
+    lines.push(`**Overall:** ${formatStars(rating.overallRating)}`);
     lines.push(
-      `**Frontal Crash:** ${formatValue(rating.frontalCrash.overall)} (Driver: ${formatValue(rating.frontalCrash.driverSide)}, Passenger: ${formatValue(rating.frontalCrash.passengerSide)})`,
+      `**Frontal Crash:** ${formatStars(rating.frontalCrash.overall)} | Driver: ${formatStars(rating.frontalCrash.driverSide)} | Passenger: ${formatStars(rating.frontalCrash.passengerSide)}`,
     );
     lines.push(
-      `**Side Crash:** ${formatValue(rating.sideCrash.overall)} (Driver: ${formatValue(rating.sideCrash.driverSide)}, Passenger: ${formatValue(rating.sideCrash.passengerSide)}, Barrier: ${formatValue(rating.sideCrash.barrierOverall)}, Pole: ${formatValue(rating.sideCrash.pole)}, Combined Front: ${formatValue(rating.sideCrash.combinedBarrierPoleFront)}, Combined Rear: ${formatValue(rating.sideCrash.combinedBarrierPoleRear)})`,
+      `**Side Crash:** ${formatStars(rating.sideCrash.overall)} | Driver: ${formatStars(rating.sideCrash.driverSide)} | Passenger: ${formatStars(rating.sideCrash.passengerSide)} | Barrier: ${formatStars(rating.sideCrash.barrierOverall)} | Pole: ${formatStars(rating.sideCrash.pole)} | Combined Front: ${formatStars(rating.sideCrash.combinedBarrierPoleFront)} | Combined Rear: ${formatStars(rating.sideCrash.combinedBarrierPoleRear)}`,
     );
     lines.push(
-      `**Rollover:** ${formatValue(rating.rollover.rating)} (${rolloverProbability} probability, Tip test: ${formatValue(rating.rollover.dynamicTipResult)})`,
+      `**Rollover:** ${formatStars(rating.rollover.rating)} | Probability: ${formatRolloverProbability(rating.rollover.probability)} | Tip test: ${formatValue(rating.rollover.dynamicTipResult)}`,
     );
     lines.push(
-      `**ADAS:** ESC: ${formatValue(rating.adasFeatures.electronicStabilityControl)}, FCW: ${formatValue(rating.adasFeatures.forwardCollisionWarning)}, LDW: ${formatValue(rating.adasFeatures.laneDepartureWarning)}`,
+      `**ADAS:** ESC: ${formatValue(rating.adasFeatures.electronicStabilityControl)} | Forward Collision Warning: ${formatValue(rating.adasFeatures.forwardCollisionWarning)} | Lane Departure Warning: ${formatValue(rating.adasFeatures.laneDepartureWarning)}`,
     );
     lines.push('');
   }
@@ -311,7 +302,7 @@ function formatComplaintsSection(result: VehicleSafetyOutput): string[] {
   lines.push('**Top Components:**');
   for (const component of summary.componentBreakdown.slice(0, 10)) {
     lines.push(
-      `- ${component.component}: ${component.count} complaints (${component.crashCount} crashes, ${component.fireCount} fires, ${component.injuryCount} injuries, ${component.deathCount} deaths)`,
+      `- ${component.component}: ${component.count} ${pluralize(component.count, 'complaint')} (${component.crashCount} ${pluralize(component.crashCount, 'crash', 'crashes')}, ${component.fireCount} ${pluralize(component.fireCount, 'fire')}, ${component.injuryCount} ${pluralize(component.injuryCount, 'injury', 'injuries')}, ${component.deathCount} ${pluralize(component.deathCount, 'death')})`,
     );
   }
 

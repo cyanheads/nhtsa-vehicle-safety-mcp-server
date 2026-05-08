@@ -101,19 +101,19 @@ describe('lookupVehicles', () => {
   });
 
   it('"models" throws when make missing', async () => {
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'models' });
     await expect(lookupVehicles.handler(input, ctx)).rejects.toThrow(/make.*required/i);
   });
 
   it('"vehicle_types" throws when make missing', async () => {
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'vehicle_types' });
     await expect(lookupVehicles.handler(input, ctx)).rejects.toThrow(/make.*required/i);
   });
 
   it('"manufacturer" throws when manufacturer param missing', async () => {
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'manufacturer' });
     await expect(lookupVehicles.handler(input, ctx)).rejects.toThrow(/manufacturer.*required/i);
   });

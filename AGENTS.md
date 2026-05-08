@@ -1,8 +1,9 @@
 # Agent Protocol
 
 **Server:** nhtsa-vehicle-safety-mcp-server
-**Version:** 0.7.1
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core)
+**Version:** 0.7.2
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.8.19`
+**Engines:** Bun ≥1.3.0, Node ≥24.0.0
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
 
@@ -29,7 +30,7 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 
 ## Core Rules
 
-- **Logic throws, framework catches.** Tool/resource handlers are pure — throw on failure, no `try/catch`. Plain `Error` is fine; the framework catches, classifies, and formats. Use error factories (`notFound()`, `validationError()`, etc.) when the error code matters.
+- **Logic throws, framework catches.** Tool/resource handlers are pure — throw on failure, no `try/catch`. Prefer `ctx.fail(reason, ...)` against a declared `errors[]` contract; fall back to error factories (`notFound()`, `validationError()`) or plain `Error` when no contract entry fits.
 - **Use `ctx.log`** for request-scoped logging. No `console` calls.
 - **Use `ctx.state`** for tenant-scoped storage. Never access persistence directly.
 - **Check `ctx.elicit` / `ctx.sample`** for presence before calling.
@@ -43,6 +44,7 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 
 ```ts
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 
 export const nhtsaSearchRecalls = tool('nhtsa_search_recalls', {
   description: 'Search recall campaigns by vehicle or campaign number.',
@@ -59,18 +61,29 @@ export const nhtsaSearchRecalls = tool('nhtsa_search_recalls', {
       summary: z.string().describe('Recall summary'),
     })).describe('Matching recalls'),
   }),
+  errors: [
+    {
+      reason: 'no_match',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'No recall matches the supplied vehicle.',
+      recovery: 'Verify make/model/modelYear with nhtsa_lookup_vehicles and retry.',
+    },
+  ],
 
   async handler(input, ctx) {
     const recalls = await getNhtsaService().getRecallsByVehicle(input);
     ctx.log.info('Recalls fetched', { ...input, count: recalls.length });
+    if (recalls.length === 0) {
+      throw ctx.fail('no_match', 'No recalls found.', { ...ctx.recoveryFor('no_match') });
+    }
     return { recalls };
   },
 
   format: (result) => [{
     type: 'text',
-    text: result.recalls.map(r =>
-      `**${r.campaignNumber}** — ${r.component}\n${r.summary}`
-    ).join('\n\n') || 'No recalls found.',
+    text: result.recalls
+      .map(r => `**${r.campaignNumber}** — ${r.component}\n${r.summary}`)
+      .join('\n\n'),
   }],
 });
 ```
@@ -94,24 +107,39 @@ Handlers receive a unified `ctx` object. Key properties:
 
 ## Errors
 
-Handlers throw — the framework catches, classifies, and formats. Three escalation levels:
+Handlers throw — the framework catches, classifies, and formats.
+
+**Recommended: typed error contract.** Declare `errors: [{ reason, code, when, recovery, retryable? }]` on the tool/resource. The handler then receives `ctx.fail(reason, msg?, data?)` typed against the reason union — `ctx.fail('typo')` is a TS error. The runtime auto-populates `data.reason` and the linter enforces conformance. The `recovery` string is required (≥5 words) and acts as the contract's recovery hint; spread `ctx.recoveryFor('reason')` into `data` to mirror it onto the wire (the framework injects `data.recovery.hint` into `content[]` text). Override with `{ recovery: { hint: '...' } }` when runtime context matters.
 
 ```ts
-// 1. Plain Error — framework auto-classifies from message patterns
-throw new Error('Item not found');           // → NotFound
-throw new Error('Invalid query format');     // → ValidationError
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 
-// 2. Error factories — explicit code, concise
-import { notFound, validationError, forbidden, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
-throw notFound('Item not found', { itemId });
-throw serviceUnavailable('API unavailable', { url }, { cause: err });
-
-// 3. McpError — full control over code and data
-import { McpError, JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-throw new McpError(JsonRpcErrorCode.DatabaseError, 'Connection failed', { pool: 'primary' });
+errors: [
+  { reason: 'campaign_not_found', code: JsonRpcErrorCode.NotFound,
+    when: 'The campaignNumber did not match any NHTSA recall.',
+    recovery: 'Verify the campaign number format like 24V744000, or query by vehicle.' },
+],
+async handler(input, ctx) {
+  const campaign = await svc.getRecallCampaign(input.campaignNumber, ctx.signal);
+  if (!campaign) {
+    throw ctx.fail('campaign_not_found', `No recall found for "${input.campaignNumber}".`,
+      { ...ctx.recoveryFor('campaign_not_found') });
+  }
+}
 ```
 
-Plain `Error` is fine for most cases. Use factories when the error code matters. See framework CLAUDE.md for the full auto-classification table and all available factories.
+**Fallback (no contract entry fits or simple validation):** error factories or plain `Error`.
+
+```ts
+import { notFound, validationError, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
+throw notFound('Item not found', { itemId });
+throw serviceUnavailable('API unavailable', { url }, { cause: err });
+throw new Error('Item not found');           // → auto-classified to NotFound
+```
+
+For HTTP errors from upstream APIs, use `httpErrorFromResponse(response, { service, data })` from `@cyanheads/mcp-ts-core/utils` — captures status, body, and `Retry-After` automatically.
+
+Baseline codes (`InternalError`, `ServiceUnavailable`, `Timeout`, `ValidationError`, `SerializationError`) bubble freely without contract entries. See framework CLAUDE.md for the auto-classification table and `api-errors` skill for full patterns.
 
 ---
 
@@ -166,13 +194,17 @@ Available skills:
 | `maintenance` | Investigate changelogs, adopt upstream changes, sync skills to agent dirs |
 | `report-issue-framework` | File a bug or feature request against `@cyanheads/mcp-ts-core` via `gh` CLI |
 | `report-issue-local` | File a bug or feature request against this server's own repo via `gh` CLI |
+| `tool-defs-analysis` | Read-only audit of definition language across tools/resources/prompts |
 | `api-auth` | Auth modes, scopes, JWT/OAuth |
+| `api-canvas` | DataCanvas (Tier 3) — SQL/analytical workspace, opt-in |
 | `api-config` | AppConfig, parseConfig, env vars |
-| `api-context` | Context interface, logger, state, progress |
-| `api-errors` | McpError, JsonRpcErrorCode, error patterns |
+| `api-context` | Context interface, logger, state, progress, sessionId, recoveryFor |
+| `api-errors` | McpError, JsonRpcErrorCode, typed error contracts, factories |
+| `api-linter` | MCP definition lint rules reference |
 | `api-services` | LLM, Speech, Graph services |
+| `api-telemetry` | OTel catalog: spans, metrics, completion logs, env config |
 | `api-testing` | createMockContext, test patterns |
-| `api-utils` | Formatting, parsing, security, pagination, scheduling |
+| `api-utils` | Formatting, parsing, security, pagination, scheduling, telemetry helpers |
 | `api-workers` | Cloudflare Workers runtime |
 
 When you complete a skill's checklist, check the boxes and add a completion timestamp at the end (e.g., `Completed: 2026-03-11`).
@@ -191,10 +223,8 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run format` | Auto-fix formatting |
 | `bun run lint:mcp` | Validate MCP tool/resource definitions |
 | `bun run test` | Run tests |
-| `bun run dev:stdio` | Dev mode (stdio) |
-| `bun run dev:http` | Dev mode (HTTP) |
-| `bun run start:stdio` | Production mode (stdio) |
-| `bun run start:http` | Production mode (HTTP) |
+| `bun run start:stdio` | Production mode (stdio, after build) |
+| `bun run start:http` | Production mode (HTTP, after build) |
 
 ---
 

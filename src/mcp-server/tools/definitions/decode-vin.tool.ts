@@ -5,7 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { validationError } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 const MAX_BATCH_SIZE = 50;
@@ -61,6 +61,20 @@ export const decodeVin = tool('nhtsa_decode_vin', {
   output: z.object({
     vehicles: z.array(decodedVinSchema).describe('Decoded vehicle information per VIN'),
   }),
+  errors: [
+    {
+      reason: 'empty_vin_list',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'No non-empty VIN strings supplied.',
+      recovery: 'Provide at least one non-empty VIN string.',
+    },
+    {
+      reason: 'batch_too_large',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'VIN array exceeds the batch limit.',
+      recovery: `Split the VIN list into batches of ${MAX_BATCH_SIZE} or fewer.`,
+    },
+  ],
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
@@ -68,12 +82,16 @@ export const decodeVin = tool('nhtsa_decode_vin', {
 
     const nonEmpty = vins.filter((v) => v.trim().length > 0);
     if (nonEmpty.length === 0) {
-      throw validationError('At least one non-empty VIN is required.');
+      throw ctx.fail('empty_vin_list', 'At least one non-empty VIN is required.', {
+        ...ctx.recoveryFor('empty_vin_list'),
+      });
     }
 
     if (nonEmpty.length > MAX_BATCH_SIZE) {
-      throw validationError(
+      throw ctx.fail(
+        'batch_too_large',
         `Maximum ${MAX_BATCH_SIZE} VINs per batch. Received ${nonEmpty.length}.`,
+        { ...ctx.recoveryFor('batch_too_large') },
       );
     }
 

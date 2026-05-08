@@ -84,7 +84,7 @@ describe('getSafetyRatings', () => {
   });
 
   it('rejects incomplete vehicle lookup input when vehicleId is omitted', async () => {
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: getSafetyRatings.errors });
     const input = getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry' });
 
     await expect(getSafetyRatings.handler(input, ctx)).rejects.toThrow(

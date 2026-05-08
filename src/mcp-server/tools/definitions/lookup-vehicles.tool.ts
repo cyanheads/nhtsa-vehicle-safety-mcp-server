@@ -5,7 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { validationError } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 const DEFAULT_LIMIT = 100;
@@ -117,6 +117,14 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .optional()
       .describe('Results for "manufacturer" operation'),
   }),
+  errors: [
+    {
+      reason: 'missing_operation_arg',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'A required argument for the chosen operation was not provided.',
+      recovery: 'Supply the argument required by the operation: make, or manufacturer.',
+    },
+  ],
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
@@ -154,7 +162,11 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
       case 'models': {
         if (!input.make) {
-          throw validationError('"make" is required for the "models" operation.');
+          throw ctx.fail(
+            'missing_operation_arg',
+            '"make" is required for the "models" operation.',
+            { ...ctx.recoveryFor('missing_operation_arg') },
+          );
         }
         const all = await svc.getModels(input.make, input.modelYear, ctx.signal);
         const slice = all.slice(offset, offset + limit);
@@ -189,7 +201,11 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
       case 'vehicle_types': {
         if (!input.make) {
-          throw validationError('"make" is required for the "vehicle_types" operation.');
+          throw ctx.fail(
+            'missing_operation_arg',
+            '"make" is required for the "vehicle_types" operation.',
+            { ...ctx.recoveryFor('missing_operation_arg') },
+          );
         }
         const all = await svc.getVehicleTypes(input.make, ctx.signal);
         const slice = all.slice(offset, offset + limit);
@@ -222,7 +238,11 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
       case 'manufacturer': {
         if (!input.manufacturer) {
-          throw validationError('"manufacturer" is required for the "manufacturer" operation.');
+          throw ctx.fail(
+            'missing_operation_arg',
+            '"manufacturer" is required for the "manufacturer" operation.',
+            { ...ctx.recoveryFor('missing_operation_arg') },
+          );
         }
         const all = await svc.getManufacturer(input.manufacturer, ctx.signal);
         const slice = all.slice(offset, offset + limit);

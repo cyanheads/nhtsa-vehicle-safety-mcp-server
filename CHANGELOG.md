@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.2] - 2026-05-08
+
+### Changed
+
+- Bumped `@cyanheads/mcp-ts-core` `^0.7.0 → ^0.8.19` — adopts typed error contracts (`errors[]` + `ctx.fail`), `httpErrorFromResponse` upstream-error helper, framework-antipattern linter, and refreshed skill set
+- Bumped engines: Node `>=22.0.0 → >=24.0.0`; `@biomejs/biome ^2.4.13 → ^2.4.14`, `@types/node ^25.6.0 → ^25.6.2`, `tsc-alias ^1.8.16 → ^1.8.17`
+- Pinned Docker base image to `oven/bun:1.3` (was `oven/bun:1`) for reproducible builds
+- Converted six tool handlers (`nhtsa_decode_vin`, `nhtsa_get_safety_ratings`, `nhtsa_lookup_vehicles`, `nhtsa_search_recalls`, plus shared paths) to typed `errors[]` contracts with `ctx.fail(reason, ...)` — every failure mode now declares `when` + `recovery` so LLM callers receive a deterministic remediation hint
+- `NhtsaService` now wraps upstream HTTP failures with `httpErrorFromResponse` — captures status, body, and `Retry-After` automatically; HTTP 400 responses now throw a `validationError` with structured `{ endpoint, status }` data instead of a bare `Error`
+- `nhtsa_get_safety_ratings` `complaintsCount` / `recallsCount` / `investigationCount` field descriptions now flag the variant scope and point callers at `nhtsa_search_complaints` / `nhtsa_search_recalls` / `nhtsa_search_investigations` for vehicle-level totals; rendered output mirrors the same disambiguation
+- Complaint and recall renderers now pluralize counts (`1 crash` vs `2 crashes`, `1 injury` vs `2 injuries`) via a shared `pluralize` helper
+- Dropped unused `dev:stdio` / `dev:http` scripts from `package.json`
+
+### Added
+
+- `src/services/nhtsa/format.ts` — shared `formatStars`, `formatRolloverProbability`, and `pluralize` helpers; `nhtsa_get_safety_ratings` and `nhtsa_get_vehicle_safety` now share a single rendering convention for stars and rollover probability
+- `scripts/check-framework-antipatterns.ts` and `scripts/split-changelog.ts` — synced from the framework; devcheck now scans for framework antipatterns alongside lint/format/typecheck
+- `skills/api-canvas`, `skills/api-telemetry`, `skills/tool-defs-analysis` — new skills synced from the framework
+
+### Framework skill refresh
+
+- `add-service`, `add-tool`, `api-config`, `api-context`, `api-errors`, `api-linter`, `api-utils`, `api-workers`, `design-mcp-server`, `field-test`, `maintenance`, `release-and-publish`, `report-issue-framework`, `report-issue-local`, `security-pass`, `setup` re-synced from `@cyanheads/mcp-ts-core` 0.8.19
+
 ## [0.7.1] - 2026-04-24
 
 ### Changed

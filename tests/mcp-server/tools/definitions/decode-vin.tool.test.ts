@@ -98,7 +98,7 @@ describe('decodeVin', () => {
   });
 
   it('throws on >50 VINs', async () => {
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: Array.from({ length: 51 }, (_, i) => `VIN${i}`) });
     await expect(decodeVin.handler(input, ctx)).rejects.toThrow(/50/);
   });

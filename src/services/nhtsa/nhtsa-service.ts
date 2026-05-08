@@ -6,6 +6,9 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { validationError } from '@cyanheads/mcp-ts-core/errors';
+import { httpErrorFromResponse } from '@cyanheads/mcp-ts-core/utils';
+
 import type {
   Complaint,
   DecodedVin,
@@ -136,15 +139,16 @@ export class NhtsaService {
         }
       }
       if (res.status === 429 || res.status >= 500) {
-        lastError = new Error(`NHTSA API returned ${res.status} for ${endpoint}`);
+        lastError = await httpErrorFromResponse(res, { service: 'NHTSA', data: { endpoint } });
         continue;
       }
       if (res.status === 400) {
-        throw new Error(
+        throw validationError(
           `NHTSA API returned no data for this request (HTTP 400). The vehicle may not exist in NHTSA's database — verify make/model spelling with nhtsa_lookup_vehicles.`,
+          { endpoint, status: 400 },
         );
       }
-      throw new Error(`NHTSA API returned ${res.status} for ${endpoint}`);
+      throw await httpErrorFromResponse(res, { service: 'NHTSA', data: { endpoint } });
     }
     throw lastError ?? new Error(`NHTSA API request failed after ${MAX_RETRIES} retries`);
   }

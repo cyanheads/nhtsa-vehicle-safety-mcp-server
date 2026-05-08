@@ -5,16 +5,10 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { validationError } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { formatRolloverProbability, formatStars } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { SafetyRating } from '@/services/nhtsa/types.js';
-
-function formatStars(rating?: string): string {
-  if (!rating) return 'Not available';
-  const n = Number.parseInt(rating, 10);
-  if (Number.isNaN(n)) return rating;
-  return `${'★'.repeat(n)}${'☆'.repeat(Math.max(0, 5 - n))} (${n}/5)`;
-}
 
 function formatCount(count: number | undefined): string {
   return count == null ? 'N/A' : String(count);
@@ -104,9 +98,24 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
                   .describe('Lane departure warning availability'),
               })
               .describe('Advanced driver assistance features'),
-            complaintsCount: z.number().optional().describe('Number of complaints on file'),
-            recallsCount: z.number().optional().describe('Number of recalls on file'),
-            investigationCount: z.number().optional().describe('Number of investigations on file'),
+            complaintsCount: z
+              .number()
+              .optional()
+              .describe(
+                'Complaints linked by NHTSA to this specific NCAP record. Variant-scoped — for vehicle-level totals call nhtsa_search_complaints.',
+              ),
+            recallsCount: z
+              .number()
+              .optional()
+              .describe(
+                'Recalls linked by NHTSA to this specific NCAP record. Variant-scoped — for vehicle-level totals call nhtsa_search_recalls.',
+              ),
+            investigationCount: z
+              .number()
+              .optional()
+              .describe(
+                'Investigations linked by NHTSA to this specific NCAP record. Variant-scoped — for vehicle-level totals call nhtsa_search_investigations.',
+              ),
           })
           .describe('Safety ratings for a single vehicle variant'),
       )
@@ -116,6 +125,14 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       .optional()
       .describe('Contextual guidance populated when no ratings are returned'),
   }),
+  errors: [
+    {
+      reason: 'missing_required_combo',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'Neither vehicleId nor a complete vehicle triple was supplied.',
+      recovery: 'Provide vehicleId, or all of make, model, and modelYear.',
+    },
+  ],
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
@@ -131,8 +148,10 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       }
     } else {
       if (!input.make || !input.model || input.modelYear == null) {
-        throw validationError(
+        throw ctx.fail(
+          'missing_required_combo',
           'Provide either vehicleId, or make + model + modelYear to look up NCAP safety ratings.',
+          { ...ctx.recoveryFor('missing_required_combo') },
         );
       }
       const variants = await svc.getSafetyRatingVariants(
@@ -178,11 +197,6 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       const label = r.vehicleDescription
         ? `${r.vehicleDescription} (vehicleId: ${r.vehicleId})`
         : `Vehicle ${r.vehicleId}`;
-      const rolloverProbability =
-        r.rollover.probability == null
-          ? 'Not available'
-          : `${(r.rollover.probability * 100).toFixed(1)}%`;
-
       lines.push(`## ${label}\n`);
       lines.push(`**Overall:** ${formatStars(r.overallRating)}\n`);
 
@@ -207,7 +221,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       lines.push('### Rollover');
       lines.push(`Rating: ${formatStars(r.rollover.rating)}`);
       lines.push(
-        `Probability: ${rolloverProbability} | Tip test: ${r.rollover.dynamicTipResult || 'Not available'}\n`,
+        `Probability: ${formatRolloverProbability(r.rollover.probability)} | Tip test: ${r.rollover.dynamicTipResult || 'Not available'}\n`,
       );
 
       lines.push('### ADAS Features');
@@ -220,7 +234,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       );
 
       lines.push(
-        `*Complaints: ${formatCount(r.complaintsCount)} | Recalls: ${formatCount(r.recallsCount)} | Investigations: ${formatCount(r.investigationCount)}*\n`,
+        `*Linked to this NCAP record only — Complaints: ${formatCount(r.complaintsCount)} | Recalls: ${formatCount(r.recallsCount)} | Investigations: ${formatCount(r.investigationCount)}. Use nhtsa_search_complaints / nhtsa_search_recalls / nhtsa_search_investigations for vehicle-level totals.*\n`,
       );
     }
 

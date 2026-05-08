@@ -5,7 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { notFound, validationError } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 export const searchRecalls = tool('nhtsa_search_recalls', {
@@ -78,12 +78,42 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       .describe('Matching recall campaigns'),
     totalCount: z.number().describe('Total recalls matching criteria'),
   }),
+  errors: [
+    {
+      reason: 'mode_conflict',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'Both campaignNumber and vehicle params were provided.',
+      recovery: 'Use either campaignNumber or make + model + modelYear, not both.',
+    },
+    {
+      reason: 'missing_required_combo',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'Neither campaignNumber nor a complete vehicle triple was supplied.',
+      recovery: 'Provide a campaignNumber, or all of make, model, and modelYear.',
+    },
+    {
+      reason: 'campaign_not_found',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'The campaignNumber did not match any NHTSA recall.',
+      recovery: 'Verify the campaign number format like 24V744000, or query by vehicle.',
+    },
+    {
+      reason: 'invalid_date',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A dateRange bound could not be parsed as a date.',
+      recovery: 'Use ISO 8601 date format such as 2025-01-01 in dateRange bounds.',
+    },
+  ],
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
 
     if (input.campaignNumber && (input.make || input.model || input.modelYear)) {
-      throw validationError('Provide either campaignNumber OR make/model/modelYear, not both.');
+      throw ctx.fail(
+        'mode_conflict',
+        'Provide either campaignNumber OR make/model/modelYear, not both.',
+        { ...ctx.recoveryFor('mode_conflict') },
+      );
     }
 
     // Campaign number lookup
@@ -92,8 +122,10 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       ctx.log.info('Campaign lookup', { campaignNumber: input.campaignNumber, found: !!campaign });
 
       if (!campaign) {
-        throw notFound(
+        throw ctx.fail(
+          'campaign_not_found',
           `No recall found for campaign "${input.campaignNumber}". Verify the campaign number format (e.g., "24V744000").`,
+          { ...ctx.recoveryFor('campaign_not_found') },
         );
       }
 
@@ -121,8 +153,10 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
 
     // Vehicle-scoped lookup
     if (!input.make || !input.model || input.modelYear == null) {
-      throw validationError(
+      throw ctx.fail(
+        'missing_required_combo',
         'Provide either campaignNumber for a specific recall, or make + model + modelYear for vehicle recalls.',
+        { ...ctx.recoveryFor('missing_required_combo') },
       );
     }
 
@@ -146,8 +180,10 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       const after = input.dateRange.after ? new Date(input.dateRange.after).getTime() : 0;
       const before = input.dateRange.before ? new Date(input.dateRange.before).getTime() : Infinity;
       if (Number.isNaN(after) || Number.isNaN(before)) {
-        throw validationError(
+        throw ctx.fail(
+          'invalid_date',
           `Invalid date in dateRange: after=${input.dateRange.after ?? '(none)'}, before=${input.dateRange.before ?? '(none)'}. Use ISO 8601 format (e.g., "2025-01-01").`,
+          { ...ctx.recoveryFor('invalid_date') },
         );
       }
       recalls = recalls.filter((r) => {

@@ -5,6 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { pluralize } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
@@ -150,14 +151,18 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     lines.push('## Component Breakdown\n');
     for (const b of result.componentBreakdown) {
       const flags = [
-        b.crashCount > 0 ? `${b.crashCount} crashes` : '',
-        b.fireCount > 0 ? `${b.fireCount} fires` : '',
-        b.injuryCount > 0 ? `${b.injuryCount} injuries` : '',
-        b.deathCount > 0 ? `${b.deathCount} deaths` : '',
+        b.crashCount > 0 ? `${b.crashCount} ${pluralize(b.crashCount, 'crash', 'crashes')}` : '',
+        b.fireCount > 0 ? `${b.fireCount} ${pluralize(b.fireCount, 'fire')}` : '',
+        b.injuryCount > 0
+          ? `${b.injuryCount} ${pluralize(b.injuryCount, 'injury', 'injuries')}`
+          : '',
+        b.deathCount > 0 ? `${b.deathCount} ${pluralize(b.deathCount, 'death')}` : '',
       ]
         .filter(Boolean)
         .join(', ');
-      lines.push(`- **${b.component}:** ${b.count} complaints${flags ? ` (${flags})` : ''}`);
+      lines.push(
+        `- **${b.component}:** ${b.count} ${pluralize(b.count, 'complaint')}${flags ? ` (${flags})` : ''}`,
+      );
     }
 
     lines.push(
@@ -170,8 +175,10 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       const flags: string[] = [];
       if (c.crash) flags.push('CRASH');
       if (c.fire) flags.push('FIRE');
-      if ((c.numberOfInjuries ?? 0) > 0) flags.push(`${c.numberOfInjuries} injuries`);
-      if ((c.numberOfDeaths ?? 0) > 0) flags.push(`${c.numberOfDeaths} deaths`);
+      const injuries = c.numberOfInjuries ?? 0;
+      const deaths = c.numberOfDeaths ?? 0;
+      if (injuries > 0) flags.push(`${injuries} ${pluralize(injuries, 'injury', 'injuries')}`);
+      if (deaths > 0) flags.push(`${deaths} ${pluralize(deaths, 'death')}`);
       const flagStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
 
       lines.push(

@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-04-24 17:12:03
+Generated on: 2026-05-08 12:57:58
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -21,10 +21,12 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── build-changelog.ts
 │   ├── build.ts
 │   ├── check-docs-sync.ts
+│   ├── check-framework-antipatterns.ts
 │   ├── check-skills-sync.ts
 │   ├── clean.ts
 │   ├── devcheck.ts
 │   ├── lint-mcp.ts
+│   ├── split-changelog.ts
 │   └── tree.ts
 ├── skills/
 │   ├── add-app-tool/
@@ -41,6 +43,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   │   └── SKILL.md
 │   ├── api-auth/
 │   │   └── SKILL.md
+│   ├── api-canvas/
+│   │   └── SKILL.md
 │   ├── api-config/
 │   │   └── SKILL.md
 │   ├── api-context/
@@ -54,6 +58,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   │   │   ├── graph.md
 │   │   │   ├── llm.md
 │   │   │   └── speech.md
+│   │   └── SKILL.md
+│   ├── api-telemetry/
 │   │   └── SKILL.md
 │   ├── api-testing/
 │   │   └── SKILL.md
@@ -90,7 +96,9 @@ nhtsa-vehicle-safety-mcp-server/
 │   │   └── SKILL.md
 │   ├── security-pass/
 │   │   └── SKILL.md
-│   └── setup/
+│   ├── setup/
+│   │   └── SKILL.md
+│   └── tool-defs-analysis/
 │       └── SKILL.md
 ├── src/
 │   ├── mcp-server/
@@ -106,6 +114,7 @@ nhtsa-vehicle-safety-mcp-server/
 │   │           └── search-recalls.tool.ts
 │   ├── services/
 │   │   └── nhtsa/
+│   │       ├── format.ts
 │   │       ├── nhtsa-service.ts
 │   │       └── types.ts
 │   └── index.ts
