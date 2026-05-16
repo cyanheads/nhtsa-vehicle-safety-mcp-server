@@ -591,21 +591,17 @@ const ALL_CHECKS: Check[] = [
       const output = result.stdout.trim();
       if (result.exitCode !== 0 && !output.includes('|')) return false;
 
-      // Parse the tabular output. Package lines contain '|' separators.
-      // Filter out header/separator rows and allowlisted packages.
-      const lines = output.split('\n');
-      const packageLines = lines.filter((line) => {
-        if (!line.includes('|')) return false;
+      // Parse the tabular output. `bun outdated` emits markdown-style rows
+      // (`| col1 | col2 | ... |`), so split('|') yields an empty leading cell —
+      // package data starts at index [1]. Strip the trailing `(dev|peer|prod|optional)`
+      // workspace-type marker so the allowlist takes the bare package name.
+      const unexpected = output.split('\n').flatMap((line) => {
+        if (!line.includes('|')) return [];
+        const firstCell = line.split('|')[1]?.trim();
         // Skip table chrome: header row and separator (e.g., "---")
-        const firstCell = line.split('|')[0]?.trim() ?? '';
-        if (!firstCell || firstCell === 'Package' || /^-+$/.test(firstCell)) return false;
-        return true;
-      });
-
-      // Check if every outdated package is in the allowlist
-      const unexpected = packageLines.filter((line) => {
-        const pkgName = line.split('|')[0]?.trim() ?? '';
-        return !OUTDATED_ALLOWLIST.has(pkgName);
+        if (!firstCell || firstCell === 'Package' || /^-+$/.test(firstCell)) return [];
+        const pkgName = firstCell.replace(/\s*\((?:dev|peer|prod|optional)\)$/, '');
+        return OUTDATED_ALLOWLIST.has(pkgName) ? [] : [pkgName];
       });
 
       return unexpected.length === 0;

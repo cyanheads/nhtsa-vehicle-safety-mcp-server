@@ -28,6 +28,8 @@ await createApp({
   ],
   resources: [],
   prompts: [],
+  instructions:
+    "Use the nhtsa_* tools for U.S. vehicle safety data: recalls, complaints, NCAP crash ratings, defect investigations, and VIN decoding. nhtsa_get_vehicle_safety is the default for general 'is this car safe?' questions; nhtsa_lookup_vehicles confirms make/model spelling first.",
   landing: {
     tagline:
       'Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.',

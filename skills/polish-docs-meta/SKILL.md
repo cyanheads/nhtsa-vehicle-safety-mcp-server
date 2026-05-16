@@ -4,7 +4,7 @@ description: >
   Finalize documentation and project metadata for a ship-ready MCP server. Use after implementation is complete, tests pass, and devcheck is clean. Safe to run at any stage — each step checks current state and only acts on what still needs work.
 metadata:
   author: cyanheads
-  version: "1.7"
+  version: "1.8"
   audience: external
   type: workflow
 ---
@@ -18,6 +18,8 @@ metadata:
 - Re-running after adding/removing tools, resources, or other surface area changes
 
 Prefer running after implementation is complete, but safe to re-run at any point — steps are idempotent.
+
+**Companion:** pair with `security-pass` for a full pre-ship review — this skill polishes docs and metadata; `security-pass` audits handlers for MCP-specific security gaps.
 
 ## Prerequisites
 
@@ -52,7 +54,7 @@ The bold header tagline (the `<b>` text inside the first `<p>`) must match the `
 
 ### 3. Agent Protocol (CLAUDE.md / AGENTS.md)
 
-Update the project's agent protocol file to reflect the actual server.
+Update the project's agent protocol file to reflect the actual server. Scope is the project-root `CLAUDE.md` / `AGENTS.md` only — **do not edit `skills/*/SKILL.md` or their `references/` files**. Those are external skill files synced from `@cyanheads/mcp-ts-core` and get overwritten on the next `maintenance` refresh.
 
 Read `references/agent-protocol.md` for the full update checklist, then review the current file and address what's stale or missing:
 
@@ -142,7 +144,7 @@ Per-version file format:
 
 ```markdown
 ---
-summary: One-line headline for the rollup index — ≤250 chars, no markdown
+summary: One-line headline for the rollup index — ≤350 chars, no markdown
 breaking: false
 ---
 

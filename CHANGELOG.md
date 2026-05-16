@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.3] - 2026-05-16
+
+### Added
+
+- Server-level `instructions` text on `createApp()` ([mcp-ts-core #91](https://github.com/cyanheads/mcp-ts-core/issues/91)) — surfaces on every `initialize` response so spec-compliant clients can forward NHTSA tool orientation to the model as session-level system context, instead of duplicating that hint across every tool description
+
+### Changed
+
+- Bumped `@cyanheads/mcp-ts-core` `^0.8.19 → ^0.9.1` — adopts the new `instructions` field, definition linting moves to build-time only (faster cold starts; new lint rules are additive), `schema-format-portability` lint family, RFC 8414 §3 path-suffixed well-known mount, SSRF DNS validation enforced in Workers, IPv6 SSRF blocklist coverage, tenant-id boundary validation in `FileSystemProvider`, bounded `mcp.rate_limit.rejections_total` label cardinality
+- Bumped `@biomejs/biome` `^2.4.14 → ^2.4.15`, `@types/node` `^25.6.2 → ^25.8.0`, `vitest` `^4.1.5 → ^4.1.6`
+- `scripts/build-changelog.ts` summary cap raised `250 → 350` chars to match the upstream framework convention ([mcp-ts-core #129](https://github.com/cyanheads/mcp-ts-core/issues/129))
+- `scripts/devcheck.ts` `bun outdated` parser hardened — column indices fixed for markdown-style rows and the trailing `(dev|peer|prod|optional)` workspace-type marker is stripped before allowlist lookup
+- `CLAUDE.md` / `AGENTS.md` Zod-serialization checklist expanded to enumerate every disallowed type (`z.bigint`, `z.symbol`, `z.void`, `z.map`, `z.set`, `z.function`, `z.nan`); form-client guard checklist now documents the `z.union([z.literal(''), z.string().regex(...)])` sentinel pattern that exempts the literal variant from `describe-on-fields`
+- README badge bumped to 0.7.3; Node prerequisite corrected to `>=24.0.0` (matched the `engines` field set in 0.7.2); dropped lingering `dev:stdio` / `dev:http` instructions for scripts removed in 0.7.2
+
+### Framework skill refresh
+
+- `add-tool`, `api-auth`, `api-config`, `api-errors`, `api-linter`, `api-workers`, `design-mcp-server`, `field-test`, `polish-docs-meta`, `security-pass`, `tool-defs-analysis` re-synced from `@cyanheads/mcp-ts-core` 0.9.1 — bumps cover `api-linter` 1.2 → 1.3 (portability rule family), `polish-docs-meta` 1.7 → 1.8 (`OTEL_ENABLED` link to telemetry docs), `design-mcp-server` 2.10 → 2.11 + `tool-defs-analysis` 1.1 → 1.2 (agent-observed correctness; audit grew from 10 to 12 categories), `add-tool` 2.8 → 2.9 (`Mutator response design` + unit-bearing numeric-name checklist), `field-test` 2.3 → 2.4 (mutator-trigger row), `api-errors` 1.5 → 1.6 (`When not to throw`)
+
 ## [0.7.2] - 2026-05-08
 
 ### Changed
