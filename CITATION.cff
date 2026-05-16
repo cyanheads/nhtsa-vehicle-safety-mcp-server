@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: nhtsa-vehicle-safety-mcp-server
+abstract: "Model Context Protocol (MCP) server for NHTSA vehicle safety data, providing recall campaigns, consumer complaints, NCAP crash test ratings, defect investigations (PE, EA, DP, RQ), VIN decoding (single and batch), and VPIC reference lookups for makes, models, and manufacturers."
+type: software
+authors:
+  - family-names: Hand
+    given-names: Casey
+    orcid: "https://orcid.org/0009-0009-3726-568X"
+repository-code: "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server"
+license: Apache-2.0
+keywords:
+  - mcp
+  - model-context-protocol
+  - nhtsa
+  - vehicle-safety
+  - automotive-recalls
+  - transportation-research

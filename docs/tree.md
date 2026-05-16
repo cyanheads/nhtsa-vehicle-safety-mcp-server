@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-05-08 12:57:58
+Generated on: 2026-05-16 19:22:40
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -143,6 +143,7 @@ nhtsa-vehicle-safety-mcp-server/
 ├── bun.lock
 ├── bunfig.toml
 ├── CHANGELOG.md
+├── CITATION.cff
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── Dockerfile
