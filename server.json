@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cyanheads/nhtsa-vehicle-safety-mcp-server",
-  "description": "Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.",
+  "description": "Decode VINs, search recalls, complaints, crash ratings, and investigations.",
   "repository": {
     "url": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server",
     "source": "github"
   },
-  "version": "0.7.3",
+  "version": "0.7.4",
   "remotes": [
     {
       "type": "streamable-http",
@@ -19,7 +19,7 @@
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
       "runtimeHint": "bun",
-      "version": "0.7.3",
+      "version": "0.7.4",
       "packageArguments": [
         {
           "type": "positional",
@@ -48,7 +48,7 @@
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
       "runtimeHint": "bun",
-      "version": "0.7.3",
+      "version": "0.7.4",
       "packageArguments": [
         {
           "type": "positional",

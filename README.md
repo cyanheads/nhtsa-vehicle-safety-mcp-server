@@ -1,14 +1,21 @@
 <div align="center">
   <h1>@cyanheads/nhtsa-vehicle-safety-mcp-server</h1>
-  <p><b>Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.</b></p>
-  <p><b>7 Tools</b></p>
+  <p><b>Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP. STDIO or Streamable HTTP.</b>
+  <div>7 Tools</div>
+  </p>
 </div>
 
 <div align="center">
 
-[![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![Version](https://img.shields.io/badge/Version-0.7.3-blue.svg?style=flat-square)](./CHANGELOG.md) [![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-259?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/)
+[![Version](https://img.shields.io/badge/Version-0.7.4-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+</div>
+
+<div align="center">
+
+[![Install in Claude Desktop](https://img.shields.io/badge/Install_in-Claude_Desktop-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/releases/latest/download/nhtsa-vehicle-safety-mcp-server.mcpb) [![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=nhtsa-vehicle-safety&config=eyJ0eXBlIjoic3RkaW8iLCJjb21tYW5kIjoiYnVueCIsImFyZ3MiOlsiQGN5YW5oZWFkcy9uaHRzYS12ZWhpY2xlLXNhZmV0eS1tY3Atc2VydmVyQGxhdGVzdCJdLCJlbnYiOnsiTUNQX1RSQU5TUE9SVF9UWVBFIjoic3RkaW8ifX0=) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode:mcp/install?%7B%22name%22%3A%22nhtsa-vehicle-safety%22%2C%22command%22%3A%22bunx%22%2C%22args%22%3A%5B%22%40cyanheads%2Fnhtsa-vehicle-safety-mcp-server%40latest%22%5D%2C%22env%22%3A%7B%22MCP_TRANSPORT_TYPE%22%3A%22stdio%22%7D%7D)
+
+[![Framework](https://img.shields.io/badge/Built%20on-@cyanheads/mcp--ts--core-67E8F9?style=flat-square)](https://www.npmjs.com/package/@cyanheads/mcp-ts-core)
 
 </div>
 
@@ -141,7 +148,7 @@ A public instance is available at `https://nhtsa.caseyjhand.com/mcp` — no inst
 
 ### Self-Hosted / Local
 
-Add to your MCP client config (e.g., `claude_desktop_config.json`):
+Add the following to your MCP client configuration file:
 
 ```json
 {
@@ -149,7 +156,11 @@ Add to your MCP client config (e.g., `claude_desktop_config.json`):
     "nhtsa-vehicle-safety": {
       "type": "stdio",
       "command": "bunx",
-      "args": ["@cyanheads/nhtsa-vehicle-safety-mcp-server@latest"]
+      "args": ["@cyanheads/nhtsa-vehicle-safety-mcp-server@latest"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "MCP_LOG_LEVEL": "info"
+      }
     }
   }
 }
@@ -163,7 +174,11 @@ Or with npx (no Bun required):
     "nhtsa-vehicle-safety": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server@latest"]
+      "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server@latest"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "MCP_LOG_LEVEL": "info"
+      }
     }
   }
 }

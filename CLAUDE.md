@@ -1,8 +1,8 @@
 # Agent Protocol
 
 **Server:** nhtsa-vehicle-safety-mcp-server
-**Version:** 0.7.3
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.9.1`
+**Version:** 0.7.4
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.9.6`
 **Engines:** Bun ≥1.3.0, Node ≥24.0.0
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
@@ -197,13 +197,13 @@ Available skills:
 | `report-issue-local` | File a bug or feature request against this server's own repo via `gh` CLI |
 | `tool-defs-analysis` | Read-only audit of definition language across tools/resources/prompts |
 | `api-auth` | Auth modes, scopes, JWT/OAuth |
-| `api-canvas` | DataCanvas (Tier 3) — SQL/analytical workspace, opt-in |
+| `api-canvas` | DataCanvas: register tabular data, run SQL, export, plus the `spillover()` helper for big result sets — Tier 3 opt-in |
 | `api-config` | AppConfig, parseConfig, env vars |
-| `api-context` | Context interface, logger, state, progress, sessionId, recoveryFor |
-| `api-errors` | McpError, JsonRpcErrorCode, typed error contracts, factories |
+| `api-context` | Context interface, logger, state, progress |
+| `api-errors` | McpError, JsonRpcErrorCode, error patterns |
 | `api-linter` | MCP definition lint rules reference |
 | `api-services` | LLM, Speech, Graph services |
-| `api-telemetry` | OTel catalog: spans, metrics, completion logs, env config |
+| `api-telemetry` | OTel catalog: spans, metrics, completion logs, env config, cardinality rules |
 | `api-testing` | createMockContext, test patterns |
 | `api-utils` | Formatting, parsing, security, pagination, scheduling, telemetry helpers |
 | `api-workers` | Cloudflare Workers runtime |
@@ -220,12 +220,24 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run rebuild` | Clean + build |
 | `bun run clean` | Remove build artifacts |
 | `bun run devcheck` | Lint + format + typecheck + security |
+| `bun run audit:refresh` | Delete `bun.lock`, reinstall, re-audit. Use when `devcheck` flags a transitive advisory — stale lockfile can mask already-patched deps. If advisory survives, it's real. |
 | `bun run tree` | Generate directory structure doc |
 | `bun run format` | Auto-fix formatting |
 | `bun run lint:mcp` | Validate MCP tool/resource definitions |
+| `bun run lint:packaging` | Validate env-var alignment between `manifest.json` and `server.json` |
+| `bun run list-skills` | Print skill index from project `skills/` |
+| `bun run bundle` | Build and pack as `.mcpb` for one-click Claude Desktop install |
 | `bun run test` | Run tests |
 | `bun run start:stdio` | Production mode (stdio, after build) |
 | `bun run start:http` | Production mode (HTTP, after build) |
+
+---
+
+## Bundling
+
+`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. MCPB is stdio-only — HTTP deployments are unaffected. The bundle file ships as `dist/nhtsa-vehicle-safety-mcp-server.mcpb` and the `release-and-publish` skill attaches it to the GitHub Release.
+
+**Adding an env var requires both files:** `server.json` (`environmentVariables[]`) and `manifest.json` (`mcp_config.env` + `user_config`). `bun run lint:packaging` (run by `devcheck`) verifies alignment.
 
 ---
 
