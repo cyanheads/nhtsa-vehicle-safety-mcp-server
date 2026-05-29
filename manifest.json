@@ -1,9 +1,17 @@
 {
   "manifest_version": "0.3",
   "name": "nhtsa-vehicle-safety-mcp-server",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP. STDIO or Streamable HTTP.",
-  "author": { "name": "cyanheads" },
+  "author": {
+    "name": "cyanheads"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server"
+  },
+  "homepage": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server#readme",
+  "license": "Apache-2.0",
   "server": {
     "type": "node",
     "entry_point": "dist/index.js",
@@ -19,7 +27,9 @@
     }
   },
   "compatibility": {
-    "runtimes": { "node": ">=24.0.0" }
+    "runtimes": {
+      "node": ">=24.0.0"
+    }
   },
   "tools_generated": true,
   "prompts_generated": true,

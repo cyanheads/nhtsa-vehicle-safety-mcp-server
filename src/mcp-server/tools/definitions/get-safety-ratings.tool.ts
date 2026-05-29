@@ -128,7 +128,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
   errors: [
     {
       reason: 'missing_required_combo',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'Neither vehicleId nor a complete vehicle triple was supplied.',
       recovery: 'Provide vehicleId, or all of make, model, and modelYear.',
     },

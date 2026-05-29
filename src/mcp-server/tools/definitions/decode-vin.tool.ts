@@ -64,13 +64,13 @@ export const decodeVin = tool('nhtsa_decode_vin', {
   errors: [
     {
       reason: 'empty_vin_list',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'No non-empty VIN strings supplied.',
       recovery: 'Provide at least one non-empty VIN string.',
     },
     {
       reason: 'batch_too_large',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'VIN array exceeds the batch limit.',
       recovery: `Split the VIN list into batches of ${MAX_BATCH_SIZE} or fewer.`,
     },

@@ -120,7 +120,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
   errors: [
     {
       reason: 'missing_operation_arg',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'A required argument for the chosen operation was not provided.',
       recovery: 'Supply the argument required by the operation: make, or manufacturer.',
     },

@@ -1,300 +1,79 @@
 # Changelog
 
-## [0.7.4] - 2026-05-23
+All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
-### Changed
+## [0.7.5](changelog/0.7.x/0.7.5.md) — 2026-05-28
 
-- Bumped `@cyanheads/mcp-ts-core` `^0.9.1 → ^0.9.6`
-- Added `zod` `^4.4.3` as an explicit direct dependency (previously transitive via mcp-ts-core)
-- Bumped `@types/node` `^25.8.0 → ^25.9.1`, `vitest` `^4.1.6 → ^4.1.7`
-- `manifest.json` scaffolded for `.mcpb` bundle support — enables one-click install in Claude Desktop via `bun run bundle`; `manifest.json` added to `package.json` `files[]`
-- `.mcpbignore` added to exclude non-bundle files from `.mcpb` pack
-- `scripts/lint-packaging.ts` and `scripts/list-skills.ts` added; `lint:packaging`, `list-skills`, `bundle`, `audit:refresh` scripts registered in `package.json`
-- `scripts/devcheck.ts` updated with bundle-alignment and skills-sync checks
-- README install badge row added (Claude Desktop `.mcpb`, Cursor deeplink, VS Code redirect); badge row reordered; header description updated to match `package.json`; config snippets include `MCP_TRANSPORT_TYPE` and `MCP_LOG_LEVEL` env vars
+mcp-ts-core ^0.9.6 → ^0.9.13; HTTP 413 body cap, session-init gate, quieter 401/403/400/404 logs, GET /mcp keywords; biome ^2.4.16
 
-### Framework skill refresh
+## [0.7.4](changelog/0.7.x/0.7.4.md) — 2026-05-23
 
-- `field-test`, `maintenance`, `polish-docs-meta`, `release-and-publish` re-synced from `@cyanheads/mcp-ts-core` 0.9.6
+mcp-ts-core ^0.9.6; manifest.json for MCPB bundle; lint:packaging + list-skills scripts; README install badges
 
-## [0.7.3] - 2026-05-16
+## [0.7.3](changelog/0.7.x/0.7.3.md) — 2026-05-16
 
-### Added
+mcp-ts-core ^0.9.1; server instructions on createApp(); Zod-serialization checklist; devcheck parser hardening
 
-- Server-level `instructions` text on `createApp()` ([mcp-ts-core #91](https://github.com/cyanheads/mcp-ts-core/issues/91)) — surfaces on every `initialize` response so spec-compliant clients can forward NHTSA tool orientation to the model as session-level system context, instead of duplicating that hint across every tool description
+## [0.7.2](changelog/0.7.x/0.7.2.md) — 2026-05-08
 
-### Changed
+mcp-ts-core ^0.8.19; typed errors[] + ctx.fail on 4 tools; httpErrorFromResponse; pluralize helper; Node >=24
 
-- Bumped `@cyanheads/mcp-ts-core` `^0.8.19 → ^0.9.1` — adopts the new `instructions` field, definition linting moves to build-time only (faster cold starts; new lint rules are additive), `schema-format-portability` lint family, RFC 8414 §3 path-suffixed well-known mount, SSRF DNS validation enforced in Workers, IPv6 SSRF blocklist coverage, tenant-id boundary validation in `FileSystemProvider`, bounded `mcp.rate_limit.rejections_total` label cardinality
-- Bumped `@biomejs/biome` `^2.4.14 → ^2.4.15`, `@types/node` `^25.6.2 → ^25.8.0`, `vitest` `^4.1.5 → ^4.1.6`
-- `scripts/build-changelog.ts` summary cap raised `250 → 350` chars to match the upstream framework convention ([mcp-ts-core #129](https://github.com/cyanheads/mcp-ts-core/issues/129))
-- `scripts/devcheck.ts` `bun outdated` parser hardened — column indices fixed for markdown-style rows and the trailing `(dev|peer|prod|optional)` workspace-type marker is stripped before allowlist lookup
-- `CLAUDE.md` / `AGENTS.md` Zod-serialization checklist expanded to enumerate every disallowed type (`z.bigint`, `z.symbol`, `z.void`, `z.map`, `z.set`, `z.function`, `z.nan`); form-client guard checklist now documents the `z.union([z.literal(''), z.string().regex(...)])` sentinel pattern that exempts the literal variant from `describe-on-fields`
-- README badge bumped to 0.7.3; Node prerequisite corrected to `>=24.0.0` (matched the `engines` field set in 0.7.2); dropped lingering `dev:stdio` / `dev:http` instructions for scripts removed in 0.7.2
+## [0.7.1](changelog/0.7.x/0.7.1.md) — 2026-04-24
 
-### Framework skill refresh
+mcp-ts-core ^0.7.0; recursive describe-on-fields linter adoption; security-pass skill; changelog scripts
 
-- `add-tool`, `api-auth`, `api-config`, `api-errors`, `api-linter`, `api-workers`, `design-mcp-server`, `field-test`, `polish-docs-meta`, `security-pass`, `tool-defs-analysis` re-synced from `@cyanheads/mcp-ts-core` 0.9.1 — bumps cover `api-linter` 1.2 → 1.3 (portability rule family), `polish-docs-meta` 1.7 → 1.8 (`OTEL_ENABLED` link to telemetry docs), `design-mcp-server` 2.10 → 2.11 + `tool-defs-analysis` 1.1 → 1.2 (agent-observed correctness; audit grew from 10 to 12 categories), `add-tool` 2.8 → 2.9 (`Mutator response design` + unit-bearing numeric-name checklist), `field-test` 2.3 → 2.4 (mutator-trigger row), `api-errors` 1.5 → 1.6 (`When not to throw`)
+## [0.7.0](changelog/0.7.x/0.7.0.md) — 2026-04-23 · ⚠️ Breaking
 
-## [0.7.2] - 2026-05-08
+Breaking: search_investigations total→totalCount, lookup_vehicles output reshape + full pagination; mcp-ts-core ^0.6.12, landing page
 
-### Changed
+## [0.6.1](changelog/0.6.x/0.6.1.md) — 2026-04-20
 
-- Bumped `@cyanheads/mcp-ts-core` `^0.7.0 → ^0.8.19` — adopts typed error contracts (`errors[]` + `ctx.fail`), `httpErrorFromResponse` upstream-error helper, framework-antipattern linter, and refreshed skill set
-- Bumped engines: Node `>=22.0.0 → >=24.0.0`; `@biomejs/biome ^2.4.13 → ^2.4.14`, `@types/node ^25.6.0 → ^25.6.2`, `tsc-alias ^1.8.16 → ^1.8.17`
-- Pinned Docker base image to `oven/bun:1.3` (was `oven/bun:1`) for reproducible builds
-- Converted six tool handlers (`nhtsa_decode_vin`, `nhtsa_get_safety_ratings`, `nhtsa_lookup_vehicles`, `nhtsa_search_recalls`, plus shared paths) to typed `errors[]` contracts with `ctx.fail(reason, ...)` — every failure mode now declares `when` + `recovery` so LLM callers receive a deterministic remediation hint
-- `NhtsaService` now wraps upstream HTTP failures with `httpErrorFromResponse` — captures status, body, and `Retry-After` automatically; HTTP 400 responses now throw a `validationError` with structured `{ endpoint, status }` data instead of a bare `Error`
-- `nhtsa_get_safety_ratings` `complaintsCount` / `recallsCount` / `investigationCount` field descriptions now flag the variant scope and point callers at `nhtsa_search_complaints` / `nhtsa_search_recalls` / `nhtsa_search_investigations` for vehicle-level totals; rendered output mirrors the same disambiguation
-- Complaint and recall renderers now pluralize counts (`1 crash` vs `2 crashes`, `1 injury` vs `2 injuries`) via a shared `pluralize` helper
-- Dropped unused `dev:stdio` / `dev:http` scripts from `package.json`
+ctx.signal propagation, investigation statusName, lookup IDs in format(), mcp-ts-core ^0.5.3
 
-### Added
+## [0.6.0](changelog/0.6.x/0.6.0.md) — 2026-04-19
 
-- `src/services/nhtsa/format.ts` — shared `formatStars`, `formatRolloverProbability`, and `pluralize` helpers; `nhtsa_get_safety_ratings` and `nhtsa_get_vehicle_safety` now share a single rendering convention for stars and rollover probability
-- `scripts/check-framework-antipatterns.ts` and `scripts/split-changelog.ts` — synced from the framework; devcheck now scans for framework antipatterns alongside lint/format/typecheck
-- `skills/api-canvas`, `skills/api-telemetry`, `skills/tool-defs-analysis` — new skills synced from the framework
+search_complaints pagination, empty-result message fields, combinedBarrierPole parity, sectionStatus unavailable fix
 
-### Framework skill refresh
+## [0.5.0](changelog/0.5.x/0.5.0.md) — 2026-04-15
 
-- `add-service`, `add-tool`, `api-config`, `api-context`, `api-errors`, `api-linter`, `api-utils`, `api-workers`, `design-mcp-server`, `field-test`, `maintenance`, `release-and-publish`, `report-issue-framework`, `report-issue-local`, `security-pass`, `setup` re-synced from `@cyanheads/mcp-ts-core` 0.8.19
+nhtsa_get_vehicle_safety sectionStatus, lookup pagination, sparse field preservation; mcp-ts-core ^0.3.5
 
-## [0.7.1] - 2026-04-24
+## [0.4.1](changelog/0.4.x/0.4.1.md) — 2026-04-08
 
-### Changed
+Sparse NHTSA field handling for parkIt/parkOutSide/overTheAirUpdate; mcp-ts-core ^0.3.2; regression tests
 
-- Bumped `@cyanheads/mcp-ts-core` to `^0.7.0` (from `^0.6.12`) — adopts flattened ZodError messages, structured `issues` on `McpError.data`, locale-aware `format-parity` numeric matching, directory-based changelog convention, and the recursive `describe-on-fields` linter
-- Added `.describe()` on array-element objects and `z.union()` variants across all 7 tool definitions to satisfy the new recursive `describe-on-fields` linter — no behavioral change, tighter JSON Schema for LLM consumption
-- `CLAUDE.md` / `AGENTS.md` now reference `security-pass` in the "What's Next?" sequence and skills table; added three external-API checklist items covering upstream sparsity, uncertainty preservation in `format()`, and sparse-payload test coverage
+## [0.4.0](changelog/0.4.x/0.4.0.md) — 2026-04-04
 
-### Added
+nhtsa_get_vehicle_safety warnings array, improved no-ratings message, investigations description clarified
 
-- `skills/security-pass` v1.1 — MCP-flavored security audit skill covering output injection, scope blast radius, destructive ops, upstream auth, input sinks, tenant isolation, leakage, resource bounds, and HTTP deployment surface
-- `scripts/build-changelog.ts`, `scripts/check-docs-sync.ts`, `scripts/check-skills-sync.ts` — framework scripts synced from the package; devcheck now enforces `CLAUDE.md` / `AGENTS.md` byte-parity and `skills/` ↔ agent-mirror parity
-- `.github/ISSUE_TEMPLATE/bug_report.yml` and `feature_request.yml` synced to framework template — scoped package name, auto-assign to `cyanheads`, secondary-labels guidance (`regression`, `performance`, `security`, `breaking-change`)
+## [0.3.2](changelog/0.3.x/0.3.2.md) — 2026-04-04
 
-### Framework skill refresh
+Public hosted server at nhtsa.caseyjhand.com/mcp
 
-- `api-linter` v1.0 → v1.1 (recursion rules, union asymmetry callout)
-- `maintenance` v1.4 → v1.5 (default-adopt tier for framework changes, "Open decisions" rename)
-- `release-and-publish` v2.0 → v2.1 (retry transient network failures, `docker builder prune -f` before retry)
-- `report-issue-framework` v1.2 → v1.3, `report-issue-local` v1.2 → v1.3 (primary/secondary label split, `--assignee @me`)
+## [0.3.1](changelog/0.3.x/0.3.1.md) — 2026-04-03
 
-## [0.7.0] - 2026-04-23
+nhtsa_get_vehicle_safety per-variant failure handling, lookup count fix, recall dateRange NaN validation
 
-### Changed
+## [0.3.0](changelog/0.3.x/0.3.0.md) — 2026-04-03
 
-- **Breaking:** `nhtsa_search_investigations` output field `total` renamed to `totalCount` for naming parity with sibling tools
-- **Breaking:** `nhtsa_lookup_vehicles` output reshaped — `count` and `totalAvailable` dropped in favor of unified `totalCount` + `returned` + `offset` + `limit` across every operation
-- **Breaking:** `nhtsa_lookup_vehicles` `limit`/`offset` now apply to all operations (`makes`, `models`, `vehicle_types`, `manufacturer`) via client-side slicing; previously ignored for operations other than `makes`. Out-of-bounds offsets now return a recovery message uniformly across operations
-- `nhtsa_decode_vin` description clarified — explicit "pass a single VIN string, or an array of up to 50 VINs for batch decode" (was ambiguous about the batch form)
-- Bumped `@cyanheads/mcp-ts-core` to `^0.6.12` (from `^0.5.3`) — adds landing page at `/`, SEP-1649 Server Card at `/.well-known/mcp.json`, new format-parity linter rule, `HtmlExtractor` utility
-- Bumped `@biomejs/biome` to `^2.4.13`, `vitest` to `^4.1.5`
-- `createApp()` now configures `landing.tagline` + `landing.repoRoot` for per-tool view-source links on the hosted deployment
-- Documented `MCP_PUBLIC_URL` env var in `.env.example` for the TLS-proxied hosted deployment
+buildComponentBreakdown extraction, bun run scripts, TypeScript ^6.0.2, Bun >=1.3.2
 
-### Added
+## [0.2.3](changelog/0.2.x/0.2.3.md) — 2026-04-03
 
-- `skills/api-linter` and `skills/release-and-publish` — new skills from the framework
-- Refreshed 13 skills from the framework: `add-app-tool` v1.3, `add-prompt` v1.2, `add-resource` v1.3, `add-service` v1.3, `add-tool` v1.8, `api-context` v1.1, `api-services` v1.3, `api-utils` v2.1, `design-mcp-server` v2.7, `field-test` v2.0, `maintenance` v1.4, `polish-docs-meta` v1.7, `setup` v1.5, `report-issue-framework` v1.2, `report-issue-local` v1.2
+Safe defaults in normalizeDate, README rewrite, package.json fixes
 
-## [0.6.1] - 2026-04-20
+## [0.2.2](changelog/0.2.x/0.2.2.md) — 2026-04-03
 
-### Added
+Scoped npm package, server.json registry name, package metadata, LICENSE, bunfig.toml, docs/tree.md
 
-- All tool handlers now propagate `ctx.signal` through the NHTSA service layer so in-flight requests (and exponential-backoff retry delays) cancel cleanly when the client aborts
-- `nhtsa_search_investigations` now returns `statusName` alongside `status` and renders both in `format()` (e.g. `[O: Open]`) so the status code is no longer opaque
-- `nhtsa_lookup_vehicles` now surfaces `Make ID`, `Manufacturer ID`, and per-type `Vehicle Type ID` in its rendered output, matching the IDs already present in `structuredContent`
-- `nhtsa_get_safety_ratings` now renders `combinedBarrierPoleFront` / `combinedBarrierPoleRear` star ratings (previously only present in `structuredContent`)
-- `nhtsa_get_vehicle_safety` complaint component breakdown now shows injury and death counts per component (not just crashes/fires)
+## [0.2.1](changelog/0.2.x/0.2.1.md) — 2026-04-03
 
-### Changed
+VIN decode empty-filter, side crash ratings, lookup cap, complaint date/VIN, recall campaign validation
 
-- Bumped `@cyanheads/mcp-ts-core` to `^0.5.3` (from `^0.3.8`) — brings new framework error factories and refreshed scaffolding
-- `NhtsaService.fetchJson` now composes the caller's `AbortSignal` with the per-request timeout via `AbortSignal.any` and uses `node:timers/promises` for retry delay — no more manual abort listener wiring, no listener leak
-- `nhtsa_decode_vin` warning line now includes the VPIC `errorCode` (e.g. `Warning (errorCode: 6): ...`) so partial-decode callers can distinguish warning classes
-- `nhtsa_get_vehicle_safety` do-not-drive advisory renders as `PARK IT — DO NOT DRIVE` to match NHTSA's own label
-- Refreshed `add-tool` (v1.6), `api-config` (v1.2), `design-mcp-server` (v2.4), `field-test` (v1.2), `maintenance` (v1.3), `polish-docs-meta` (v1.4), and `setup` (v1.3) skills from the framework
+## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-04-03
 
-### Removed
+7 MCP tools for NHTSA vehicle safety data — recalls, complaints, crash ratings, VIN decode, investigations, vehicle lookup
 
-- Unused `NhtsaService.getRecallsPaginated` method (also had a typo'd `sort=recall573ReceivedDate` URL parameter)
+## [0.1.0](changelog/0.1.x/0.1.0.md) — 2026-04-03
 
-## [0.6.0] - 2026-04-19
-
-### Added
-
-- `nhtsa_search_complaints` now supports `limit` (default 20, max 50) and `offset` pagination; `componentBreakdown` continues to reflect all matching complaints regardless of pagination ([#4](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/4))
-- `nhtsa_lookup_vehicles`, `nhtsa_get_safety_ratings`, and `nhtsa_search_investigations` now surface an optional `message` field when the result set is empty, echoing applied filters and pointing at recovery actions ([#7](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/7))
-- `combinedBarrierPoleFront` and `combinedBarrierPoleRear` on `nhtsa_get_vehicle_safety`'s `sideCrash` — now at parity with `nhtsa_get_safety_ratings` ([#3](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/3))
-
-### Fixed
-
-- `nhtsa_get_vehicle_safety` now marks `sectionStatus.safetyRatings` as `unavailable` (with a coverage-gap warning) when NCAP returns no variants for the vehicle, instead of reporting `available` alongside an empty array ([#2](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/2))
-- `nhtsa_search_complaints` no longer passes Unix-epoch `dateOfIncident` values (`12/31/1969`) through to consumers — any pre-1990 date is dropped as missing data ([#5](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/5))
-
-### Changed
-
-- Bumped `@cyanheads/mcp-ts-core` to `^0.3.8` and `typescript` to `^6.0.3`
-- Removed stale transitive-dependency overrides (`hono`, `@hono/node-server`, `vite`, `picomatch`, etc.) — upstream has caught up and the audit remains clean without them
-- Refreshed `add-tool` (v1.4) and `design-mcp-server` (v2.3) skills from the framework
-
-### Won't Fix
-
-- [#6](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/6) — adding `subject`/`potentialUnitsAffected` to `nhtsa_search_recalls` vehicle lookups. NHTSA's API doesn't expose `subject` on either per-vehicle or per-campaign endpoints; the binary-searched base endpoint would cost ~15 requests per recall. `potentialUnitsAffected` alone wasn't worth the extra network call.
-
-## [0.5.0] - 2026-04-15
-
-### Added
-
-- `nhtsa_get_vehicle_safety` now returns `sectionStatus` so clients can distinguish unavailable NCAP, recall, or complaint sections from genuine zero-result responses
-- `nhtsa_lookup_vehicles` now supports `limit` and `offset` pagination for the `makes` operation
-
-### Changed
-
-- `nhtsa_get_safety_ratings` now accepts either a direct `vehicleId` or the `make` + `model` + `modelYear` lookup path with explicit validation when inputs are incomplete
-- `nhtsa_decode_vin`, `nhtsa_get_vehicle_safety`, and VPIC manufacturer lookups now preserve sparse upstream fields instead of fabricating empty-string placeholders
-- Bumped `@cyanheads/mcp-ts-core` to `^0.3.5`, `@biomejs/biome` to `^2.4.12`, `@types/node` to `^25.6.0`, and `vitest` to `^4.1.4`
-- Added the `add-app-tool` skill and refreshed scaffold skills to match the current `createApp()` registration pattern and repo test layout
-- Refreshed release metadata and badges for the `0.5.0` release
-
-### Fixed
-
-- NHTSA service retries now cover network failures and invalid JSON bodies from otherwise successful upstream responses
-- `nhtsa_get_vehicle_safety` now reports unavailable sections without implying that no recalls or ratings exist
-- `nhtsa_decode_vin` now formats sparse decode results without blank summary or warning lines
-
-## [0.4.1] - 2026-04-08
-
-### Fixed
-
-- `nhtsa_search_recalls` and `nhtsa_get_vehicle_safety` now accept recall records when NHTSA omits `parkIt`, `parkOutSide`, or `overTheAirUpdate`, resolving [issue #1](https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server/issues/1)
-- `nhtsa_search_complaints`, `nhtsa_get_safety_ratings`, `nhtsa_search_investigations`, and `nhtsa_get_vehicle_safety` now preserve sparse upstream NHTSA fields instead of fabricating default values in tool outputs
-
-### Changed
-
-- Bumped `@cyanheads/mcp-ts-core` to `^0.3.2` and `vitest` to `^4.1.3`
-- Pinned patched transitive versions for `@hono/node-server`, `hono`, and `vite` to clear `bun audit` warnings
-- Added regression coverage for sparse recall, complaint, safety-rating, and investigation payloads
-- Updated package metadata and badges for the `0.4.1` release
-
-## [0.4.0] - 2026-04-04
-
-### Added
-
-- `nhtsa_get_vehicle_safety` — `warnings` array in output surfaces partial failures (e.g. when recalls or complaints API is unreachable) instead of silently returning empty sections
-
-### Changed
-
-- `nhtsa_get_vehicle_safety` — improved "no ratings" message with actionable guidance (suggests `nhtsa_get_safety_ratings` for specific variants or adjacent years)
-- `nhtsa_search_investigations` — clarified tool description: all filters are ANDed, make/model are free-text searches against subject/description (not structured fields)
-
-### Removed
-
-- Unused `NhtsaProductsResponse` type from `services/nhtsa/types.ts`
-
-## [0.3.2] - 2026-04-04
-
-### Added
-
-- Public hosted server at `https://nhtsa.caseyjhand.com/mcp` — added to README and `server.json` remotes
-
-## [0.3.1] - 2026-04-03
-
-### Fixed
-
-- `nhtsa_get_vehicle_safety` — per-variant `getSafetyRating` failures are now caught and logged as warnings; other variants are still returned instead of failing the entire request
-- `nhtsa_lookup_vehicles` — `count` in makes response now reflects the sliced length (≤200) rather than the full API total; truncation warning condition corrected to match
-- `nhtsa_search_recalls` — added `NaN` validation for `dateRange` dates with a descriptive error message directing users to ISO 8601 format
-
-### Changed
-
-- `nhtsa_get_vehicle_safety` — corrected rollover `probability` description from "percentage" to "(0-1 scale)"
-
-## [0.3.0] - 2026-04-03
-
-### Changed
-
-- Extracted shared `buildComponentBreakdown` into `services/nhtsa/types.ts`, removing duplicate implementations from `get-vehicle-safety` and `search-complaints` tools
-- Added warning-level logging when parallel API fetches fail in `nhtsa_get_vehicle_safety`
-- Standardized all package.json scripts to use `bun run` prefix; production start now uses `bun` instead of `node`
-- Upgraded TypeScript from ^5.9.3 to ^6.0.2
-- Updated Bun engine requirement from >=1.2.0 to >=1.3.2
-- README: added npx and Docker installation methods, reorganized sections, added Bun version badge
-- Added author details, funding links, and security dependency overrides to package.json
-
-## [0.2.3] - 2026-04-03
-
-### Fixed
-
-- Replaced non-null assertions with safe defaults in `normalizeDate` date parsing
-
-### Changed
-
-- Rewrote README with expanded per-tool descriptions, Features, Getting Started, Docker, Project Structure, and Contributing sections
-- Updated CLAUDE.md agent protocol: removed unused `ctx.elicit`/`ctx.sample` from context table, added `lint:mcp` command
-- Fixed package.json repository URL to `git+https` format
-- Added `mcpName` field for MCP registry identification
-- Added Bun engine requirement (`>=1.2.0`) to package.json
-- Switched server.json `runtimeHint` from `node` to `bun`
-
-## [0.2.2] - 2026-04-03
-
-### Changed
-
-- Scoped npm package to `@cyanheads/nhtsa-vehicle-safety-mcp-server`
-- Updated server.json registry name to `io.github.cyanheads/nhtsa-vehicle-safety-mcp-server`
-- Expanded package.json metadata (keywords, author, homepage, bugs, packageManager)
-- Updated Dockerfile OCI labels with description and source URL
-
-### Added
-
-- Apache 2.0 LICENSE file
-- `bunfig.toml` for Bun runtime configuration
-- `docs/tree.md` directory structure reference
-
-### Fixed
-
-- Formatted test fixture for readability (sideCrash object in get-vehicle-safety test)
-
-## [0.2.1] - 2026-04-03
-
-### Changed
-
-- `nhtsa_decode_vin` — filter empty VINs before processing, validate at least one non-empty VIN
-- `nhtsa_get_vehicle_safety` — added side crash ratings (overall, driver, passenger, barrier, pole) to output and format
-- `nhtsa_lookup_vehicles` — capped makes response to 200 entries to reduce payload size
-- `nhtsa_search_complaints` — added complaint filing date and VIN to formatted output
-- `nhtsa_search_recalls` — throw `notFound` for missing campaign instead of empty result; improved validation message
-
-### Fixed
-
-- Engine displacement rounding in VIN decoder (now 1 decimal place)
-
-### Tests
-
-- Updated test fixtures for side crash ratings and recall not-found error behavior
-
-## [0.2.0] - 2026-04-03
-
-### Added
-
-- **7 MCP tools** for querying NHTSA vehicle safety data:
-  - `nhtsa_get_vehicle_safety` — composite safety profile (ratings + recalls + complaints)
-  - `nhtsa_search_recalls` — recall campaigns by vehicle or campaign number, with date filtering
-  - `nhtsa_search_complaints` — consumer complaints with component breakdown
-  - `nhtsa_get_safety_ratings` — NCAP crash test ratings and ADAS features
-  - `nhtsa_decode_vin` — single and batch VIN decoding (up to 50)
-  - `nhtsa_search_investigations` — defect investigations with cached index
-  - `nhtsa_lookup_vehicles` — VPIC reference lookups (makes, models, types, manufacturers)
-- **NHTSA service layer** (`NhtsaService`) wrapping five public APIs with retry logic, field normalization, and investigation caching
-- **Domain types** for all API responses and normalized models
-- **Test suites** for all 7 tools using `createMockContext` from `@cyanheads/mcp-ts-core/testing`
-- Vitest configuration with fork isolation and Zod SSR compatibility
-
-## [0.1.0] - 2026-04-03
-
-### Added
-
-- Initial project scaffold from `@cyanheads/mcp-ts-core`
-- Project structure, build scripts, and configuration
+Initial project scaffold

@@ -1,11 +1,16 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-05-23 12:22:52
+Generated on: 2026-05-29 03:40:29
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
 ├── .agents/
 ├── .claude/
+├── .claude-plugin/
+│   └── plugin.json
+├── .codex-plugin/
+│   ├── mcp.json
+│   └── plugin.json
 ├── .github/
 │   └── ISSUE_TEMPLATE/
 │       ├── bug_report.yml
@@ -14,6 +19,15 @@ nhtsa-vehicle-safety-mcp-server/
 ├── .vscode/
 │   ├── extensions.json
 │   └── settings.json
+├── changelog/
+│   ├── 0.1.x/
+│   ├── 0.2.x/
+│   ├── 0.3.x/
+│   ├── 0.4.x/
+│   ├── 0.5.x/
+│   ├── 0.6.x/
+│   ├── 0.7.x/
+│   └── template.md
 ├── claude-plans/
 ├── docs/
 │   └── design.md
@@ -73,15 +87,17 @@ nhtsa-vehicle-safety-mcp-server/
 │   │   └── SKILL.md
 │   ├── api-workers/
 │   │   └── SKILL.md
+│   ├── code-simplifier/
+│   │   └── SKILL.md
 │   ├── design-mcp-server/
 │   │   └── SKILL.md
 │   ├── devcheck/
 │   │   └── SKILL.md
 │   ├── field-test/
 │   │   └── SKILL.md
-│   ├── maintenance/
+│   ├── git-wrapup/
 │   │   └── SKILL.md
-│   ├── migrate-mcp-ts-template/
+│   ├── maintenance/
 │   │   └── SKILL.md
 │   ├── polish-docs-meta/
 │   │   ├── references/

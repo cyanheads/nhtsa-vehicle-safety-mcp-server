@@ -81,13 +81,13 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
   errors: [
     {
       reason: 'mode_conflict',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'Both campaignNumber and vehicle params were provided.',
       recovery: 'Use either campaignNumber or make + model + modelYear, not both.',
     },
     {
       reason: 'missing_required_combo',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'Neither campaignNumber nor a complete vehicle triple was supplied.',
       recovery: 'Provide a campaignNumber, or all of make, model, and modelYear.',
     },
