@@ -26,31 +26,38 @@ const sampleInvestigations = [
     nhtsaId: 'PE20001',
     investigationType: 'PE',
     status: 'O',
+    makes: ['TOYOTA'],
+    models: ['CAMRY'],
+    years: [2020],
+    components: ['BRAKES'],
     subject: 'Toyota Camry brake failure',
-    description: 'Reports of brake failure in 2020 Toyota Camry vehicles.',
+    summary: 'Reports of brake failure in 2020 Toyota Camry vehicles.',
     openDate: '2023-01-15',
-    latestActivityDate: '2023-06-01',
-    issueYear: '2023',
   },
   {
     nhtsaId: 'EA21002',
     investigationType: 'EA',
     status: 'C',
+    makes: ['HONDA'],
+    models: ['CIVIC'],
+    years: [2021],
+    components: ['ENGINE'],
     subject: 'Honda Civic engine stall',
-    description: 'Engine stalling in 2021 Honda Civic.',
+    summary: 'Engine stalling in 2021 Honda Civic.',
     openDate: '2022-05-01',
-    latestActivityDate: '2023-01-01',
-    issueYear: '2022',
+    closeDate: '2023-01-01',
   },
   {
     nhtsaId: 'PE22003',
     investigationType: 'PE',
     status: 'O',
+    makes: ['FORD'],
+    models: ['F-150'],
+    years: [2022],
+    components: ['TRANSMISSION'],
     subject: 'Ford F-150 transmission',
-    description: 'Transmission issues in Ford F-150.',
+    summary: 'Transmission issues in Ford F-150.',
     openDate: '2024-01-01',
-    latestActivityDate: '2024-06-01',
-    issueYear: '2024',
   },
 ];
 
@@ -89,7 +96,7 @@ describe('searchInvestigations', () => {
     expect(result.investigations[0].nhtsaId).toBe('EA21002');
   });
 
-  it('filters by make (text match)', async () => {
+  it('filters by make (structured makes[] match)', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
     const ctx = createMockContext();
@@ -100,7 +107,7 @@ describe('searchInvestigations', () => {
     expect(result.investigations[0].nhtsaId).toBe('PE20001');
   });
 
-  it('filters by query (text match)', async () => {
+  it('filters by query (text match against subject/summary)', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
     const ctx = createMockContext();
@@ -154,11 +161,13 @@ describe('searchInvestigations', () => {
         nhtsaId: undefined,
         investigationType: undefined,
         status: undefined,
+        makes: [],
+        models: [],
+        years: [],
+        components: [],
         subject: undefined,
-        description: undefined,
+        summary: undefined,
         openDate: undefined,
-        latestActivityDate: undefined,
-        issueYear: undefined,
       },
     ]);
 
@@ -185,10 +194,14 @@ describe('searchInvestigations', () => {
           investigationTypeName: 'Preliminary Evaluation',
           status: 'O',
           statusName: 'Open',
+          makes: ['TOYOTA'],
+          models: ['CAMRY'],
+          years: [2020],
+          components: ['BRAKES'],
           subject: 'Brake failure',
-          description: 'Reports of issues.',
+          summary: 'Reports of issues.',
           openDate: '2023-01-15',
-          latestActivityDate: '2023-06-01',
+          recallCampaign: '23V123000',
         },
       ],
     };
@@ -197,5 +210,7 @@ describe('searchInvestigations', () => {
     expect(text).toContain('Open');
     expect(text).toContain('Preliminary Evaluation');
     expect(text).toContain('Brake failure');
+    expect(text).toContain('TOYOTA');
+    expect(text).toContain('23V123000');
   });
 });

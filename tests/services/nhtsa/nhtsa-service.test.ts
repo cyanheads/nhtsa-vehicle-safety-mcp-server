@@ -3,8 +3,21 @@
  * @module tests/services/nhtsa/nhtsa-service
  */
 
+import { zipSync } from 'fflate';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getNhtsaService, initNhtsaService, NhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+
+/** Build a minimal FLAT_INV.zip Response for testing. */
+function makeFlatInvZipResponse(rows: string[][]): Response {
+  const tab = '\t';
+  const content = rows.map((r) => r.join(tab)).join('\n');
+  const enc = new TextEncoder().encode(content);
+  const zipped = zipSync({ 'FLAT_INV.txt': enc });
+  return new Response(zipped, {
+    status: 200,
+    headers: { 'Content-Type': 'application/octet-stream' },
+  });
+}
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -87,13 +100,36 @@ describe('fetchJson retry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('throws user-friendly message on 400 without leaking URL', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({}, 400));
+  it('throws on a genuinely malformed 400 (no results envelope)', async () => {
+    // A plain 400 with no results/message envelope → httpErrorFromResponse
+    mockFetch.mockResolvedValue(jsonResponse({ error: 'bad request' }, 400));
 
     const svc = getNhtsaService();
-    await expect(svc.getRecallsByVehicle('Fake', 'Car', 2020)).rejects.toThrow(
-      /no data.*verify make/i,
+    await expect(svc.getRecallsByVehicle('Fake', 'Car', 2020)).rejects.toThrow();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns empty array on 400 with NHTSA empty-result envelope (vehicle exists, no recalls)', async () => {
+    // NHTSA returns 400 + success envelope for valid vehicles with no records
+    mockFetch.mockResolvedValue(
+      jsonResponse({ Count: 0, Message: 'Results returned successfully', results: [] }, 400),
     );
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallsByVehicle('Toyota', 'Camry', 2026);
+    expect(result).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns empty array on 400 with lowercase message envelope (complaints endpoint shape)', async () => {
+    // complaintsByVehicle uses lowercase count/message
+    mockFetch.mockResolvedValue(
+      jsonResponse({ count: 0, message: 'Results returned successfully', results: [] }, 400),
+    );
+
+    const svc = getNhtsaService();
+    const result = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2026);
+    expect(result).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -391,11 +427,28 @@ describe('decodeVin', () => {
     const svc = getNhtsaService();
     const vin = await svc.decodeVin('1HGCM82633A004352');
 
-    expect(vin.make).toBe('HONDA');
-    expect(vin.model).toBe('ACCORD');
-    expect(vin.modelYear).toBe('2003');
-    expect(vin.engineHP).toBe('160');
-    expect(vin.errorCode).toBe('0');
+    expect(vin).not.toBeNull();
+    expect(vin!.make).toBe('HONDA');
+    expect(vin!.model).toBe('ACCORD');
+    expect(vin!.modelYear).toBe('2003');
+    expect(vin!.engineHP).toBe('160');
+    expect(vin!.errorCode).toBe('0');
+  });
+
+  it('returns null when VPIC returns empty Results[] (e.g. nonsense VIN)', async () => {
+    // #8 fix: returns null instead of throwing
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 0,
+        Message: 'OK',
+        SearchCriteria: 'VIN:test',
+        Results: [],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const result = await svc.decodeVin('test');
+    expect(result).toBeNull();
   });
 
   it('preserves missing VPIC fields as unknown instead of empty strings', async () => {
@@ -411,11 +464,12 @@ describe('decodeVin', () => {
     const svc = getNhtsaService();
     const vin = await svc.decodeVin('1HGCM82633A004352');
 
-    expect(vin.vin).toBe('1HGCM82633A004352');
-    expect(vin).not.toHaveProperty('make');
-    expect(vin).not.toHaveProperty('model');
-    expect(vin.errorCode).toBe('0');
-    expect(vin).not.toHaveProperty('errorText');
+    expect(vin).not.toBeNull();
+    expect(vin!.vin).toBe('1HGCM82633A004352');
+    expect(vin!).not.toHaveProperty('make');
+    expect(vin!).not.toHaveProperty('model');
+    expect(vin!.errorCode).toBe('0');
+    expect(vin!).not.toHaveProperty('errorText');
   });
 });
 
@@ -443,46 +497,120 @@ describe('decodeVinBatch', () => {
   });
 });
 
-describe('getInvestigations caching', () => {
-  it('caches results and does not re-fetch within TTL', async () => {
-    const investigationPage = {
-      meta: { pagination: { count: 1, max: 100, offset: 0, total: 1 } },
-      results: [
-        {
-          id: 1,
-          nhtsaId: 'PE12345',
-          investigationType: 'PE',
-          status: 'C',
-          subject: 'Brake failure',
-          description: '<p>Investigation into brake issues</p>',
-          openDate: '2023-01-15T00:00:00Z',
-          latestActivityDate: '2023-06-01T00:00:00Z',
-          issueYear: '2023',
-        },
-      ],
-    };
-    mockFetch.mockResolvedValue(jsonResponse(investigationPage));
+describe('getInvestigations caching (flat-file source)', () => {
+  // FLAT_INV column order: nhtsaId, make, model, year, component, mfrName, openDate, closeDate, campno, subject, summary
+  it('parses a flat-file zip and caches results', async () => {
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        [
+          'PE12345',
+          'TOYOTA',
+          'CAMRY',
+          '2020',
+          'BRAKES',
+          'TOYOTA MOTOR',
+          '20230115',
+          '',
+          '',
+          'Brake failure',
+          'Investigation into brake issues',
+        ],
+      ]),
+    );
 
     const svc = getNhtsaService();
 
     const first = await svc.getInvestigations();
     expect(first).toHaveLength(1);
     expect(first[0].nhtsaId).toBe('PE12345');
-    expect(first[0].description).toBe('Investigation into brake issues'); // HTML stripped
+    expect(first[0].investigationType).toBe('PE');
+    expect(first[0].status).toBe('O'); // no closeDate → open
+    expect(first[0].makes).toEqual(['TOYOTA']);
+    expect(first[0].models).toEqual(['CAMRY']);
+    expect(first[0].components).toEqual(['BRAKES']);
+    expect(first[0].subject).toBe('Brake failure');
+    expect(first[0].openDate).toBe('2023-01-15');
 
+    // Second call uses cache — only one fetch
     const second = await svc.getInvestigations();
     expect(second).toHaveLength(1);
-
-    // Only fetched once (cached)
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves missing investigation fields as undefined', async () => {
+  it('collapses multiple association rows for the same nhtsaId', async () => {
     mockFetch.mockResolvedValue(
-      jsonResponse({
-        meta: { pagination: { count: 1, max: 100, offset: 0, total: 1 } },
-        results: [{ id: 1, nhtsaId: 'PE12345' }],
-      }),
+      makeFlatInvZipResponse([
+        [
+          'PE12345',
+          'TOYOTA',
+          'CAMRY',
+          '2020',
+          'BRAKES',
+          'TOYOTA MOTOR',
+          '20230115',
+          '',
+          '',
+          'Brake failure',
+          'Investigation into brake issues',
+        ],
+        [
+          'PE12345',
+          'TOYOTA',
+          'COROLLA',
+          '2021',
+          'BRAKES',
+          'TOYOTA MOTOR',
+          '20230115',
+          '',
+          '',
+          'Brake failure',
+          'Investigation into brake issues',
+        ],
+      ]),
+    );
+
+    const svc = getNhtsaService();
+    const investigations = await svc.getInvestigations();
+
+    expect(investigations).toHaveLength(1);
+    expect(investigations[0].nhtsaId).toBe('PE12345');
+    expect(investigations[0].models).toContain('CAMRY');
+    expect(investigations[0].models).toContain('COROLLA');
+    expect(investigations[0].years).toContain(2020);
+    expect(investigations[0].years).toContain(2021);
+  });
+
+  it('marks investigation as closed when closeDate is present', async () => {
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        [
+          'EA99001',
+          'HONDA',
+          'CIVIC',
+          '2019',
+          'ENGINE',
+          'HONDA',
+          '20210101',
+          '20220101',
+          '21V407000',
+          'Engine stall',
+          'Engine stalling issue',
+        ],
+      ]),
+    );
+
+    const svc = getNhtsaService();
+    const investigations = await svc.getInvestigations();
+
+    expect(investigations[0].status).toBe('C');
+    expect(investigations[0].closeDate).toBe('2022-01-01');
+    expect(investigations[0].recallCampaign).toBe('21V407000');
+    expect(investigations[0].investigationType).toBe('EA');
+  });
+
+  it('omits fields for sparse rows', async () => {
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([['PE12345', '', '', '9999', '', '', '', '', '', '', '']]),
     );
 
     const svc = getNhtsaService();
@@ -491,8 +619,9 @@ describe('getInvestigations caching', () => {
     expect(investigations).toHaveLength(1);
     expect(investigations[0].nhtsaId).toBe('PE12345');
     expect(investigations[0].subject).toBeUndefined();
-    expect(investigations[0].description).toBeUndefined();
     expect(investigations[0].openDate).toBeUndefined();
+    expect(investigations[0].years).toEqual([]); // 9999 excluded
+    expect(investigations[0].makes).toEqual([]);
   });
 });
 
@@ -657,87 +786,27 @@ describe('VPIC lookups', () => {
   });
 });
 
-describe('getRecallCampaign binary search', () => {
-  it('finds a campaign by ID', async () => {
+describe('getRecallCampaign (direct endpoint)', () => {
+  it('finds a campaign by number via direct endpoint', async () => {
     const target = '20V682000';
-    // Mock: initial call returns total, binary search hits target
-    mockFetch.mockImplementation(async (url: string) => {
-      const u = new URL(url);
-      const offset = Number(u.searchParams.get('offset') ?? 0);
-
-      if (offset === 0 && u.searchParams.get('max') === '1') {
-        // Initial call or binary search step — return something before or at the target
-        return jsonResponse({
-          meta: { pagination: { count: 1, max: 1, offset: 0, total: 100 } },
-          results: [
-            {
-              id: 1,
-              campaignId: '10V100000',
-              nhtsaCampaignNumber: '10V100',
-              subject: 'Other recall',
-              description: 'Other desc',
-              consequence: 'None',
-              correctiveAction: 'None',
-              manufacturerName: 'Other',
-              potaff: 100,
-              recall573ReceivedDate: '2010-01-01T00:00:00Z',
-              recallType: 'V',
-              parkVehicleYn: false,
-              parkOutsideYn: false,
-              overTheAirUpdateYn: false,
-            },
-          ],
-        });
-      }
-
-      // Binary search mid-point checks: return the target when offset is >= 50
-      if (offset >= 50) {
-        return jsonResponse({
-          meta: { pagination: { count: 1, max: 1, offset, total: 100 } },
-          results: [
-            {
-              id: 50,
-              campaignId: target,
-              nhtsaCampaignNumber: '20V682',
-              subject: 'Fuel leak',
-              description: 'Fuel delivery pipe leak',
-              consequence: 'Fire risk',
-              correctiveAction: 'Replace pipe',
-              manufacturerName: 'Toyota',
-              potaff: 5000,
-              recall573ReceivedDate: '2020-11-12T00:00:00Z',
-              recallType: 'V',
-              parkVehicleYn: false,
-              parkOutsideYn: false,
-              overTheAirUpdateYn: false,
-            },
-          ],
-        });
-      }
-
-      // Before target
-      return jsonResponse({
-        meta: { pagination: { count: 1, max: 1, offset, total: 100 } },
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'Results returned successfully',
         results: [
           {
-            id: offset,
-            campaignId: `10V${String(offset).padStart(6, '0')}`,
-            nhtsaCampaignNumber: `10V${String(offset).padStart(3, '0')}`,
-            subject: 'Before',
-            description: 'Before target',
-            consequence: 'None',
-            correctiveAction: 'None',
-            manufacturerName: 'Other',
-            potaff: 0,
-            recall573ReceivedDate: '2010-01-01T00:00:00Z',
-            recallType: 'V',
-            parkVehicleYn: false,
-            parkOutsideYn: false,
-            overTheAirUpdateYn: false,
+            NHTSACampaignNumber: target,
+            Manufacturer: 'Toyota',
+            Component: 'FUEL/PROPULSION SYSTEM',
+            Summary: 'Fuel delivery pipe may leak.',
+            Consequence: 'Fire risk.',
+            Remedy: 'Replace fuel pipe.',
+            ReportReceivedDate: '11/12/2020',
+            PotentialNumberofUnitsAffected: 5000,
           },
         ],
-      });
-    });
+      }),
+    );
 
     const svc = getNhtsaService();
     const result = await svc.getRecallCampaign(target);
@@ -745,91 +814,49 @@ describe('getRecallCampaign binary search', () => {
     expect(result).not.toBeNull();
     expect(result!.campaignNumber).toBe(target);
     expect(result!.manufacturer).toBe('Toyota');
+    expect(result!.component).toBe('FUEL/PROPULSION SYSTEM');
     expect(result!.potentialUnitsAffected).toBe(5000);
+    expect(result!.receivedDate).toBe('2020-12-11');
+    // Single request to the direct endpoint
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toContain('/recalls/campaignNumber');
   });
 
-  it('returns null when campaign not found', async () => {
-    // All records have campaignIds that don't match
-    mockFetch.mockImplementation(async (url: string) => {
-      const u = new URL(url);
-      const offset = Number(u.searchParams.get('offset') ?? 0);
-      const max = Number(u.searchParams.get('max') ?? 1);
-
-      return jsonResponse({
-        meta: { pagination: { count: Math.min(max, 3), max, offset, total: 3 } },
-        results: Array.from({ length: Math.min(max, 3 - offset) }, (_, i) => ({
-          id: offset + i,
-          campaignId: `AAA${String(offset + i).padStart(6, '0')}`,
-          nhtsaCampaignNumber: `AAA${String(offset + i).padStart(3, '0')}`,
-          subject: 'Unrelated',
-          description: 'Unrelated',
-          consequence: 'None',
-          correctiveAction: 'None',
-          manufacturerName: 'Other',
-          potaff: 0,
-          recall573ReceivedDate: '2020-01-01T00:00:00Z',
-          recallType: 'V',
-          parkVehicleYn: false,
-          parkOutsideYn: false,
-          overTheAirUpdateYn: false,
-        })),
-      });
-    });
+  it('returns null when campaign is not found (empty results)', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 0,
+        Message: 'Results returned successfully',
+        results: [],
+      }),
+    );
 
     const svc = getNhtsaService();
     const result = await svc.getRecallCampaign('ZZZ999999');
     expect(result).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('preserves missing advisory flags in campaign lookups', async () => {
     const target = '20V682000';
-    mockFetch.mockImplementation(async (url: string) => {
-      const u = new URL(url);
-      const offset = Number(u.searchParams.get('offset') ?? 0);
-
-      if (offset === 0 && u.searchParams.get('max') === '1') {
-        return jsonResponse({
-          meta: { pagination: { count: 1, max: 1, offset: 0, total: 100 } },
-          results: [
-            {
-              id: 1,
-              campaignId: '10V100000',
-              nhtsaCampaignNumber: '10V100',
-              subject: 'Other recall',
-              description: 'Other desc',
-              consequence: 'None',
-              correctiveAction: 'None',
-              manufacturerName: 'Other',
-              potaff: 100,
-              recall573ReceivedDate: '2010-01-01T00:00:00Z',
-              recallType: 'V',
-              parkVehicleYn: false,
-              parkOutsideYn: false,
-              overTheAirUpdateYn: false,
-            },
-          ],
-        });
-      }
-
-      return jsonResponse({
-        meta: { pagination: { count: 1, max: 1, offset, total: 100 } },
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'Results returned successfully',
         results: [
           {
-            id: 50,
-            campaignId: target,
-            nhtsaCampaignNumber: '20V682',
-            subject: 'Fuel leak',
-            description: 'Fuel delivery pipe leak',
-            consequence: 'Fire risk',
-            correctiveAction: 'Replace pipe',
-            manufacturerName: 'Toyota',
-            potaff: 5000,
-            recall573ReceivedDate: '2020-11-12T00:00:00Z',
-            recallType: 'V',
+            NHTSACampaignNumber: target,
+            Manufacturer: 'Toyota',
+            Component: 'FUEL/PROPULSION SYSTEM',
+            Summary: 'Fuel delivery pipe may leak.',
+            Consequence: 'Fire risk.',
+            Remedy: 'Replace fuel pipe.',
+            ReportReceivedDate: '11/12/2020',
+            PotentialNumberofUnitsAffected: 5000,
           },
         ],
-      });
-    });
+      }),
+    );
 
     const svc = getNhtsaService();
     const result = await svc.getRecallCampaign(target);

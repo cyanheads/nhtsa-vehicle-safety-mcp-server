@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/decode-vin.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -111,5 +111,64 @@ describe('decodeVin', () => {
     expect(text).toContain('ACCORD');
     expect(text).toContain('160 HP');
     expect(text).toContain('MARYSVILLE');
+  });
+
+  it('returns empty vehicles when service returns null (empty VPIC results)', async () => {
+    // #8 fix: decodeVin service now returns null instead of throwing on empty Results[]
+    mockService.decodeVin.mockResolvedValue(null);
+
+    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const input = decodeVin.input.parse({ vin: 'TEST' });
+    const result = await decodeVin.handler(input, ctx);
+
+    expect(result.vehicles).toHaveLength(0);
+    // format() should render "No VIN decode results."
+    const text = decodeVin.format!(result)[0].text;
+    expect(text).toContain('No VIN decode results.');
+  });
+
+  it('populates effectiveQuery enrichment for single VIN', async () => {
+    // #14 fix: ctx.enrich({ effectiveQuery }) surfaces batch/count context
+    mockService.decodeVin.mockResolvedValue(sampleVin);
+
+    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const input = decodeVin.input.parse({ vin: '1HGCM82633A004352' });
+    await decodeVin.handler(input, ctx);
+
+    expect(getEnrichment(ctx).effectiveQuery).toBe('1 VIN (single)');
+  });
+
+  it('populates effectiveQuery enrichment for batch VINs', async () => {
+    mockService.decodeVinBatch.mockResolvedValue([sampleVin, { ...sampleVin, vin: 'BBB' }]);
+
+    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const input = decodeVin.input.parse({ vin: ['1HGCM82633A004352', 'BBB'] });
+    await decodeVin.handler(input, ctx);
+
+    expect(getEnrichment(ctx).effectiveQuery).toBe('2 VINs (batch)');
+  });
+
+  it('populates notice enrichment for partial decode (non-zero errorCode)', async () => {
+    // #14 fix: ctx.enrich.notice() flags partial decodes
+    const partialVin = { ...sampleVin, errorCode: '6', errorText: 'Partial VIN decode' };
+    mockService.decodeVin.mockResolvedValue(partialVin);
+
+    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const input = decodeVin.input.parse({ vin: '1HGCM82633A004352' });
+    await decodeVin.handler(input, ctx);
+
+    const notice = getEnrichment(ctx).notice as string;
+    expect(notice).toMatch(/VPIC warnings/i);
+    expect(notice).toMatch(/errorCode/i);
+  });
+
+  it('does not populate notice enrichment when errorCode is 0 or absent', async () => {
+    mockService.decodeVin.mockResolvedValue({ ...sampleVin, errorCode: '0' });
+
+    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const input = decodeVin.input.parse({ vin: '1HGCM82633A004352' });
+    await decodeVin.handler(input, ctx);
+
+    expect(getEnrichment(ctx).notice).toBeUndefined();
   });
 });

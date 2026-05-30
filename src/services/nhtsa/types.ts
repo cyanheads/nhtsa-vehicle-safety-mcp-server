@@ -54,22 +54,23 @@ export interface RawRecallByVehicle {
   Summary: string;
 }
 
-/** /recalls (base paginated endpoint) — camelCase throughout. */
-export interface RawRecallBase {
-  campaignId: string;
-  consequence: string;
-  correctiveAction: string;
-  description: string;
-  id: number;
-  manufacturerName: string;
-  nhtsaCampaignNumber: string;
-  overTheAirUpdateYn?: boolean;
-  parkOutsideYn?: boolean;
-  parkVehicleYn?: boolean;
-  potaff: number;
-  recall573ReceivedDate: string;
-  recallType: string;
-  subject: string;
+/** /recalls/campaignNumber — PascalCase (same shape as recallsByVehicle + PotentialNumberofUnitsAffected). */
+export interface RawRecallCampaignDirect {
+  Component: string;
+  Consequence: string;
+  Make?: string;
+  Manufacturer: string;
+  Model?: string;
+  ModelYear?: string;
+  NHTSACampaignNumber: string;
+  Notes?: string;
+  overTheAirUpdate?: boolean;
+  PotentialNumberofUnitsAffected?: number;
+  parkIt?: boolean;
+  parkOutSide?: boolean;
+  Remedy: string;
+  ReportReceivedDate: string;
+  Summary: string;
 }
 
 /** /complaints/complaintsByVehicle — camelCase. */
@@ -119,18 +120,8 @@ export interface RawSafetyRating {
   VehicleId?: number;
 }
 
-/** /investigations — camelCase. */
-export interface RawInvestigation {
-  description?: string;
-  id?: number;
-  investigationType?: string;
-  issueYear?: string;
-  latestActivityDate?: string;
-  nhtsaId?: string;
-  openDate?: string;
-  status?: string;
-  subject?: string;
-}
+// RawInvestigation removed — investigations now sourced from FLAT_INV.zip flat file.
+// The flat file is parsed directly into Investigation records in nhtsa-service.ts.
 
 /** VPIC DecodeVinValues — PascalCase, 157 fields. Indexed for selective extraction. */
 export interface RawVpicDecodedVin {
@@ -153,9 +144,10 @@ export interface Recall {
   summary: string;
 }
 
-/** Recall from base endpoint (campaign-level, includes units affected). */
+/** Recall from the direct /recalls/campaignNumber endpoint. */
 export interface RecallCampaign {
   campaignNumber: string;
+  component?: string;
   consequence: string;
   manufacturer: string;
   overTheAirUpdate?: boolean;
@@ -164,7 +156,6 @@ export interface RecallCampaign {
   potentialUnitsAffected: number;
   receivedDate: string;
   remedy: string;
-  subject: string;
   summary: string;
 }
 
@@ -284,15 +275,21 @@ export interface DecodedVin {
   vin: string;
 }
 
+/** Normalized investigation record — sourced from FLAT_INV.zip flat file. */
 export interface Investigation {
-  description?: string;
+  closeDate?: string;
+  components?: string[]; // distinct components from flat-file association rows
   investigationType?: string;
-  issueYear?: string;
-  latestActivityDate?: string;
+  makes?: string[]; // distinct makes from flat-file association rows
+  manufacturer?: string;
+  models?: string[]; // distinct models from flat-file association rows
   nhtsaId?: string;
   openDate?: string;
-  status?: string;
+  recallCampaign?: string; // CAMPNO — links to nhtsa_search_recalls by campaignNumber
+  status?: string; // 'O' = Open (no close date), 'C' = Closed
   subject?: string;
+  summary?: string;
+  years?: number[]; // distinct model years (9999 excluded)
 }
 
 export interface VpicMake {

@@ -148,7 +148,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
           {
             campaignNumber: campaign.campaignNumber,
             manufacturer: campaign.manufacturer,
-            subject: campaign.subject,
+            component: campaign.component,
             summary: campaign.summary,
             consequence: campaign.consequence,
             remedy: campaign.remedy,

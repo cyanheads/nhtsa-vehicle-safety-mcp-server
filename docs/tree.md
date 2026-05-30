@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-05-30 09:51:25
+Generated on: 2026-05-30 12:17:32
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -27,6 +27,7 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── 0.5.x/
 │   ├── 0.6.x/
 │   ├── 0.7.x/
+│   ├── 0.8.x/
 │   └── template.md
 ├── claude-plans/
 ├── docs/

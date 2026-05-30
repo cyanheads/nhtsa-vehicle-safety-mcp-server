@@ -61,6 +61,17 @@ export const decodeVin = tool('nhtsa_decode_vin', {
   output: z.object({
     vehicles: z.array(decodedVinSchema).describe('Decoded vehicle information per VIN'),
   }),
+  enrichment: {
+    effectiveQuery: z
+      .string()
+      .describe('Number of VINs decoded and the path taken (single or batch).'),
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Present when one or more VINs decoded with VPIC warnings (errorCode != 0) — check errorCode/errorText per vehicle.',
+      ),
+  },
   errors: [
     {
       reason: 'empty_vin_list',
@@ -96,17 +107,28 @@ export const decodeVin = tool('nhtsa_decode_vin', {
     }
 
     const [firstVin] = nonEmpty;
-    const vehicles =
-      firstVin && nonEmpty.length === 1
-        ? [await svc.decodeVin(firstVin, input.modelYear, ctx.signal)]
-        : await svc.decodeVinBatch(
-            nonEmpty.map((vin) =>
-              input.modelYear != null ? { vin, modelYear: input.modelYear } : { vin },
-            ),
-            ctx.signal,
-          );
+    const isSingle = firstVin != null && nonEmpty.length === 1;
+
+    const vehicles = isSingle
+      ? await svc.decodeVin(firstVin, input.modelYear, ctx.signal).then((v) => (v ? [v] : []))
+      : await svc.decodeVinBatch(
+          nonEmpty.map((vin) =>
+            input.modelYear != null ? { vin, modelYear: input.modelYear } : { vin },
+          ),
+          ctx.signal,
+        );
 
     ctx.log.info('VIN decode', { count: nonEmpty.length, results: vehicles.length });
+
+    const effectiveQuery = `${nonEmpty.length} VIN${nonEmpty.length === 1 ? '' : 's'} (${isSingle ? 'single' : 'batch'})`;
+    ctx.enrich({ effectiveQuery });
+
+    const partialDecodes = vehicles.filter((v) => v.errorCode != null && v.errorCode !== '0');
+    if (partialDecodes.length > 0) {
+      ctx.enrich.notice(
+        `${partialDecodes.length} VIN${partialDecodes.length === 1 ? '' : 's'} decoded with VPIC warnings — check errorCode/errorText per vehicle for decode quality.`,
+      );
+    }
 
     return { vehicles };
   },
