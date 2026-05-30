@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.7.6](changelog/0.7.x/0.7.6.md) — 2026-05-30
+
+enrichment adoption — recalls, complaints, investigations, and lookup tools surface query echoes and empty-result guidance via ctx.enrich; output.message removed from structured output
+
 ## [0.7.5](changelog/0.7.x/0.7.5.md) — 2026-05-28
 
 mcp-ts-core ^0.9.6 → ^0.9.13; HTTP 413 body cap, session-init gate, quieter 401/403/400/404 logs, GET /mcp keywords; biome ^2.4.16

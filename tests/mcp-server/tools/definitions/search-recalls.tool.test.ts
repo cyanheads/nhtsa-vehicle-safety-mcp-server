@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/search-recalls.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -53,6 +53,7 @@ describe('searchRecalls', () => {
       2020,
       expect.anything(),
     );
+    expect(getEnrichment(ctx).effectiveQuery).toBe('Toyota Camry 2020');
   });
 
   it('accepts missing advisory fields for vehicle recalls', async () => {
@@ -169,6 +170,17 @@ describe('searchRecalls', () => {
 
     expect(result.totalCount).toBe(1);
     expect(result.recalls[0].campaignNumber).toBe('21V100000');
+  });
+
+  it('populates enrichment notice when no vehicle recalls found', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = searchRecalls.input.parse({ make: 'Nope', model: 'Ghost', modelYear: 2023 });
+    const result = await searchRecalls.handler(input, ctx);
+
+    expect(result.totalCount).toBe(0);
+    expect(getEnrichment(ctx).notice).toMatch(/nhtsa_lookup_vehicles/i);
   });
 
   it('format renders alert badges', () => {

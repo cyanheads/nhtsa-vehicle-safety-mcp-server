@@ -120,11 +120,15 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
           .describe('Safety ratings for a single vehicle variant'),
       )
       .describe('Safety ratings per vehicle variant'),
-    message: z
+  }),
+  enrichment: {
+    notice: z
       .string()
       .optional()
-      .describe('Contextual guidance populated when no ratings are returned'),
-  }),
+      .describe(
+        'Guidance when no NCAP ratings are found — e.g. coverage notes or adjacent year suggestion.',
+      ),
+  },
   errors: [
     {
       reason: 'missing_required_combo',
@@ -137,14 +141,15 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
   async handler(input, ctx) {
     const svc = getNhtsaService();
     let ratings: SafetyRating[] = [];
-    let message: string | undefined;
 
     if (input.vehicleId != null) {
       const rating = await svc.getSafetyRating(input.vehicleId, ctx.signal);
       if (rating) {
         ratings = [rating];
       } else {
-        message = `No NCAP vehicle found for vehicleId ${input.vehicleId}. Verify the ID — look it up via make/model/modelYear first.`;
+        ctx.enrich.notice(
+          `No NCAP vehicle found for vehicleId ${input.vehicleId}. Verify the ID — look it up via make/model/modelYear first.`,
+        );
       }
     } else {
       if (!input.make || !input.model || input.modelYear == null) {
@@ -161,7 +166,9 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
         ctx.signal,
       );
       if (variants.length === 0) {
-        message = `No NCAP crash test data for ${input.make} ${input.model} ${input.modelYear}. NCAP coverage starts from 1990, with best coverage for 2011+. Adjacent model years or a different trim/drivetrain may have ratings.`;
+        ctx.enrich.notice(
+          `No NCAP crash test data for ${input.make} ${input.model} ${input.modelYear}. NCAP coverage starts from 1990, with best coverage for 2011+. Adjacent model years or a different trim/drivetrain may have ratings.`,
+        );
       } else {
         ratings = (
           await Promise.all(variants.map((v) => svc.getSafetyRating(v.vehicleId, ctx.signal)))
@@ -176,7 +183,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       variants: ratings.length,
     });
 
-    return { ratings, ...(message ? { message } : {}) };
+    return { ratings };
   },
 
   format: (result) => {
@@ -184,15 +191,12 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       return [
         {
           type: 'text' as const,
-          text:
-            result.message ??
-            'No NCAP safety ratings available for this vehicle. Ratings are most comprehensive for 2011+ model years.',
+          text: 'No NCAP safety ratings available for this vehicle. Ratings are most comprehensive for 2011+ model years.',
         },
       ];
     }
 
     const lines: string[] = [];
-    if (result.message) lines.push(`*${result.message}*\n`);
     for (const r of result.ratings) {
       const label = r.vehicleDescription
         ? `${r.vehicleDescription} (vehicleId: ${r.vehicleId})`

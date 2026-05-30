@@ -86,6 +86,19 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       )
       .describe('Paginated slice of the most recent complaints, date-descending'),
   }),
+  enrichment: {
+    effectiveQuery: z
+      .string()
+      .describe(
+        '"make model modelYear" with optional component filter applied, as the server used it.',
+      ),
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Guidance when no complaints are found — e.g. how to verify make/model/year spelling.',
+      ),
+  },
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
@@ -125,6 +138,16 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       limit,
     });
 
+    const effectiveQuery = input.component
+      ? `${input.make} ${input.model} ${input.modelYear} component=${input.component}`
+      : `${input.make} ${input.model} ${input.modelYear}`;
+    ctx.enrich({ effectiveQuery });
+    if (complaints.length === 0) {
+      ctx.enrich.notice(
+        'No complaints found. This may mean no complaints have been filed, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
+      );
+    }
+
     return {
       totalCount: complaints.length,
       returned: page.length,
@@ -137,12 +160,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
 
   format: (result) => {
     if (result.totalCount === 0) {
-      return [
-        {
-          type: 'text' as const,
-          text: 'No complaints found for this vehicle. This may mean no complaints have been filed, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
-        },
-      ];
+      return [{ type: 'text' as const, text: 'No complaints found for this vehicle.' }];
     }
 
     const lines = [`**${result.totalCount} complaint(s)**\n`];

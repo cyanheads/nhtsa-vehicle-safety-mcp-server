@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/get-safety-ratings.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -132,7 +132,7 @@ describe('getSafetyRatings', () => {
     expect(text).toContain('Not available');
   });
 
-  it('returns empty when no variants found', async () => {
+  it('returns empty and populates enrichment notice when no variants found', async () => {
     mockService.getSafetyRatingVariants.mockResolvedValue([]);
 
     const ctx = createMockContext();
@@ -140,6 +140,21 @@ describe('getSafetyRatings', () => {
     const result = await getSafetyRatings.handler(input, ctx);
 
     expect(result.ratings).toEqual([]);
+    const notice = getEnrichment(ctx).notice as string;
+    expect(notice).toMatch(/no ncap crash test data/i);
+    expect(notice).toContain('Fake Car 1990');
+  });
+
+  it('populates enrichment notice when vehicleId not found', async () => {
+    mockService.getSafetyRating.mockResolvedValue(null);
+
+    const ctx = createMockContext();
+    const input = getSafetyRatings.input.parse({ vehicleId: 99999 });
+    const result = await getSafetyRatings.handler(input, ctx);
+
+    expect(result.ratings).toEqual([]);
+    const notice = getEnrichment(ctx).notice as string;
+    expect(notice).toMatch(/no ncap vehicle found for vehicleId 99999/i);
   });
 
   it('format renders star ratings', () => {

@@ -55,10 +55,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     returned: z.number().describe('Number of results in the returned slice'),
     offset: z.number().describe('Pagination offset used for this response'),
     limit: z.number().describe('Pagination limit used for this response'),
-    message: z
-      .string()
-      .optional()
-      .describe('Contextual guidance populated when the result set is empty'),
     makes: z
       .array(
         z
@@ -117,6 +113,15 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .optional()
       .describe('Results for "manufacturer" operation'),
   }),
+  enrichment: {
+    effectiveQuery: z
+      .string()
+      .describe('The operation with key args, e.g. "models make=Toyota year=2020".'),
+    notice: z
+      .string()
+      .optional()
+      .describe('Guidance when the result set is empty or the page is out of bounds.'),
+  },
   errors: [
     {
       reason: 'missing_operation_arg',
@@ -147,8 +152,10 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
         });
-        const message =
-          all.length > 0 && slice.length === 0 ? outOfBoundsMessage(all.length) : undefined;
+        ctx.enrich({ effectiveQuery: `makes offset=${offset} limit=${limit}` });
+        if (all.length > 0 && slice.length === 0) {
+          ctx.enrich.notice(outOfBoundsMessage(all.length));
+        }
         return {
           operation: 'makes',
           totalCount: all.length,
@@ -156,7 +163,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
           makes: slice,
-          ...(message ? { message } : {}),
         };
       }
 
@@ -178,16 +184,18 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
         });
-        const yearPart = input.modelYear ? ` for model year ${input.modelYear}` : '';
-        const message =
-          all.length === 0
-            ? emptyMessage(
-                `models for make "${input.make}"${yearPart}`,
-                'Verify the make spelling with operation="makes" — partial matches are supported.',
-              )
-            : slice.length === 0
-              ? outOfBoundsMessage(all.length)
-              : undefined;
+        const yearPart = input.modelYear ? ` year=${input.modelYear}` : '';
+        ctx.enrich({ effectiveQuery: `models make=${input.make}${yearPart}` });
+        if (all.length === 0) {
+          ctx.enrich.notice(
+            emptyMessage(
+              `models for make "${input.make}"${input.modelYear ? ` for model year ${input.modelYear}` : ''}`,
+              'Verify the make spelling with operation="makes" — partial matches are supported.',
+            ),
+          );
+        } else if (slice.length === 0) {
+          ctx.enrich.notice(outOfBoundsMessage(all.length));
+        }
         return {
           operation: 'models',
           totalCount: all.length,
@@ -195,7 +203,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
           models: slice,
-          ...(message ? { message } : {}),
         };
       }
 
@@ -216,15 +223,17 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
         });
-        const message =
-          all.length === 0
-            ? emptyMessage(
-                `vehicle types for make "${input.make}"`,
-                'Verify the make spelling with operation="makes".',
-              )
-            : slice.length === 0
-              ? outOfBoundsMessage(all.length)
-              : undefined;
+        ctx.enrich({ effectiveQuery: `vehicle_types make=${input.make}` });
+        if (all.length === 0) {
+          ctx.enrich.notice(
+            emptyMessage(
+              `vehicle types for make "${input.make}"`,
+              'Verify the make spelling with operation="makes".',
+            ),
+          );
+        } else if (slice.length === 0) {
+          ctx.enrich.notice(outOfBoundsMessage(all.length));
+        }
         return {
           operation: 'vehicle_types',
           totalCount: all.length,
@@ -232,7 +241,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
           vehicleTypes: slice,
-          ...(message ? { message } : {}),
         };
       }
 
@@ -253,15 +261,17 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
         });
-        const message =
-          all.length === 0
-            ? emptyMessage(
-                `manufacturers matching "${input.manufacturer}"`,
-                'Partial matches are supported — try a shorter or different query.',
-              )
-            : slice.length === 0
-              ? outOfBoundsMessage(all.length)
-              : undefined;
+        ctx.enrich({ effectiveQuery: `manufacturer=${input.manufacturer}` });
+        if (all.length === 0) {
+          ctx.enrich.notice(
+            emptyMessage(
+              `manufacturers matching "${input.manufacturer}"`,
+              'Partial matches are supported — try a shorter or different query.',
+            ),
+          );
+        } else if (slice.length === 0) {
+          ctx.enrich.notice(outOfBoundsMessage(all.length));
+        }
         return {
           operation: 'manufacturer',
           totalCount: all.length,
@@ -269,7 +279,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           offset,
           limit,
           manufacturers: slice,
-          ...(message ? { message } : {}),
         };
       }
     }
@@ -280,9 +289,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       return [
         {
           type: 'text' as const,
-          text:
-            result.message ??
-            `No results for "${result.operation}" lookup. Check the spelling of the make/manufacturer name — partial matches are supported.`,
+          text: `No results for "${result.operation}" lookup. Check the spelling of the make/manufacturer name — partial matches are supported.`,
         },
       ];
     }
@@ -291,7 +298,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     lines.push(
       `*Showing ${result.returned} of ${result.totalCount} (offset ${result.offset}, limit ${result.limit})*\n`,
     );
-    if (result.message) lines.push(`*${result.message}*\n`);
 
     if (result.makes) {
       for (const m of result.makes) {

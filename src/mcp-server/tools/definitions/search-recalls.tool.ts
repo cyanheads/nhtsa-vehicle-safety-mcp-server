@@ -78,6 +78,19 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       .describe('Matching recall campaigns'),
     totalCount: z.number().describe('Total recalls matching criteria'),
   }),
+  enrichment: {
+    effectiveQuery: z
+      .string()
+      .describe(
+        'The search key used: campaign number, or "make model modelYear" for vehicle queries.',
+      ),
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Guidance when no recalls are found — e.g. how to verify make/model/year spelling.',
+      ),
+  },
   errors: [
     {
       reason: 'mode_conflict',
@@ -129,6 +142,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
         );
       }
 
+      ctx.enrich({ effectiveQuery: input.campaignNumber });
       return {
         recalls: [
           {
@@ -199,17 +213,20 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       count: recalls.length,
     });
 
+    const effectiveQuery = `${input.make} ${input.model} ${input.modelYear}`;
+    ctx.enrich({ effectiveQuery });
+    if (recalls.length === 0) {
+      ctx.enrich.notice(
+        'No recalls found. This vehicle may have no recalls on file, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
+      );
+    }
+
     return { recalls, totalCount: recalls.length };
   },
 
   format: (result) => {
     if (result.totalCount === 0) {
-      return [
-        {
-          type: 'text' as const,
-          text: 'No recalls found matching the search criteria. This vehicle may have no recalls on file, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
-        },
-      ];
+      return [{ type: 'text' as const, text: 'No recalls found matching the search criteria.' }];
     }
 
     const lines = [`**${result.totalCount} recall(s) found**\n`];

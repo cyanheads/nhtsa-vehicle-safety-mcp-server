@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/lookup-vehicles.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -136,7 +136,7 @@ describe('lookupVehicles', () => {
     expect(result.manufacturers?.[0].country).toBe('JAPAN');
   });
 
-  it('out-of-bounds offset surfaces a recovery message', async () => {
+  it('out-of-bounds offset surfaces a recovery notice via enrichment', async () => {
     mockService.getAllMakes.mockResolvedValue([{ makeId: 1, makeName: 'A' }]);
 
     const ctx = createMockContext();
@@ -145,10 +145,10 @@ describe('lookupVehicles', () => {
 
     expect(result.totalCount).toBe(1);
     expect(result.returned).toBe(0);
-    expect(result.message).toMatch(/try a smaller offset/i);
+    expect(getEnrichment(ctx).notice).toMatch(/try a smaller offset/i);
   });
 
-  it('empty models result carries a recovery message', async () => {
+  it('empty models result surfaces a recovery notice via enrichment', async () => {
     mockService.getModels.mockResolvedValue([]);
 
     const ctx = createMockContext();
@@ -156,7 +156,7 @@ describe('lookupVehicles', () => {
     const result = await lookupVehicles.handler(input, ctx);
 
     expect(result.totalCount).toBe(0);
-    expect(result.message).toMatch(/verify the make spelling/i);
+    expect(getEnrichment(ctx).notice).toMatch(/verify the make spelling/i);
   });
 
   it('format renders makes list', () => {

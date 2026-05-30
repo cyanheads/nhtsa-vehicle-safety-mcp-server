@@ -62,10 +62,6 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
   }),
   output: z.object({
     totalCount: z.number().describe('Total matching investigations'),
-    message: z
-      .string()
-      .optional()
-      .describe('Contextual guidance populated when no investigations match the filters'),
     investigations: z
       .array(
         z
@@ -87,6 +83,17 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       )
       .describe('Matching investigations'),
   }),
+  enrichment: {
+    effectiveQuery: z
+      .string()
+      .describe('Applied filters as a readable string, e.g. make="Ford" status="O".'),
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Guidance when no investigations match — e.g. suggestions for broadening the search.',
+      ),
+  },
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
@@ -135,16 +142,20 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       input.investigationType ? `investigationType="${input.investigationType}"` : null,
       input.status ? `status="${input.status}"` : null,
     ].filter((f): f is string => f !== null);
-    const message =
-      totalCount === 0
-        ? appliedFilters.length === 0
+
+    const effectiveQuery = appliedFilters.length > 0 ? appliedFilters.join(', ') : '(all)';
+    ctx.enrich({ effectiveQuery });
+
+    if (totalCount === 0) {
+      const notice =
+        appliedFilters.length === 0
           ? 'No investigations found. This is unexpected — the investigations dataset should contain thousands of records.'
-          : `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter or searching make-only. make/model/query all search subject+description text — try a shorter term.`
-        : undefined;
+          : `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter or searching make-only. make/model/query all search subject+description text — try a shorter term.`;
+      ctx.enrich.notice(notice);
+    }
 
     return {
       totalCount,
-      ...(message ? { message } : {}),
       investigations: page.map((i) => ({
         nhtsaId: i.nhtsaId,
         investigationType: i.investigationType,
@@ -166,9 +177,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       return [
         {
           type: 'text' as const,
-          text:
-            result.message ??
-            'No investigations found matching the search criteria. Try broadening the search — use fewer filters, or search by make only.',
+          text: 'No investigations found matching the search criteria. Try broadening the search — use fewer filters, or search by make only.',
         },
       ];
     }
@@ -176,7 +185,6 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const lines = [
       `**${result.totalCount} investigation(s) found** (showing ${result.investigations.length})\n`,
     ];
-    if (result.message) lines.push(`*${result.message}*\n`);
 
     for (const i of result.investigations) {
       const statusLabel = i.statusName || 'Unknown';

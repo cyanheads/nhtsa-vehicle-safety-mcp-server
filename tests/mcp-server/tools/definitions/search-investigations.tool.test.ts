@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/search-investigations.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -55,7 +55,7 @@ const sampleInvestigations = [
 ];
 
 describe('searchInvestigations', () => {
-  it('returns all investigations when no filters', async () => {
+  it('returns all investigations when no filters and populates effectiveQuery', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
     const ctx = createMockContext();
@@ -64,6 +64,7 @@ describe('searchInvestigations', () => {
 
     expect(result.totalCount).toBe(3);
     expect(result.investigations).toHaveLength(3);
+    expect(getEnrichment(ctx).effectiveQuery).toBe('(all)');
   });
 
   it('filters by investigationType', async () => {
@@ -133,6 +134,18 @@ describe('searchInvestigations', () => {
     expect(pe?.investigationTypeName).toBe('Preliminary Evaluation');
     const ea = result.investigations.find((i) => i.investigationType === 'EA');
     expect(ea?.investigationTypeName).toBe('Engineering Analysis');
+  });
+
+  it('populates enrichment notice when no investigations match filters', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext();
+    const input = searchInvestigations.input.parse({ make: 'Nonexistent Brand XYZ' });
+    const result = await searchInvestigations.handler(input, ctx);
+
+    expect(result.totalCount).toBe(0);
+    const notice = getEnrichment(ctx).notice as string;
+    expect(notice).toMatch(/no investigations matched/i);
   });
 
   it('accepts sparse investigation fields without inventing values', async () => {

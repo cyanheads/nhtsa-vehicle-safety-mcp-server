@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-05-29 03:40:29
+Generated on: 2026-05-30 09:51:25
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -90,8 +90,6 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── code-simplifier/
 │   │   └── SKILL.md
 │   ├── design-mcp-server/
-│   │   └── SKILL.md
-│   ├── devcheck/
 │   │   └── SKILL.md
 │   ├── field-test/
 │   │   └── SKILL.md

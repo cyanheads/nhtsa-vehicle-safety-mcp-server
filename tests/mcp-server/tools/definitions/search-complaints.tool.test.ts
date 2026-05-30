@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/search-complaints.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -39,7 +39,7 @@ function complaint(overrides: Record<string, unknown> = {}) {
 }
 
 describe('searchComplaints', () => {
-  it('returns complaints with component breakdown', async () => {
+  it('returns complaints with component breakdown and enrichment query', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([
       complaint({ components: 'ENGINE', crash: true, numberOfInjuries: 1 }),
       complaint({ odiNumber: 2, components: 'ENGINE,BRAKES' }),
@@ -55,6 +55,7 @@ describe('searchComplaints', () => {
     const engine = result.componentBreakdown.find((b) => b.component === 'ENGINE');
     expect(engine?.count).toBe(2);
     expect(engine?.crashCount).toBe(1);
+    expect(getEnrichment(ctx).effectiveQuery).toBe('Toyota Camry 2020');
   });
 
   it('filters by component (substring match)', async () => {
@@ -76,7 +77,7 @@ describe('searchComplaints', () => {
     expect(result.totalCount).toBe(2);
   });
 
-  it('returns empty when no complaints', async () => {
+  it('returns empty when no complaints and populates enrichment notice', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
 
     const ctx = createMockContext();
@@ -86,6 +87,7 @@ describe('searchComplaints', () => {
     expect(result.totalCount).toBe(0);
     expect(result.complaints).toEqual([]);
     expect(result.componentBreakdown).toEqual([]);
+    expect(getEnrichment(ctx).notice).toMatch(/nhtsa_lookup_vehicles/i);
   });
 
   it('accepts sparse complaint fields without inventing values', async () => {
