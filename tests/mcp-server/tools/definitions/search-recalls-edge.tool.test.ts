@@ -1,0 +1,146 @@
+/**
+ * @fileoverview Additional edge-case and security tests for nhtsa_search_recalls.
+ * @module tests/mcp-server/tools/definitions/search-recalls-edge.tool
+ */
+
+import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
+  getNhtsaService: vi.fn(),
+  initNhtsaService: vi.fn(),
+}));
+
+import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
+import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+
+const mockService = {
+  getRecallsByVehicle: vi.fn(),
+  getRecallCampaign: vi.fn(),
+};
+
+beforeEach(() => {
+  vi.mocked(getNhtsaService).mockReturnValue(mockService as any);
+  for (const fn of Object.values(mockService)) fn.mockReset();
+});
+
+const sampleRecall = {
+  campaignNumber: '20V682000',
+  manufacturer: 'Toyota',
+  component: 'FUEL SYSTEM',
+  summary: 'Fuel leak.',
+  consequence: 'Fire risk.',
+  remedy: 'Replace pipe.',
+  reportReceivedDate: '2020-12-11',
+};
+
+describe('searchRecalls — date filtering', () => {
+  it('throws invalid_date when after is not a valid date string', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([sampleRecall]);
+
+    const ctx = createMockContext({ errors: searchRecalls.errors });
+    const input = searchRecalls.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      dateRange: { after: 'not-a-date' },
+    });
+    await expect(searchRecalls.handler(input, ctx)).rejects.toThrow(/invalid date/i);
+  });
+
+  it('throws invalid_date when before is not a valid date string', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([sampleRecall]);
+
+    const ctx = createMockContext({ errors: searchRecalls.errors });
+    const input = searchRecalls.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      dateRange: { before: 'garbage' },
+    });
+    await expect(searchRecalls.handler(input, ctx)).rejects.toThrow(/invalid date/i);
+  });
+
+  it('accepts form-client empty-string dateRange (both bounds empty)', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([sampleRecall]);
+
+    const ctx = createMockContext();
+    // Form clients may submit dateRange with empty string values instead of omitting it
+    const input = searchRecalls.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      dateRange: { after: '', before: '' },
+    });
+    const result = await searchRecalls.handler(input, ctx);
+    // Empty strings are falsy — no filtering applied, all recalls returned
+    expect(result.totalCount).toBe(1);
+  });
+
+  it('filters to only recalls within a date range (inclusive boundary)', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([
+      { ...sampleRecall, reportReceivedDate: '2020-12-11' },
+      { ...sampleRecall, campaignNumber: '21V100000', reportReceivedDate: '2021-06-15' },
+    ]);
+
+    const ctx = createMockContext();
+    const input = searchRecalls.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      dateRange: { after: '2021-01-01', before: '2021-12-31' },
+    });
+    const result = await searchRecalls.handler(input, ctx);
+    expect(result.totalCount).toBe(1);
+    expect(result.recalls[0].campaignNumber).toBe('21V100000');
+  });
+});
+
+describe('searchRecalls — format', () => {
+  it('format renders campaign with units affected', () => {
+    const output = {
+      recalls: [
+        {
+          campaignNumber: '20V682000',
+          manufacturer: 'Toyota',
+          subject: 'Fuel pipe',
+          summary: 'Leak.',
+          consequence: 'Fire.',
+          remedy: 'Replace.',
+          reportReceivedDate: '2020-11-12',
+          potentialUnitsAffected: 5000,
+        },
+      ],
+      totalCount: 1,
+    };
+    const blocks = searchRecalls.format!(output);
+    expect(blocks[0].text).toContain('Units Affected:** 5000');
+    expect(blocks[0].text).toContain('Fuel pipe');
+  });
+
+  it('format renders "No recalls found" when totalCount is 0', () => {
+    const blocks = searchRecalls.format!({ recalls: [], totalCount: 0 });
+    expect(blocks[0].text).toContain('No recalls found');
+  });
+
+  it('format renders recall without optional alert badges when flags absent', () => {
+    const output = {
+      recalls: [
+        {
+          campaignNumber: '20V682000',
+          manufacturer: 'Toyota',
+          component: 'FUEL',
+          summary: 'Leak.',
+          consequence: 'Fire.',
+          remedy: 'Replace.',
+          reportReceivedDate: '2020-11-12',
+        },
+      ],
+      totalCount: 1,
+    };
+    const text = searchRecalls.format!(output)[0].text;
+    expect(text).not.toContain('DO NOT DRIVE');
+    expect(text).not.toContain('PARK OUTSIDE');
+    expect(text).toContain('20V682000');
+  });
+});
