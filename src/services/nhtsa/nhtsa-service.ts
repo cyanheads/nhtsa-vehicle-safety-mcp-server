@@ -322,7 +322,7 @@ export class NhtsaService {
     const grouped = new Map<string, Investigation>();
 
     await new Promise<void>((resolve, reject) => {
-      const decoder = new TextDecoder('latin1');
+      const decoder = new TextDecoder('utf-8');
       let partial = '';
 
       const unzip = new Unzip();
@@ -690,7 +690,7 @@ function mergeFlatInvLine(line: string, grouped: Map<string, Investigation>): vo
   const subject = parts[9]?.trim() || undefined;
   const summary = parts[10]?.trim() || undefined;
   const status = closeDate ? 'C' : 'O';
-  const investigationType = nhtsaId.match(/^([A-Z]{2,3})/)?.[1] ?? undefined;
+  const investigationType = nhtsaId.match(/^([A-Z]+)/)?.[1] ?? undefined;
 
   grouped.set(nhtsaId, {
     nhtsaId,

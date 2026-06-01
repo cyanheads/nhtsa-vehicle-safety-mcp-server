@@ -623,6 +623,71 @@ describe('getInvestigations caching (flat-file source)', () => {
     expect(investigations[0].years).toEqual([]); // 9999 excluded
     expect(investigations[0].makes).toEqual([]);
   });
+
+  it('decodes multi-byte UTF-8 characters correctly (not mojibake)', async () => {
+    // U+2019 RIGHT SINGLE QUOTATION MARK: UTF-8 bytes E2 80 99.
+    // If decoded as latin1, each byte is a separate character: â€™ (3 chars, not 1).
+    // This test FAILS with TextDecoder('latin1') and PASSES with TextDecoder('utf-8').
+    const subject = 'Tesla’s ADAS';
+    const summary = 'The Office of Defects Investigation (“ODI”) reviewed Tesla’s data.';
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        [
+          'AQ25002',
+          'TESLA',
+          'MODEL Y',
+          '2023',
+          'ADAS',
+          'TESLA INC',
+          '20250101',
+          '',
+          '',
+          subject,
+          summary,
+        ],
+      ]),
+    );
+
+    const svc = getNhtsaService();
+    const investigations = await svc.getInvestigations();
+
+    expect(investigations).toHaveLength(1);
+    // Subject must contain the actual Unicode apostrophe, not its latin1 expansion (â€™)
+    expect(investigations[0].subject).toBe(subject);
+    expect(investigations[0].subject).not.toContain('â');
+    // Summary must contain actual curly quotes, not their latin1 expansions (â€œ / â€)
+    expect(investigations[0].summary).toBe(summary);
+    expect(investigations[0].summary).not.toContain('â€');
+  });
+
+  it('extracts investigationType for 1-letter prefix (C)', async () => {
+    // The prefix regex /^([A-Z]+)/ must capture single-letter prefixes.
+    // A C-prefixed record should produce investigationType: 'C', not undefined.
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        [
+          'C85001',
+          'FORD',
+          'PINTO',
+          '1985',
+          'FUEL SYSTEM',
+          'FORD MOTOR',
+          '19850601',
+          '',
+          '',
+          '',
+          '',
+        ],
+      ]),
+    );
+
+    const svc = getNhtsaService();
+    const investigations = await svc.getInvestigations();
+
+    expect(investigations).toHaveLength(1);
+    expect(investigations[0].nhtsaId).toBe('C85001');
+    expect(investigations[0].investigationType).toBe('C');
+  });
 });
 
 describe('VPIC lookups', () => {
