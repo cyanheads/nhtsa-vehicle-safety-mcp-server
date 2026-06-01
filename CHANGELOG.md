@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.8.1](changelog/0.8.x/0.8.1.md) — 2026-05-31
+
+ODI flat file UTF-8 decode fix, 1-letter investigation type prefixes, AQ type map entry, opened investigationType filter docs
+
 ## [0.8.0](changelog/0.8.x/0.8.0.md) — 2026-05-30
 
 Direct campaign endpoint, investigations flat file, HTTP 400 empty-result handling, VIN empty success, decode-vin enrichment

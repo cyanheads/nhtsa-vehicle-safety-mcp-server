@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-05-30 12:17:32
+Generated on: 2026-06-01 05:17:32
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -139,19 +139,28 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── mcp-server/
 │   │   └── tools/
 │   │       └── definitions/
+│   │           ├── decode-vin-edge.tool.test.ts
 │   │           ├── decode-vin.tool.test.ts
 │   │           ├── get-safety-ratings.tool.test.ts
+│   │           ├── get-vehicle-safety-edge.tool.test.ts
 │   │           ├── get-vehicle-safety.tool.test.ts
+│   │           ├── lookup-vehicles-edge.tool.test.ts
 │   │           ├── lookup-vehicles.tool.test.ts
 │   │           ├── search-complaints.tool.test.ts
+│   │           ├── search-investigations-edge.tool.test.ts
 │   │           ├── search-investigations.tool.test.ts
+│   │           ├── search-recalls-edge.tool.test.ts
 │   │           └── search-recalls.tool.test.ts
 │   ├── prompts/
 │   ├── resources/
 │   ├── services/
 │   │   └── nhtsa/
-│   │       └── nhtsa-service.test.ts
-│   └── tools/
+│   │       ├── format.test.ts
+│   │       ├── nhtsa-service-edge.test.ts
+│   │       ├── nhtsa-service.test.ts
+│   │       └── types.test.ts
+│   ├── tools/
+│   └── security.test.ts
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore

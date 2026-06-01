@@ -1,7 +1,7 @@
 # Agent Protocol
 
 **Server:** nhtsa-vehicle-safety-mcp-server
-**Version:** 0.8.0
+**Version:** 0.8.1
 **Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.9.16`
 **Engines:** Bun ≥1.3.0, Node ≥24.0.0
 
