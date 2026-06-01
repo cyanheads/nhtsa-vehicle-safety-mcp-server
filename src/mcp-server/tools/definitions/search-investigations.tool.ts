@@ -14,6 +14,7 @@ const INVESTIGATION_TYPE_MAP: Record<string, string> = {
   EA: 'Engineering Analysis',
   DP: 'Defect Petition',
   RQ: 'Recall Query',
+  AQ: 'Audit Query',
 };
 
 const STATUS_MAP: Record<string, string> = {
@@ -46,7 +47,7 @@ function matchesComponent(investigation: Investigation, component: string): bool
 
 export const searchInvestigations = tool('nhtsa_search_investigations', {
   description:
-    "Search NHTSA defect investigations (Preliminary Evaluations, Engineering Analyses, Defect Petitions, Recall Queries). Sourced from the ODI bulk flat file — make, model, and component are structured filters against the investigation record's vehicle associations. All filters are ANDed. Investigations may link to a resulting recall campaign via recallCampaign.",
+    "Search NHTSA defect investigations from the ODI flat file — covering Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI types. make, model, and component are structured filters against the investigation record's vehicle associations. All filters are ANDed. Investigations may link to a resulting recall campaign via recallCampaign.",
   annotations: { readOnlyHint: true },
   input: z.object({
     query: z
@@ -75,7 +76,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .string()
       .optional()
       .describe(
-        'Filter by type: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query).',
+        'Filter by ODI investigation type code (the leading letters of the NHTSA ID). Named types: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query), "AQ" (Audit Query). Additional valid codes present in the dataset: "SQ", "EQ", "RP", "ID", "TA", "C". Pass any code exactly as it appears in the investigation ID prefix.',
       ),
     status: z.string().optional().describe('Filter by status: "O" (Open), "C" (Closed).'),
     limit: z.number().optional().describe('Max results to return. Default: 20.'),

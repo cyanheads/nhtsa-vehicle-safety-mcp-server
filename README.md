@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.8.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.8.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -38,7 +38,7 @@ Seven tools for querying NHTSA vehicle safety data:
 | `nhtsa_search_complaints` | Consumer safety complaints with component breakdown and severity stats. |
 | `nhtsa_get_safety_ratings` | NCAP crash test ratings and ADAS feature availability. |
 | `nhtsa_decode_vin` | Decode VINs for make, model, year, engine, safety equipment (single or batch up to 50). |
-| `nhtsa_search_investigations` | Search NHTSA defect investigations (PE, EA, DP, RQ) with cached index. |
+| `nhtsa_search_investigations` | Search NHTSA defect investigations (PE, EA, DP, RQ, AQ, and more) with cached index. |
 | `nhtsa_lookup_vehicles` | Look up valid makes, models, vehicle types, and manufacturer details from VPIC. |
 
 ### `nhtsa_get_vehicle_safety`
@@ -76,7 +76,7 @@ Decode Vehicle Identification Numbers for manufacturing and safety details.
 
 Search NHTSA defect investigations.
 
-- Investigation types: Preliminary Evaluations, Engineering Analyses, Defect Petitions, Recall Queries
+- Investigation types: Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI codes (SQ, EQ, RP, and others)
 - Free-text search across subjects and descriptions
 - First query loads the full investigation index (~10s); subsequent queries use a cached index (1h TTL)
 

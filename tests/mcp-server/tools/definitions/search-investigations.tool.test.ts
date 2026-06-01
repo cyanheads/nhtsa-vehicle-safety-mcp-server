@@ -131,7 +131,21 @@ describe('searchInvestigations', () => {
   });
 
   it('returns investigation type names', async () => {
-    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+    mockService.getInvestigations.mockResolvedValue([
+      ...sampleInvestigations,
+      {
+        nhtsaId: 'AQ25002',
+        investigationType: 'AQ',
+        status: 'O',
+        makes: ['TESLA'],
+        models: ['MODEL Y'],
+        years: [2023],
+        components: ['ADAS'],
+        subject: 'Tesla ADAS audit query',
+        summary: 'NHTSA is opening this Audit Query.',
+        openDate: '2025-01-01',
+      },
+    ]);
 
     const ctx = createMockContext();
     const input = searchInvestigations.input.parse({});
@@ -141,6 +155,45 @@ describe('searchInvestigations', () => {
     expect(pe?.investigationTypeName).toBe('Preliminary Evaluation');
     const ea = result.investigations.find((i) => i.investigationType === 'EA');
     expect(ea?.investigationTypeName).toBe('Engineering Analysis');
+    const aq = result.investigations.find((i) => i.investigationType === 'AQ');
+    expect(aq?.investigationTypeName).toBe('Audit Query');
+  });
+
+  it('falls back to raw code for unmapped investigation types', async () => {
+    mockService.getInvestigations.mockResolvedValue([
+      {
+        nhtsaId: 'SQ00012',
+        investigationType: 'SQ',
+        status: 'O',
+        makes: ['GM'],
+        models: ['MALIBU'],
+        years: [2000],
+        components: ['ENGINE'],
+        subject: 'SQ subject',
+        summary: 'SQ summary.',
+        openDate: '2000-01-01',
+      },
+      {
+        nhtsaId: 'C85001',
+        investigationType: 'C',
+        status: 'C',
+        makes: ['FORD'],
+        models: ['PINTO'],
+        years: [1985],
+        components: ['FUEL SYSTEM'],
+        openDate: '1985-06-01',
+        closeDate: '1985-12-01',
+      },
+    ]);
+
+    const ctx = createMockContext();
+    const input = searchInvestigations.input.parse({});
+    const result = await searchInvestigations.handler(input, ctx);
+
+    const sq = result.investigations.find((i) => i.investigationType === 'SQ');
+    expect(sq?.investigationTypeName).toBe('SQ');
+    const c = result.investigations.find((i) => i.investigationType === 'C');
+    expect(c?.investigationTypeName).toBe('C');
   });
 
   it('populates enrichment notice when no investigations match filters', async () => {
