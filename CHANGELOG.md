@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.8.2](changelog/0.8.x/0.8.2.md) — 2026-06-02
+
+@cyanheads/mcp-ts-core ^0.9.16 → ^0.9.21; per-request log context fix, fetchWithTimeout secret redaction, withRetry fail-fast; release:github script; 8 skill updates + orchestrations + api-mirror
+
 ## [0.8.1](changelog/0.8.x/0.8.1.md) — 2026-05-31
 
 ODI flat file UTF-8 decode fix, 1-letter investigation type prefixes, AQ type map entry, opened investigationType filter docs

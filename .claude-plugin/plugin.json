@@ -11,7 +11,7 @@
   "mcpServers": {
     "@cyanheads/nhtsa-vehicle-safety-mcp-server": {
       "command": "npx",
-      "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server", "run", "start:stdio"],
+      "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server"],
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio"
       }
