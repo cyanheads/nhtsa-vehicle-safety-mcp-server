@@ -17,6 +17,8 @@ import {
 import { initNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 await createApp({
+  name: 'nhtsa-vehicle-safety-mcp-server',
+  title: 'nhtsa-vehicle-safety-mcp-server',
   tools: [
     getVehicleSafety,
     searchRecalls,
