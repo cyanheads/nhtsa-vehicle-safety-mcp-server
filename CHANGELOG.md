@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.8.3](changelog/0.8.x/0.8.3.md) — 2026-06-12
+
+@cyanheads/mcp-ts-core ^0.9.21 → ^0.10.6; explicit createApp identity; MCPB bundle cleaner (clean-mcpb.ts) + post-bundle agent-doc content check; Dockerfile APP_VERSION label + HEALTHCHECK; z.coerce.boolean() antipattern rule; synced skills
+
 ## [0.8.2](changelog/0.8.x/0.8.2.md) — 2026-06-02
 
 @cyanheads/mcp-ts-core ^0.9.16 → ^0.9.21; per-request log context fix, fetchWithTimeout secret redaction, withRetry fail-fast; release:github script; 8 skill updates + orchestrations + api-mirror
