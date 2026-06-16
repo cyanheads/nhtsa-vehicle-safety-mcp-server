@@ -1,5 +1,5 @@
 {
-  "name": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
+  "name": "nhtsa-vehicle-safety-mcp-server",
   "version": "0.8.3",
   "description": "Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP. STDIO or Streamable HTTP.",
   "author": {
@@ -13,7 +13,7 @@
   "keywords": ["mcp", "mcp-server", "model-context-protocol", "nhtsa", "vehicle-safety", "recalls", "vin-decoder"],
   "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
-    "displayName": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
+    "displayName": "nhtsa-vehicle-safety-mcp-server",
     "shortDescription": "Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP.",
     "longDescription": "Access U.S. vehicle safety data from NHTSA — decode VINs, search recall campaigns, browse consumer complaints, retrieve NCAP crash test ratings, and look up defect investigations.",
     "developerName": "cyanheads",

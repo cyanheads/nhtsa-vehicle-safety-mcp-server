@@ -1,5 +1,5 @@
 {
-  "@cyanheads/nhtsa-vehicle-safety-mcp-server": {
+  "nhtsa-vehicle-safety-mcp-server": {
     "command": "npx",
     "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server"],
     "env": {
