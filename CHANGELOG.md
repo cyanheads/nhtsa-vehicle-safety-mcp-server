@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.8.4](changelog/0.8.x/0.8.4.md) — 2026-06-20
+
+@cyanheads/mcp-ts-core ^0.10.6 → ^0.10.9 maintenance — fresh-scaffold devcheck guards, check-dependency-specifiers gate, plugin-manifest packaging checks, synced framework scripts and skills
+
 ## [0.8.3](changelog/0.8.x/0.8.3.md) — 2026-06-12
 
 @cyanheads/mcp-ts-core ^0.9.21 → ^0.10.6; explicit createApp identity; MCPB bundle cleaner (clean-mcpb.ts) + post-bundle agent-doc content check; Dockerfile APP_VERSION label + HEALTHCHECK; z.coerce.boolean() antipattern rule; synced skills
