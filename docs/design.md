@@ -54,13 +54,13 @@ Supports time-based filtering via `dateRange`. The NHTSA API does not natively s
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `campaignNumber` | string | No | NHTSA campaign number (e.g., "20V682000"). When provided, returns all vehicles/equipment in that campaign with full detail including units affected. Other params ignored. |
+| `campaignNumber` | string | No | NHTSA campaign number (e.g., "20V682000"). When provided, returns the campaign detail plus every vehicle it covers. Mutually exclusive with `make`/`model`/`modelYear`. |
 | `make` | string | No | Vehicle manufacturer. Required with `model` and `modelYear` when not using `campaignNumber`. |
 | `model` | string | No | Vehicle model. Required with `make` and `modelYear`. |
 | `modelYear` | number | No | Model year. Required with `make` and `model`. |
 | `dateRange` | object | No | Filter recalls by received date. `{ after?: string, before?: string }` -- ISO 8601 dates (e.g., "2025-01-01"). Applied locally by the server since the API lacks native date filtering. |
 
-**Returns:** Array of recalls, each with: `NHTSACampaignNumber`, `manufacturer`, `component`, `summary`, `consequence`, `remedy`, `reportReceivedDate`, `parkIt`, `parkOutSide` (do-not-drive advisories), `overTheAirUpdate`. Campaign number queries additionally return `potentialNumberOfUnitsAffected`.
+**Returns:** Array of recalls, each with: `NHTSACampaignNumber`, `manufacturer`, `component`, `summary`, `consequence`, `remedy`, `reportReceivedDate` (ISO 8601), `parkIt`, `parkOutSide` (do-not-drive advisories), `overTheAirUpdate`. Campaign number queries return one collapsed campaign record and additionally carry `potentialUnitsAffected`, `affectedVehicles[]` (every distinct make/model/model-year the campaign covers; equipment and tire campaigns name the part here -- make is the brand, model is the part -- with no model year), and `investigationId` (the ODI action number, when NHTSA links one; feed it to `nhtsa_search_investigations` as `nhtsaId`).
 
 **Error modes:** Both `campaignNumber` and vehicle params provided -- reject with guidance. All three vehicle params required together. Invalid campaign number format returns empty results, not an error.
 
@@ -77,7 +77,7 @@ Returns can be large (200+ complaints for a popular vehicle year). The server su
 | `modelYear` | number | Yes | Model year. |
 | `component` | string | No | Filter to a specific component. Values are uppercase from NHTSA's taxonomy. Common values: `AIR BAGS`, `BACK OVER PREVENTION`, `ELECTRICAL SYSTEM`, `ENGINE`, `ENGINE AND ENGINE COOLING`, `EQUIPMENT`, `FORWARD COLLISION AVOIDANCE`, `FUEL/PROPULSION SYSTEM`, `LANE DEPARTURE`, `LATCHES/LOCKS/LINKAGES`, `POWER TRAIN`, `SEATS`, `SEAT BELTS`, `SERVICE BRAKES`, `STEERING`, `STRUCTURE`, `VEHICLE SPEED CONTROL`, `VISIBILITY`, `VISIBILITY/WIPER`, `UNKNOWN OR OTHER`. Note: a single complaint can list multiple components comma-separated (e.g., "ELECTRICAL SYSTEM,ENGINE"). The server should match if the filter value appears anywhere in the component string. Omit to see all. |
 
-**Returns:** `totalCount`, `componentBreakdown[]` (component name, count, crash/fire/injury totals), `complaints[]` (top N most recent: odiNumber, dateOfIncident, dateComplaintFiled, components, summary, crash/fire/injury flags, VIN prefix). When filtered by component, returns all matching complaints up to a limit.
+**Returns:** `totalCount`, `componentBreakdown[]` (component name, count, crash/fire/injury totals), `complaints[]` (top N most recent: odiNumber, dateOfIncident and dateComplaintFiled as ISO 8601, components, summary, crash/fire/injury flags, VIN prefix). When filtered by component, returns all matching complaints up to a limit.
 
 ### `nhtsa_get_safety_ratings`
 
@@ -117,7 +117,8 @@ Source is the ODI bulk file `FLAT_INV.zip`, not `api.nhtsa.gov/investigations` �
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | No | Free-text search across investigation subjects and summaries. |
+| `nhtsaId` | string | No | Exact NHTSA investigation ID (e.g. "EA23003"), case-insensitive. Mutually exclusive with every other filter. |
+| `query` | string | No | Free-text search across investigation IDs, subjects, and summaries. |
 | `make` | string | No | Structured filter against the investigation's associated vehicle makes. |
 | `model` | string | No | Structured filter against the associated vehicle models. |
 | `component` | string | No | Structured filter against the affected components (e.g., "STEERING"). |
@@ -128,7 +129,7 @@ Source is the ODI bulk file `FLAT_INV.zip`, not `api.nhtsa.gov/investigations` �
 
 All filters are ANDed.
 
-**Returns:** `totalCount`, `returned`, `offset`, `limit`, and `investigations[]` each with: `nhtsaId`, `investigationType`, `investigationTypeName`, `status`, `statusName`, `makes[]`, `models[]`, `years[]`, `components[]`, `manufacturer`, `subject`, `summary` (plain text as published in the flat file), `openDate`, `closeDate`, `recallCampaign` (the linked campaign number, usable with `nhtsa_search_recalls`).
+**Returns:** `totalCount`, `returned`, `offset`, `limit`, and `investigations[]` each with: `nhtsaId`, `investigationType`, `investigationTypeName`, `status`, `statusName`, `makes[]`, `models[]`, `years[]`, `components[]`, `manufacturer`, `subject`, `summary` (plain text as published in the flat file), `openDate`, `closeDate`, `recallCampaign` (the linked campaign number, usable with `nhtsa_search_recalls`). An `nhtsaId` filter fetches a single investigation by its exact ID -- the reverse of that link, and the consumer of the `investigationId` `nhtsa_search_recalls` returns for a campaign. It is mutually exclusive with the other filters, matching the `campaignNumber` precedent in `nhtsa_search_recalls`.
 
 ### `nhtsa_lookup_vehicles`
 
@@ -139,9 +140,9 @@ Look up valid makes, models, and vehicle types in NHTSA's database. Use to resol
 | `operation` | string | Yes | "makes" (all makes -- **warning: 12,199 makes, ~700KB response**; prefer "models" with a `make` filter or use the `/products/` API for recall/complaint-scoped make lists), "models" (models for a make), "vehicle_types" (types for a make), "manufacturer" (manufacturer details). |
 | `make` | string | No | Make name (required for "models" and "vehicle_types" operations). Partial match supported. |
 | `modelYear` | number | No | Filter models to a specific year. Only for "models" operation. |
-| `manufacturer` | string | No | Manufacturer name or ID (for "manufacturer" operation). Partial match supported. |
+| `manufacturer` | string | No | Manufacturer name or ID (for "manufacturer" operation). Partial match supported; broad matches are capped -- see below. |
 
-**Returns:** Varies by operation. `makes`: array of `{makeId, makeName}` -- **caution: 12,199 results from VPIC's `GetAllMakes`**. The server should suggest using "models" with a specific `make` instead. Alternatively, use the `/products/vehicle/makes?modelYear={year}&issueType=r` endpoint for a scoped list (e.g., 237 makes with 2024 recalls). `models`: array of `{modelId, modelName, makeId, makeName}`. `vehicle_types`: array of `{vehicleTypeId, vehicleTypeName}`. `manufacturer`: array of `{manufacturerId, manufacturerName, country, vehicleTypes[]}`.
+**Returns:** Varies by operation. `makes`: array of `{makeId, makeName}` -- **caution: 12,199 results from VPIC's `GetAllMakes`**. The server should suggest using "models" with a specific `make` instead. Alternatively, use the `/products/vehicle/makes?modelYear={year}&issueType=r` endpoint for a scoped list (e.g., 237 makes with 2024 recalls). `models`: array of `{modelId, modelName, makeId, makeName}`. `vehicle_types`: array of `{vehicleTypeId, vehicleTypeName}`. `manufacturer`: array of `{manufacturerId, manufacturerName, country, vehicleTypes[]}` -- VPIC paginates this endpoint and publishes no match total, so the lookup walks pages up to a fixed record cap and discloses the cap through the `truncated`/`shown`/`cap` enrichment fields when it is reached.
 
 ---
 
@@ -155,7 +156,10 @@ Look up valid makes, models, and vehicle types in NHTSA's database. Use to resol
 - **No pagination on vehicle-scoped endpoints.** `/recallsByVehicle` and `/complaintsByVehicle` return the complete set in one response. Complaints for popular vehicles can be 200KB+ (255 complaints for 2020 Camry). Summarize server-side.
 - **Inconsistent field naming everywhere.** The base `/recalls` endpoint uses camelCase with richer fields (`campaignId`, `recall573ReceivedDate`, `potaff`, `createDate`). The vehicle-scoped `/recallsByVehicle` uses PascalCase (`NHTSACampaignNumber`, `ReportReceivedDate`, `Component`) with camelCase booleans (`parkIt`, `overTheAirUpdate`). The base `/complaints` uses `odiId`, `incidentDate`, `receivedDate`; the vehicle-scoped `/complaintsByVehicle` uses `odiNumber`, `dateOfIncident`, `dateComplaintFiled`. Safety Ratings uses PascalCase (`OverallRating`, `VehicleId`) with mixed-case anomalies (`combinedSideBarrierAndPoleRating-Front`, `dynamicTipResult`). VPIC uses PascalCase with a `Results` wrapper. Normalize everything to consistent camelCase in the service layer.
 - **Safety Ratings two-step.** `/SafetyRatings/modelyear/{year}/make/{make}/model/{model}` returns variant IDs, then `/SafetyRatings/VehicleId/{id}` returns the actual ratings. A single make/model/year may have multiple variants (FWD vs AWD, different body styles).
-- **Campaign number responses include all affected vehicles.** Looking up campaign 20V682000 returns 65 records (one per affected make/model/year), all sharing the same summary/remedy text. Deduplicate in the response.
+- **Campaign number responses include all affected vehicles.** Looking up a campaign returns one record per affected make/model/year (65 for 20V682000, 28 for 24V744000), all sharing the same summary/remedy text, in a single response -- there is no second page to fetch. The service collapses the row set into one campaign record and lifts the distinct vehicles into `affectedVehicles[]`.
+- **`ModelYear` is `"9999"` where no model year applies.** Every equipment (`…E…`) and tire (`…T…`) row carries it, and such a row can also appear inside a vehicle campaign (25V200000 covers two Great Dane trailer years plus one Bridgestone tire at `9999`). Those rows still name a make and model -- the brand and the part -- so they belong in `affectedVehicles[]`; only the placeholder year is dropped.
+- **Opposite slash-date conventions between recalls and complaints.** `/recallsByVehicle` and `/recalls/campaignNumber` emit `DD/MM/YYYY`; `/complaintsByVehicle` emits `MM/DD/YYYY`. Neither is self-describing, so each path needs its own parser. Both normalize to ISO `YYYY-MM-DD` before leaving the service layer -- every date the server emits uses one format.
+- **VPIC paginates `GetManufacturerDetails` at 100 per page, and its `Count` is that page's size, not a match total.** A partial name like `hon` spans three pages (100/100/55) and nothing in the response reports 255; the only way to learn a total is to page until a short page arrives, and a one-letter query already fills page 1. The service walks pages up to a fixed record cap and the tool discloses when the cap was hit, rather than presenting page 1 as the complete set.
 - **VPIC has 12,199 makes.** The `GetAllMakes` endpoint returns ~700KB of JSON. For `nhtsa_lookup_vehicles`, prefer the filtered endpoints (`GetModelsForMakeYear`, `GetMakesForVehicleType`) or the `/products/` API (237 makes for 2024 recalls) over fetching everything.
 - **VPIC batch VIN decode** is a POST with a body string of `vin,year;vin,year;...` -- not JSON. Max 50 VINs per batch.
 - **Complaint components are comma-separated.** A single complaint can list multiple components in one string (e.g., `"ELECTRICAL SYSTEM,ENGINE,FUEL/PROPULSION SYSTEM"`). Component filtering must match within the string, not as exact equality.

@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.9.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.14-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.9.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.14-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -58,6 +58,7 @@ Composite safety profile — the default tool when asked about vehicle safety, r
 Search recall campaigns by vehicle or campaign number.
 
 - Look up by make/model/year or by specific NHTSA campaign number
+- Campaign lookups return every make/model the campaign covers, plus the ODI investigation that preceded it
 - Optional date range filtering (ISO 8601)
 - Includes do-not-drive advisories, park-outside warnings, and OTA update availability
 
@@ -78,7 +79,8 @@ Decode Vehicle Identification Numbers for manufacturing and safety details.
 Search NHTSA defect investigations.
 
 - Investigation types: Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI codes (SQ, EQ, RP, and others)
-- Free-text search across subjects and summaries, plus structured make, model, and component filters
+- Free-text search across investigation IDs, subjects, and summaries, plus structured make, model, and component filters
+- `nhtsaId` fetches one investigation by its exact ID — the reverse of the recall link, closing the campaign-to-investigation round trip
 - Sourced from NHTSA's ODI bulk file (`FLAT_INV.zip`) — the first query downloads and parses it (~10s), subsequent queries use the cached index (24h TTL, matching the file's daily refresh)
 - Returns up to 25 investigations per page; the response echoes `offset`/`limit` and the offset for the next page
 
@@ -113,6 +115,7 @@ Reference lookups against NHTSA's VPIC database.
 - `makes` supports `limit` and `offset` pagination for the full VPIC catalog
 - Use to resolve ambiguous vehicle names or verify correct spelling
 - Models can be filtered by year; manufacturers support partial match
+- `manufacturer` pages VPIC up to a 500-record ceiling and discloses when a broad partial name hits it
 
 ## Features
 
