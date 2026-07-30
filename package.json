@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/nhtsa-vehicle-safety-mcp-server",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP. STDIO or Streamable HTTP.",
   "type": "module",
   "main": "dist/index.js",
