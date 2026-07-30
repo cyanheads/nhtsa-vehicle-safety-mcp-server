@@ -298,7 +298,7 @@ describe('getComplaintsByVehicle', () => {
     expect(complaints[0].dateComplaintFiled).toBe('2026-07-26');
   });
 
-  it('still drops the pre-1990 epoch sentinel from dateOfIncident', async () => {
+  it('drops the epoch placeholder from dateOfIncident', async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
         Count: 1,
@@ -311,8 +311,60 @@ describe('getComplaintsByVehicle', () => {
     const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
 
     expect(complaints[0].dateOfIncident).toBeUndefined();
-    // The filing date carries no sentinel rule — an old filing is preserved, normalized.
+    // The filing date carries no placeholder rule — an old filing is preserved, normalized.
     expect(complaints[0].dateComplaintFiled).toBe('2020-01-15');
+  });
+
+  it('drops the 1901 placeholder from dateOfIncident', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 2,
+        Message: 'OK',
+        results: [
+          { odiNumber: 10181588, dateOfIncident: '01/01/1901' },
+          { odiNumber: 10169078, dateOfIncident: '09/01/1901' },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Ford', 'Explorer', 1998);
+
+    expect(complaints[0].dateOfIncident).toBeUndefined();
+    expect(complaints[1].dateOfIncident).toBeUndefined();
+  });
+
+  it('keeps a genuine pre-1990 incident date', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [
+          { odiNumber: 967440, dateOfIncident: '09/29/1989', dateComplaintFiled: '06/21/1995' },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Honda', 'Accord', 1986);
+
+    expect(complaints[0].dateOfIncident).toBe('1989-09-29');
+    expect(complaints[0].dateComplaintFiled).toBe('1995-06-21');
+  });
+
+  it('keeps a 1970 incident date that is not the epoch placeholder', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 2, dateOfIncident: '07/04/1970' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Ford', 'Pinto', 1971);
+
+    expect(complaints[0].dateOfIncident).toBe('1970-07-04');
   });
 
   it('passes through complaint dates it cannot parse instead of inventing one', async () => {
