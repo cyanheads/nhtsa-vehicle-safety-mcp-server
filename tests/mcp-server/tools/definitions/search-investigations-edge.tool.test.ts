@@ -223,13 +223,22 @@ describe('searchInvestigations — empty dataset notice', () => {
 
 describe('searchInvestigations — format edge cases', () => {
   it('format renders "No investigations found" when totalCount is 0', () => {
-    const blocks = searchInvestigations.format!({ totalCount: 0, investigations: [] });
+    const blocks = searchInvestigations.format!({
+      totalCount: 0,
+      returned: 0,
+      offset: 0,
+      limit: 20,
+      investigations: [],
+    });
     expect(blocks[0].text).toContain('No investigations found');
   });
 
   it('format shows correct count header', () => {
     const output = {
       totalCount: 2,
+      returned: 1,
+      offset: 0,
+      limit: 1,
       investigations: [
         {
           nhtsaId: 'PE20001',
@@ -256,6 +265,9 @@ describe('searchInvestigations — format edge cases', () => {
   it('format omits empty makes/models/years sections', () => {
     const output = {
       totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
       investigations: [
         {
           nhtsaId: 'PE20001',

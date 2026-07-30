@@ -224,12 +224,37 @@ describe('oversized input handling', () => {
   it('lookupVehicles rejects offset < 0 via Zod', () => {
     expect(() => lookupVehicles.input.parse({ operation: 'makes', offset: -1 })).toThrow();
   });
+
+  it('searchInvestigations rejects an unbounded limit via Zod', () => {
+    expect(() => searchInvestigations.input.parse({ limit: 100_000 })).toThrow();
+  });
+
+  it('searchInvestigations rejects negative limit/offset via Zod', () => {
+    expect(() => searchInvestigations.input.parse({ limit: -1 })).toThrow();
+    expect(() => searchInvestigations.input.parse({ offset: -1 })).toThrow();
+  });
+
+  it('searchInvestigations rejects a free-form status value via Zod', () => {
+    expect(() => searchInvestigations.input.parse({ status: 'open' })).toThrow();
+  });
+
+  it('searchInvestigations with limit at max does not crash', async () => {
+    mockService.getInvestigations.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = searchInvestigations.input.parse({ limit: 25 });
+    const result = await searchInvestigations.handler(input, ctx);
+    expect(result.limit).toBe(25);
+  });
 });
 
 describe('secret leakage prevention', () => {
   it('format output for investigations contains no secret-pattern strings', () => {
     const output = {
       totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
       investigations: [
         {
           nhtsaId: 'PE20001',

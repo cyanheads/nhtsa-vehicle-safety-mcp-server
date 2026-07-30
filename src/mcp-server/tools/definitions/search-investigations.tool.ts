@@ -9,6 +9,14 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { Investigation } from '@/services/nhtsa/types.js';
 
+const DEFAULT_LIMIT = 20;
+/**
+ * Lower than the 50 used by the other paginated tools: an investigation summary is an
+ * order of magnitude larger than a complaint narrative (p95 ≈ 3,000 characters, longest
+ * ≈ 5,900), and format() renders each one in full.
+ */
+const MAX_LIMIT = 25;
+
 const INVESTIGATION_TYPE_MAP: Record<string, string> = {
   PE: 'Preliminary Evaluation',
   EA: 'Engineering Analysis',
@@ -78,12 +86,31 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .describe(
         'Filter by ODI investigation type code (the leading letters of the NHTSA ID). Named types: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query), "AQ" (Audit Query). Additional valid codes present in the dataset: "SQ", "EQ", "RP", "ID", "TA", "C". Pass any code exactly as it appears in the investigation ID prefix.',
       ),
-    status: z.string().optional().describe('Filter by status: "O" (Open), "C" (Closed).'),
-    limit: z.number().optional().describe('Max results to return. Default: 20.'),
-    offset: z.number().optional().describe('Pagination offset. Default: 0.'),
+    status: z
+      .enum(['O', 'C'])
+      .optional()
+      .describe('Filter by status: "O" (Open) or "C" (Closed). Omit to include both.'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_LIMIT)
+      .optional()
+      .describe(
+        `Max investigations to return. Defaults to ${DEFAULT_LIMIT}; max ${MAX_LIMIT}. The cap is lower than the other paginated tools because a single investigation summary can run several thousand characters and is rendered in full.`,
+      ),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('Pagination offset into the matching investigations. Defaults to 0.'),
   }),
   output: z.object({
     totalCount: z.number().describe('Total matching investigations'),
+    returned: z.number().describe('Number of investigations in this page'),
+    offset: z.number().describe('Pagination offset used for this page'),
+    limit: z.number().describe('Pagination limit used for this page'),
     investigations: z
       .array(
         z
@@ -128,7 +155,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
-    const limit = input.limit ?? 20;
+    const limit = input.limit ?? DEFAULT_LIMIT;
     const offset = input.offset ?? 0;
 
     let investigations = await svc.getInvestigations(ctx.signal);
@@ -139,7 +166,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       investigations = investigations.filter((i) => i.investigationType === type);
     }
     if (input.status) {
-      const status = input.status.toUpperCase();
+      const status = input.status;
       investigations = investigations.filter((i) => i.status === status);
     }
     if (input.make) {
@@ -169,6 +196,8 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       component: input.component,
       totalCount,
       returned: page.length,
+      offset,
+      limit,
     });
 
     const appliedFilters = [
@@ -193,6 +222,9 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
 
     return {
       totalCount,
+      returned: page.length,
+      offset,
+      limit,
       investigations: page.map((i) => ({
         nhtsaId: i.nhtsaId,
         investigationType: i.investigationType,
@@ -226,8 +258,11 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     }
 
     const lines = [
-      `**${result.totalCount} investigation(s) found** (showing ${result.investigations.length})\n`,
+      `**${result.totalCount} investigation(s) found** (showing ${result.returned}, offset ${result.offset}, limit ${result.limit})\n`,
     ];
+    if (result.offset + result.returned < result.totalCount) {
+      lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
+    }
 
     for (const i of result.investigations) {
       const statusLabel = i.statusName || 'Unknown';
@@ -246,10 +281,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
         `**Opened:** ${i.openDate || 'Not available'}${i.closeDate ? ` | **Closed:** ${i.closeDate}` : ''}`,
       );
       if (i.recallCampaign) lines.push(`**Recall Campaign:** ${i.recallCampaign}`);
-      if (i.summary) {
-        const desc = i.summary.length > 500 ? `${i.summary.slice(0, 500)}...` : i.summary;
-        lines.push(`\n${desc}`);
-      }
+      if (i.summary) lines.push(`\n${i.summary}`);
       lines.push('');
     }
 

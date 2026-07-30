@@ -82,6 +82,7 @@ describe('searchInvestigations', () => {
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(2);
+    expect(result.investigations).toHaveLength(2);
     expect(result.investigations.every((i) => i.investigationType === 'PE')).toBe(true);
   });
 
@@ -118,7 +119,7 @@ describe('searchInvestigations', () => {
     expect(result.investigations[0].nhtsaId).toBe('PE22003');
   });
 
-  it('paginates with offset/limit', async () => {
+  it('paginates with offset/limit and echoes the pagination state', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
     const ctx = createMockContext();
@@ -128,6 +129,21 @@ describe('searchInvestigations', () => {
     expect(result.totalCount).toBe(3);
     expect(result.investigations).toHaveLength(1);
     expect(result.investigations[0].nhtsaId).toBe('EA21002');
+    expect(result.returned).toBe(1);
+    expect(result.offset).toBe(1);
+    expect(result.limit).toBe(1);
+  });
+
+  it('echoes default pagination values when limit/offset are omitted', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext();
+    const input = searchInvestigations.input.parse({});
+    const result = await searchInvestigations.handler(input, ctx);
+
+    expect(result.returned).toBe(3);
+    expect(result.offset).toBe(0);
+    expect(result.limit).toBe(20);
   });
 
   it('returns investigation type names', async () => {
@@ -240,6 +256,9 @@ describe('searchInvestigations', () => {
   it('format renders investigation details', () => {
     const output = {
       totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
       investigations: [
         {
           nhtsaId: 'PE20001',
@@ -265,5 +284,67 @@ describe('searchInvestigations', () => {
     expect(text).toContain('Brake failure');
     expect(text).toContain('TOYOTA');
     expect(text).toContain('23V123000');
+  });
+
+  it('format renders the full summary without truncation', () => {
+    const longSummary = `START ${'A'.repeat(6000)} END`;
+    const text = searchInvestigations.format!({
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      investigations: [{ nhtsaId: 'PE20001', summary: longSummary }],
+    })[0].text;
+
+    expect(text).toContain(longSummary);
+    expect(text).not.toContain('A...');
+  });
+
+  it('format emits next-page guidance only when results remain', () => {
+    const page = {
+      totalCount: 38,
+      returned: 2,
+      offset: 0,
+      limit: 2,
+      investigations: [{ nhtsaId: 'PE20001' }, { nhtsaId: 'EA21002' }],
+    };
+    expect(searchInvestigations.format!(page)[0].text).toContain(
+      'Use offset=2 to retrieve the next page.',
+    );
+
+    const lastPage = { ...page, totalCount: 2 };
+    expect(searchInvestigations.format!(lastPage)[0].text).not.toContain(
+      'to retrieve the next page',
+    );
+  });
+});
+
+describe('searchInvestigations — input validation', () => {
+  it('rejects a negative limit', () => {
+    expect(() => searchInvestigations.input.parse({ limit: -1 })).toThrow();
+  });
+
+  it('rejects limit 0', () => {
+    expect(() => searchInvestigations.input.parse({ limit: 0 })).toThrow();
+  });
+
+  it('rejects a limit above the max', () => {
+    expect(() => searchInvestigations.input.parse({ limit: 26 })).toThrow();
+    expect(searchInvestigations.input.parse({ limit: 25 }).limit).toBe(25);
+  });
+
+  it('rejects a non-integer limit', () => {
+    expect(() => searchInvestigations.input.parse({ limit: 2.5 })).toThrow();
+  });
+
+  it('rejects a negative offset', () => {
+    expect(() => searchInvestigations.input.parse({ offset: -1 })).toThrow();
+  });
+
+  it('rejects a status outside the O/C enum', () => {
+    expect(() => searchInvestigations.input.parse({ status: 'open' })).toThrow();
+    expect(() => searchInvestigations.input.parse({ status: 'o' })).toThrow();
+    expect(searchInvestigations.input.parse({ status: 'O' }).status).toBe('O');
+    expect(searchInvestigations.input.parse({ status: 'C' }).status).toBe('C');
   });
 });
