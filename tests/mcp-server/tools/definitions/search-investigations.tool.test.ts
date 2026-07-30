@@ -292,6 +292,47 @@ describe('searchInvestigations', () => {
     expect(notice).toMatch(/no investigations matched/i);
   });
 
+  it('notices an offset past the end of a non-empty result set', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext();
+    const input = searchInvestigations.input.parse({ limit: 5, offset: 9000 });
+    const result = await searchInvestigations.handler(input, ctx);
+
+    expect(result.totalCount).toBe(3);
+    expect(result.returned).toBe(0);
+    const notice = getEnrichment(ctx).notice as string;
+    expect(notice).toContain('offset 9000');
+    expect(notice).toContain('limit 5');
+    expect(notice).toContain('3 total');
+    expect(notice).toMatch(/try a smaller offset/i);
+    // Not the no-matches notice — the filters did match.
+    expect(notice).not.toMatch(/try broadening/i);
+  });
+
+  it('keeps the no-matches notice when the filters matched nothing', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext();
+    const input = searchInvestigations.input.parse({ make: 'Nonexistent Brand XYZ', offset: 9000 });
+    await searchInvestigations.handler(input, ctx);
+
+    expect(getEnrichment(ctx).notice).toMatch(/no investigations matched/i);
+  });
+
+  it('format explains an out-of-range page instead of a bare "showing 0"', () => {
+    const text = searchInvestigations.format!({
+      totalCount: 5338,
+      returned: 0,
+      offset: 9000,
+      limit: 5,
+      investigations: [],
+    })[0].text;
+
+    expect(text).toContain('No results for this page (offset 9000, limit 5). 5338 total');
+    expect(text).not.toContain('to retrieve the next page');
+  });
+
   it('accepts sparse investigation fields without inventing values', async () => {
     mockService.getInvestigations.mockResolvedValue([
       {

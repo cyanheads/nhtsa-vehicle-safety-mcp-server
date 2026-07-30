@@ -216,4 +216,14 @@ describe('lookupVehicles', () => {
     expect(text).toContain('offset 0');
     expect(text).toContain('limit 100');
   });
+
+  it('rejects a fractional modelYear rather than building a fractional path segment', () => {
+    expect(() =>
+      lookupVehicles.input.parse({ operation: 'models', make: 'Toyota', modelYear: 2020.5 }),
+    ).toThrow();
+    expect(
+      lookupVehicles.input.parse({ operation: 'models', make: 'Toyota', modelYear: 2020 })
+        .modelYear,
+    ).toBe(2020);
+  });
 });

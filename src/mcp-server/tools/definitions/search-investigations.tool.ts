@@ -7,6 +7,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { outOfBoundsMessage } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { Investigation } from '@/services/nhtsa/types.js';
 
@@ -263,6 +264,8 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
         notice = `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter. make/model/component match against structured vehicle associations.`;
       }
       ctx.enrich.notice(notice);
+    } else if (page.length === 0) {
+      ctx.enrich.notice(outOfBoundsMessage({ offset, limit, totalCount }));
     }
 
     return {
@@ -305,7 +308,9 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const lines = [
       `**${result.totalCount} investigation(s) found** (showing ${result.returned}, offset ${result.offset}, limit ${result.limit})\n`,
     ];
-    if (result.offset + result.returned < result.totalCount) {
+    if (result.returned === 0) {
+      lines.push(`*${outOfBoundsMessage(result)}*\n`);
+    } else if (result.offset + result.returned < result.totalCount) {
       lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
     }
 

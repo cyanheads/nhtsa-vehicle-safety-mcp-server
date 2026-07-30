@@ -6,6 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { outOfBoundsMessage } from '@/services/nhtsa/format.js';
 import { getNhtsaService, MANUFACTURER_RESULT_CAP } from '@/services/nhtsa/nhtsa-service.js';
 
 const DEFAULT_LIMIT = 100;
@@ -27,8 +28,9 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .describe('Make name (required for "models" and "vehicle_types"). Partial match supported.'),
     modelYear: z
       .number()
+      .int()
       .optional()
-      .describe('Filter models to a specific year. Only for "models" operation.'),
+      .describe('Filter models to a specific year, a whole number. Only for "models" operation.'),
     manufacturer: z
       .string()
       .optional()
@@ -154,8 +156,8 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     const emptyMessage = (subject: string, recovery: string): string =>
       `No ${subject} found. ${recovery}`;
 
-    const outOfBoundsMessage = (totalCount: number): string =>
-      `No results for this page (offset ${offset}, limit ${limit}). ${totalCount} total — try a smaller offset.`;
+    const outOfBounds = (totalCount: number): string =>
+      outOfBoundsMessage({ offset, limit, totalCount });
 
     switch (input.operation) {
       case 'makes': {
@@ -169,7 +171,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         });
         ctx.enrich({ effectiveQuery: `makes offset=${offset} limit=${limit}` });
         if (all.length > 0 && slice.length === 0) {
-          ctx.enrich.notice(outOfBoundsMessage(all.length));
+          ctx.enrich.notice(outOfBounds(all.length));
         }
         return {
           operation: 'makes',
@@ -209,7 +211,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
             ),
           );
         } else if (slice.length === 0) {
-          ctx.enrich.notice(outOfBoundsMessage(all.length));
+          ctx.enrich.notice(outOfBounds(all.length));
         }
         return {
           operation: 'models',
@@ -247,7 +249,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
             ),
           );
         } else if (slice.length === 0) {
-          ctx.enrich.notice(outOfBoundsMessage(all.length));
+          ctx.enrich.notice(outOfBounds(all.length));
         }
         return {
           operation: 'vehicle_types',
@@ -289,7 +291,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
             ),
           );
         } else if (slice.length === 0) {
-          notices.push(outOfBoundsMessage(all.length));
+          notices.push(outOfBounds(all.length));
         }
         if (capped) {
           /**
