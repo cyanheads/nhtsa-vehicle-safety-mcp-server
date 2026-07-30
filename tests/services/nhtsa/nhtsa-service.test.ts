@@ -334,6 +334,24 @@ describe('getComplaintsByVehicle', () => {
     expect(complaints[1].dateOfIncident).toBeUndefined();
   });
 
+  it('reports a placeholder as absent, not as an unreliable value', async () => {
+    // 1901 also predates the model year, but a placeholder means NHTSA holds no incident date
+    // at all — reporting one would invent a claim the record never made.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 1, dateOfIncident: '01/01/1901', dateComplaintFiled: '01/15/2020' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
+
+    expect(complaints[0].dateOfIncident).toBeUndefined();
+    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+  });
+
   it('keeps a genuine pre-1990 incident date', async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
@@ -350,6 +368,7 @@ describe('getComplaintsByVehicle', () => {
 
     expect(complaints[0].dateOfIncident).toBe('1989-09-29');
     expect(complaints[0].dateComplaintFiled).toBe('1995-06-21');
+    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
   });
 
   it('keeps a 1970 incident date that is not the epoch placeholder', async () => {
@@ -381,6 +400,123 @@ describe('getComplaintsByVehicle', () => {
 
     expect(complaints[0].dateOfIncident).toBe('unknown');
     expect(complaints[0].dateComplaintFiled).toBeUndefined();
+    // Ordering comparisons are meaningless on an unparseable value — no verdict is invented.
+    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+  });
+
+  it('reports a mistyped incident year rather than rendering it as the incident date', async () => {
+    // ODI 10877133 — upstream carries 06/28/1016 on a 2016 vehicle filed 06/28/2016.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [
+          { odiNumber: 10877133, dateOfIncident: '06/28/1016', dateComplaintFiled: '06/28/2016' },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Hyundai', 'Santa Fe', 2016);
+
+    expect(complaints[0].dateOfIncident).toBeUndefined();
+    expect(complaints[0].unreliableIncidentDate).toEqual({
+      reported: '1016-06-28',
+      reason: 'predates_model_year',
+    });
+    expect(complaints[0].dateComplaintFiled).toBe('2016-06-28');
+  });
+
+  it('reports an incident date that postdates the complaint reporting it', async () => {
+    // ODI 844272 — upstream carries 07/28/2019 on a complaint filed 08/04/1999.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [
+          { odiNumber: 844272, dateOfIncident: '07/28/2019', dateComplaintFiled: '08/04/1999' },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Chevrolet', 'Corvette', 1998);
+
+    expect(complaints[0].dateOfIncident).toBeUndefined();
+    expect(complaints[0].unreliableIncidentDate).toEqual({
+      reported: '2019-07-28',
+      reason: 'postdates_filing',
+    });
+  });
+
+  it('keeps an incident in the calendar year a model year opens in', async () => {
+    // A 2016 model reaches the road in 2015, so 2015 is a real incident year for one.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 2, dateOfIncident: '11/02/2015', dateComplaintFiled: '01/05/2016' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Hyundai', 'Santa Fe', 2016);
+
+    expect(complaints[0].dateOfIncident).toBe('2015-11-02');
+    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+  });
+
+  it('rejects an incident dated before the vehicle could exist', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 3, dateOfIncident: '11/02/2014', dateComplaintFiled: '01/05/2016' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Hyundai', 'Santa Fe', 2016);
+
+    expect(complaints[0].dateOfIncident).toBeUndefined();
+    expect(complaints[0].unreliableIncidentDate).toEqual({
+      reported: '2014-11-02',
+      reason: 'predates_model_year',
+    });
+  });
+
+  it('applies no model-year bound to the 9999 no-model-year placeholder', async () => {
+    // Equipment complaints carry 9999 where no model year applies; there is no vehicle to
+    // date the incident against, so the value is forwarded rather than judged.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 4, dateOfIncident: '04/25/0202', dateComplaintFiled: '07/11/2002' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Graco', 'Child Safety Seat', 9999);
+
+    expect(complaints[0].dateOfIncident).toBe('0202-04-25');
+    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+  });
+
+  it('leaves the incident date alone when there is no filing date to compare it against', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 5, dateOfIncident: '07/28/2019' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Chevrolet', 'Corvette', 2018);
+
+    expect(complaints[0].dateOfIncident).toBe('2019-07-28');
+    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
   });
 
   it('preserves missing complaint fields as undefined', async () => {

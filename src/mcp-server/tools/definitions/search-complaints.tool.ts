@@ -7,13 +7,47 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { outOfBoundsMessage, pluralize } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
+import type { UnreliableIncidentDateReason } from '@/services/nhtsa/types.js';
+import {
+  buildComponentBreakdown,
+  UNRELIABLE_INCIDENT_DATE_REASONS,
+} from '@/services/nhtsa/types.js';
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 
 function formatText(value?: string): string {
   return value || 'Not available';
+}
+
+/** What each rejection reason contradicts, in the words a reader of the rendered line needs. */
+const INCIDENT_DATE_REJECTIONS: Record<UnreliableIncidentDateReason, string> = {
+  postdates_filing: 'falls after the complaint was filed',
+  predates_model_year: 'predates the vehicle model year',
+};
+
+/**
+ * Render the incident date. A date NHTSA reported but the record contradicts is disclosed
+ * rather than shown as the incident date or hidden entirely — "Not available" would claim
+ * NHTSA holds no date, which is a different fact. The raw reason token rides along so a client
+ * reading only `content[]` gets the same machine-readable verdict `structuredContent` carries.
+ *
+ * Both fields render independently: the service sets one or the other, but format() owes every
+ * declared output field a rendering rather than a rendering conditional on a sibling.
+ */
+function formatIncidentDate(complaint: {
+  dateOfIncident?: string | undefined;
+  unreliableIncidentDate?: { reported: string; reason: UnreliableIncidentDateReason } | undefined;
+}): string {
+  const parts: string[] = [];
+  if (complaint.dateOfIncident) parts.push(complaint.dateOfIncident);
+  const unreliable = complaint.unreliableIncidentDate;
+  if (unreliable) {
+    parts.push(
+      `Unreliable (${unreliable.reason}) — NHTSA reported ${unreliable.reported}, which ${INCIDENT_DATE_REJECTIONS[unreliable.reason]}`,
+    );
+  }
+  return parts.join(' · ') || 'Not available';
 }
 
 /**
@@ -101,6 +135,19 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
               .string()
               .optional()
               .describe('Date the incident occurred (ISO YYYY-MM-DD)'),
+            unreliableIncidentDate: z
+              .object({
+                reported: z.string().describe('The incident date NHTSA reported, ISO YYYY-MM-DD'),
+                reason: z
+                  .enum(UNRELIABLE_INCIDENT_DATE_REASONS)
+                  .describe(
+                    'What the reported date contradicts: "postdates_filing" — it falls after this complaint was filed; "predates_model_year" — it falls before a vehicle of this model year existed.',
+                  ),
+              })
+              .optional()
+              .describe(
+                "An incident date NHTSA reported that this complaint's own filing date or model year rules out — report it as contradicted, never as when the incident happened. Appears in place of dateOfIncident, never alongside it; both absent means NHTSA reported no incident date at all.",
+              ),
             dateComplaintFiled: z
               .string()
               .optional()
@@ -127,7 +174,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       .string()
       .optional()
       .describe(
-        'Guidance when no complaints are found — e.g. how to verify make/model/year spelling.',
+        'Guidance when no complaints match the vehicle, or when the requested page overshoots the result set.',
       ),
   },
 
@@ -235,7 +282,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       const flagStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
 
       lines.push(
-        `**#${c.odiNumber ?? 'Unknown'}** — ${formatText(c.dateOfIncident)} (filed ${formatText(c.dateComplaintFiled)})${flagStr}`,
+        `**#${c.odiNumber ?? 'Unknown'}** — ${formatIncidentDate(c)} (filed ${formatText(c.dateComplaintFiled)})${flagStr}`,
       );
       const severity = formatComplaintSeverity(c);
       if (severity) lines.push(`Reported: ${severity}`);

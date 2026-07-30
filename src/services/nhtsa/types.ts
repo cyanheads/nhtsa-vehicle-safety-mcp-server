@@ -180,6 +180,25 @@ export interface RecallCampaign {
   summary: string;
 }
 
+/**
+ * Why a reported incident date could not be used as one. Both reasons are contradictions
+ * within the complaint record itself — the date against the complaint's own filing date, or
+ * against the model year of the vehicle it describes — never a judgment against a calendar
+ * threshold.
+ */
+export const UNRELIABLE_INCIDENT_DATE_REASONS = [
+  'postdates_filing',
+  'predates_model_year',
+] as const;
+
+export type UnreliableIncidentDateReason = (typeof UNRELIABLE_INCIDENT_DATE_REASONS)[number];
+
+/** An incident date NHTSA reported that the rest of the same complaint record contradicts. */
+export interface UnreliableIncidentDate {
+  reason: UnreliableIncidentDateReason;
+  reported: string;
+}
+
 export interface Complaint {
   components?: string;
   crash?: boolean;
@@ -191,6 +210,8 @@ export interface Complaint {
   numberOfInjuries?: number;
   odiNumber?: number;
   summary?: string;
+  /** Present only when `dateOfIncident` is absent because upstream's value was rejected. */
+  unreliableIncidentDate?: UnreliableIncidentDate;
   vin?: string;
 }
 

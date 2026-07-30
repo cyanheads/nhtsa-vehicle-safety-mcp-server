@@ -174,6 +174,52 @@ describe('searchComplaints', () => {
     expect(text).not.toContain('Injuries:');
   });
 
+  it('format discloses an incident date the record contradicts', () => {
+    const output = searchComplaints.output.parse({
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      componentBreakdown: [],
+      complaints: [
+        {
+          odiNumber: 10877133,
+          unreliableIncidentDate: { reported: '1016-06-28', reason: 'predates_model_year' },
+          dateComplaintFiled: '2016-06-28',
+          components: 'ENGINE',
+        },
+      ],
+    });
+    const text = searchComplaints.format!(output)[0].text;
+
+    expect(text).toContain('1016-06-28');
+    expect(text).toContain('predates the vehicle model year');
+    // Not presented as the incident date, and not collapsed into "NHTSA had no date".
+    expect(text).not.toContain('— 1016-06-28 (filed');
+    expect(text).not.toContain('Not available (filed');
+  });
+
+  it('format names the filing date as what a future-dated incident contradicts', () => {
+    const output = searchComplaints.output.parse({
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      componentBreakdown: [],
+      complaints: [
+        {
+          odiNumber: 844272,
+          unreliableIncidentDate: { reported: '2019-07-28', reason: 'postdates_filing' },
+          dateComplaintFiled: '1999-08-04',
+        },
+      ],
+    });
+    const text = searchComplaints.format!(output)[0].text;
+
+    expect(text).toContain('2019-07-28');
+    expect(text).toContain('falls after the complaint was filed');
+  });
+
   it('paginates complaints with default limit of 20', async () => {
     const many = Array.from({ length: 80 }, (_, i) =>
       complaint({
