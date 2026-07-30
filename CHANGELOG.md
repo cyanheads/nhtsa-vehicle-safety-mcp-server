@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.9.2](changelog/0.9.x/0.9.2.md) — 2026-07-30
+
+nhtsa_search_recalls: full affected-vehicle list and investigation linkage; nhtsa_search_investigations: exact-ID lookup; nhtsa_lookup_vehicles: manufacturer pagination fix; complaint dates normalize to ISO
+
 ## [0.9.1](changelog/0.9.x/0.9.1.md) — 2026-07-30
 
 nhtsa_get_vehicle_safety: full recall detail, untruncated component breakdown, correct rollover-probability and no-match handling
