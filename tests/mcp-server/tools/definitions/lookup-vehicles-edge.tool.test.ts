@@ -260,6 +260,56 @@ describe('lookupVehicles — format', () => {
     };
     const text = lookupVehicles.format!(output)[0].text;
     expect(text).toContain('No results');
+    expect(text).toContain('Check the spelling');
+  });
+
+  it('format explains an out-of-range page rather than blaming the spelling', () => {
+    const output = {
+      operation: 'makes',
+      totalCount: 12309,
+      returned: 0,
+      offset: 99000,
+      limit: 5,
+    };
+    const text = lookupVehicles.format!(output)[0].text;
+
+    expect(text).toBe(
+      'No results for this page (offset 99000, limit 5). 12309 total — try a smaller offset.',
+    );
+    // The name was fine; only the offset was wrong.
+    expect(text).not.toMatch(/spelling/i);
+  });
+
+  it('format keeps the cap disclosure when a capped manufacturer page also overshoots', () => {
+    const output = {
+      operation: 'manufacturer',
+      totalCount: MANUFACTURER_RESULT_CAP,
+      returned: 0,
+      offset: MANUFACTURER_RESULT_CAP,
+      limit: 100,
+      manufacturers: [],
+    };
+    const text = lookupVehicles.format!(output)[0].text;
+
+    expect(text).toContain('try a smaller offset');
+    expect(text).toContain(`Retrieval stopped at ${MANUFACTURER_RESULT_CAP} records`);
+    expect(text).toContain('more may exist upstream');
+    expect(text).not.toMatch(/spelling/i);
+  });
+
+  it('format leaves the cap disclosure off an uncapped out-of-range page', () => {
+    const output = {
+      operation: 'manufacturer',
+      totalCount: 12,
+      returned: 0,
+      offset: 500,
+      limit: 100,
+      manufacturers: [],
+    };
+    const text = lookupVehicles.format!(output)[0].text;
+
+    expect(text).toContain('12 total — try a smaller offset');
+    expect(text).not.toMatch(/retrieval stopped/i);
   });
 
   it('format renders manufacturer without country when absent', () => {

@@ -158,7 +158,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .string()
       .optional()
       .describe(
-        'Guidance when no investigations match — e.g. suggestions for broadening the search.',
+        'Guidance when no investigations match the filters, or when the requested page overshoots the result set.',
       ),
   },
   errors: [

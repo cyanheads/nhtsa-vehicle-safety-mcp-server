@@ -323,12 +323,26 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
   format: (result) => {
     if (result.returned === 0) {
-      return [
-        {
-          type: 'text' as const,
-          text: `No results for "${result.operation}" lookup. Check the spelling of the make/manufacturer name — partial matches are supported.`,
-        },
-      ];
+      /**
+       * Two different empty states. Nothing matched, and the spelling hint is the recovery; or
+       * the filters matched and only the page overshot, where the spelling hint names a problem
+       * the caller does not have. The handler already draws this line for the enrichment
+       * notice — drawing it here too keeps the two surfaces from disagreeing.
+       */
+      if (result.totalCount === 0) {
+        return [
+          {
+            type: 'text' as const,
+            text: `No results for "${result.operation}" lookup. Check the spelling of the make/manufacturer name — partial matches are supported.`,
+          },
+        ];
+      }
+      /** A capped manufacturer walk knows a floor, not a total — say so before the total is read as one. */
+      const capDisclosure =
+        result.operation === 'manufacturer' && result.totalCount >= MANUFACTURER_RESULT_CAP
+          ? ` Retrieval stopped at ${MANUFACTURER_RESULT_CAP} records, so that count is a floor and more may exist upstream.`
+          : '';
+      return [{ type: 'text' as const, text: `${outOfBoundsMessage(result)}${capDisclosure}` }];
     }
 
     const lines = [`**${result.totalCount} ${result.operation} result(s)**\n`];
