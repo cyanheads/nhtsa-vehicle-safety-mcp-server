@@ -171,4 +171,13 @@ describe('getSafetyRatings', () => {
     const blocks = getSafetyRatings.format!({ ratings: [] });
     expect(blocks[0].text).toContain('No NCAP safety ratings');
   });
+
+  it('rejects a fractional modelYear rather than building a fractional path segment', () => {
+    expect(() =>
+      getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020.5 }),
+    ).toThrow();
+    expect(
+      getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 }).modelYear,
+    ).toBe(2020);
+  });
 });

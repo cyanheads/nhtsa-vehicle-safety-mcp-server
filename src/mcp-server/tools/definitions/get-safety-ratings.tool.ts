@@ -31,9 +31,10 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       .describe('Vehicle model. Required with make and modelYear when vehicleId is omitted.'),
     modelYear: z
       .number()
+      .int()
       .optional()
       .describe(
-        'Model year. Required with make and model when vehicleId is omitted. NCAP coverage increases significantly for 2011+.',
+        'Model year, a whole number. Required with make and model when vehicleId is omitted. NCAP coverage increases significantly for 2011+.',
       ),
     vehicleId: z
       .number()

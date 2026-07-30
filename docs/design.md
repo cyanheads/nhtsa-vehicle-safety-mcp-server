@@ -42,7 +42,7 @@ Internally calls the Safety Ratings, Recalls, and Complaints APIs and merges the
 |---|---|---|---|
 | `make` | string | Yes | Vehicle manufacturer (e.g., "Toyota", "Ford"). Case-insensitive. |
 | `model` | string | Yes | Vehicle model (e.g., "Camry", "F-150"). Case-insensitive. |
-| `modelYear` | number | Yes | Model year (e.g., 2020). |
+| `modelYear` | integer | Yes | Model year (e.g., 2020). |
 
 **Returns:** `safetyRatings` (overall, frontal, side, rollover stars; rollover probability, omitted for vehicles NHTSA never rollover-tested; ADAS features), `recalls[]` (campaign number, manufacturer, component, summary, consequence, remedy, report date, and the do-not-drive, park-outside, and over-the-air-update advisories), `complaintSummary` (total count, every component by frequency, crash/fire/injury/death counts), and `sectionStatus` plus warnings so an upstream outage is not read as a clean record. Includes `vehicleId` for follow-up Safety Ratings queries. Enrichment carries `effectiveQuery` and, when every section loaded and matched nothing, a `notice` pointing at `nhtsa_lookup_vehicles`.
 
@@ -57,7 +57,7 @@ Supports time-based filtering via `dateRange`. The NHTSA API does not natively s
 | `campaignNumber` | string | No | NHTSA campaign number (e.g., "20V682000"). When provided, returns the campaign detail plus every vehicle it covers. Mutually exclusive with `make`/`model`/`modelYear`. |
 | `make` | string | No | Vehicle manufacturer. Required with `model` and `modelYear` when not using `campaignNumber`. |
 | `model` | string | No | Vehicle model. Required with `make` and `modelYear`. |
-| `modelYear` | number | No | Model year. Required with `make` and `model`. |
+| `modelYear` | integer | No | Model year. Required with `make` and `model`. |
 | `dateRange` | object | No | Filter recalls by received date. `{ after?: string, before?: string }` -- ISO 8601 dates (e.g., "2025-01-01"). Applied locally by the server since the API lacks native date filtering. |
 
 **Returns:** Array of recalls, each with: `NHTSACampaignNumber`, `manufacturer`, `component`, `summary`, `consequence`, `remedy`, `reportReceivedDate` (ISO 8601), `parkIt`, `parkOutSide` (do-not-drive advisories), `overTheAirUpdate`. Campaign number queries return one collapsed campaign record and additionally carry `potentialUnitsAffected`, `affectedVehicles[]` (every distinct make/model/model-year the campaign covers; equipment and tire campaigns name the part here -- make is the brand, model is the part -- with no model year), and `investigationId` (the ODI action number, when NHTSA links one; feed it to `nhtsa_search_investigations` as `nhtsaId`).
@@ -74,7 +74,7 @@ Returns can be large (200+ complaints for a popular vehicle year). The server su
 |---|---|---|---|
 | `make` | string | Yes | Vehicle manufacturer. |
 | `model` | string | Yes | Vehicle model. |
-| `modelYear` | number | Yes | Model year. |
+| `modelYear` | integer | Yes | Model year. |
 | `component` | string | No | Filter to a specific component. Values are uppercase from NHTSA's taxonomy. Common values: `AIR BAGS`, `BACK OVER PREVENTION`, `ELECTRICAL SYSTEM`, `ENGINE`, `ENGINE AND ENGINE COOLING`, `EQUIPMENT`, `FORWARD COLLISION AVOIDANCE`, `FUEL/PROPULSION SYSTEM`, `LANE DEPARTURE`, `LATCHES/LOCKS/LINKAGES`, `POWER TRAIN`, `SEATS`, `SEAT BELTS`, `SERVICE BRAKES`, `STEERING`, `STRUCTURE`, `VEHICLE SPEED CONTROL`, `VISIBILITY`, `VISIBILITY/WIPER`, `UNKNOWN OR OTHER`. Note: a single complaint can list multiple components comma-separated (e.g., "ELECTRICAL SYSTEM,ENGINE"). The server should match if the filter value appears anywhere in the component string. Omit to see all. |
 
 **Returns:** `totalCount`, `componentBreakdown[]` (component name, count, crash/fire/injury totals), `complaints[]` (top N most recent: odiNumber, dateOfIncident and dateComplaintFiled as ISO 8601, components, summary, crash/fire/injury flags, VIN prefix). When filtered by component, returns all matching complaints up to a limit.
@@ -89,7 +89,7 @@ Requires a two-step lookup internally: year/make/model resolves to one or more v
 |---|---|---|---|
 | `make` | string | Yes | Vehicle manufacturer. |
 | `model` | string | Yes | Vehicle model. |
-| `modelYear` | number | Yes | Model year. NCAP data available from 1990+, but coverage and detail increase significantly for 2011+. Pre-2011 vehicles may lack ADAS fields and have fewer test categories. |
+| `modelYear` | integer | Yes | Model year. NCAP data available from 1990+, but coverage and detail increase significantly for 2011+. Pre-2011 vehicles may lack ADAS fields and have fewer test categories. |
 | `vehicleId` | number | No | Specific NCAP vehicle ID (from prior results). Skips the year/make/model lookup. Use when you already have the ID from `nhtsa_get_vehicle_safety`. |
 
 **Returns:** Per variant: `vehicleDescription`, `vehicleId`, `overallRating` (1-5 stars), `frontalCrash` (overall, driver, passenger), `sideCrash` (overall, driver, passenger, barrier, pole), `rollover` (rating, probability percentage, tip test result), `adasFeatures` (ESC, forward collision warning, lane departure -- each "Standard", "Optional", or "Not Available"), `complaintsCount`, `recallsCount`, `investigationCount`.
@@ -103,7 +103,7 @@ Accepts a single VIN or a batch of up to 50 VINs.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `vin` | string \| string[] | Yes | A single 17-character VIN (e.g., "1HGCM82633A004352") or an array of up to 50 VINs for batch decode. Partial VINs accepted -- use `*` for unknown positions. |
-| `modelYear` | number | No | Helps resolve ambiguity for pre-1980 VINs or partial VINs. |
+| `modelYear` | integer | No | Helps resolve ambiguity for pre-1980 VINs or partial VINs. |
 
 **API endpoints:** Single: `GET /vehicles/DecodeVinValues/{vin}?format=json`. Batch: `POST /vehicles/DecodeVINValuesBatch/` (body: semicolon-delimited `vin,year` pairs).
 
@@ -139,7 +139,7 @@ Look up valid makes, models, and vehicle types in NHTSA's database. Use to resol
 |---|---|---|---|
 | `operation` | string | Yes | "makes" (all makes -- **warning: 12,199 makes, ~700KB response**; prefer "models" with a `make` filter or use the `/products/` API for recall/complaint-scoped make lists), "models" (models for a make), "vehicle_types" (types for a make), "manufacturer" (manufacturer details). |
 | `make` | string | No | Make name (required for "models" and "vehicle_types" operations). Partial match supported. |
-| `modelYear` | number | No | Filter models to a specific year. Only for "models" operation. |
+| `modelYear` | integer | No | Filter models to a specific year. Only for "models" operation. |
 | `manufacturer` | string | No | Manufacturer name or ID (for "manufacturer" operation). Partial match supported; broad matches are capped -- see below. |
 
 **Returns:** Varies by operation. `makes`: array of `{makeId, makeName}` -- **caution: 12,199 results from VPIC's `GetAllMakes`**. The server should suggest using "models" with a specific `make` instead. Alternatively, use the `/products/vehicle/makes?modelYear={year}&issueType=r` endpoint for a scoped list (e.g., 237 makes with 2024 recalls). `models`: array of `{modelId, modelName, makeId, makeName}`. `vehicle_types`: array of `{vehicleTypeId, vehicleTypeName}`. `manufacturer`: array of `{manufacturerId, manufacturerName, country, vehicleTypes[]}` -- VPIC paginates this endpoint and publishes no match total, so the lookup walks pages up to a fixed record cap and discloses the cap through the `truncated`/`shown`/`cap` enrichment fields when it is reached.
