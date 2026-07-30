@@ -11,9 +11,9 @@ api_docs: https://www.nhtsa.gov/nhtsa-datasets-and-apis
 
 ## Overview
 
-Vehicle safety data from the National Highway Traffic Safety Administration. Wraps five public APIs -- [Recalls](https://api.nhtsa.gov/recalls/), [Complaints](https://api.nhtsa.gov/complaints/), [Investigations](https://api.nhtsa.gov/investigations), [Safety Ratings (NCAP)](https://api.nhtsa.gov/SafetyRatings/), and [VPIC](https://vpic.nhtsa.dot.gov/api/) (VIN decoding / vehicle info) -- to provide searchable access to ~30K recall campaigns (since 1949), 1.6M+ consumer complaints, crash test ratings, ~4,200 defect investigations, and vehicle identification (12K+ makes). No auth required; all public.
+Vehicle safety data from the National Highway Traffic Safety Administration. Wraps four public JSON APIs -- [Recalls](https://api.nhtsa.gov/recalls/), [Complaints](https://api.nhtsa.gov/complaints/), [Safety Ratings (NCAP)](https://api.nhtsa.gov/SafetyRatings/), and [VPIC](https://vpic.nhtsa.dot.gov/api/) (VIN decoding / vehicle info) -- plus NHTSA's ODI investigations bulk file ([`FLAT_INV.zip`](https://static.nhtsa.gov/odi/ffdd/inv/FLAT_INV.zip)), to provide searchable access to ~30K recall campaigns (since 1949), 1.6M+ consumer complaints, crash test ratings, ~5,300 defect investigations, and vehicle identification (12K+ makes). No auth required; all public.
 
-NHTSA exposes two API layers: **vehicle-scoped endpoints** (`/recallsByVehicle`, `/complaintsByVehicle`) that return the complete result set for a make/model/year with no pagination, and **base collection endpoints** (`/recalls`, `/complaints`, `/investigations`) that are paginated and sortable but do not reliably filter by make/model. A newer **`/products/`** API provides valid make/model/year discovery for each issue type. The server should use the vehicle-scoped endpoints for per-vehicle queries and the base endpoints for broad searches (e.g., recent recalls across all vehicles).
+NHTSA exposes two API layers: **vehicle-scoped endpoints** (`/recallsByVehicle`, `/complaintsByVehicle`) that return the complete result set for a make/model/year with no pagination, and **base collection endpoints** (`/recalls`, `/complaints`, `/investigations`) that are paginated and sortable but do not reliably filter by make/model. A newer **`/products/`** API provides valid make/model/year discovery for each issue type. The server uses the vehicle-scoped endpoints for per-vehicle queries; for investigations it bypasses the API layer entirely in favor of the ODI bulk file, which carries the full corpus with make/model/component associations in one download.
 
 **Dependencies**: `zod`, native fetch
 
@@ -34,7 +34,7 @@ NHTSA exposes two API layers: **vehicle-scoped endpoints** (`/recallsByVehicle`,
 
 ### `nhtsa_get_vehicle_safety`
 
-Get a comprehensive safety profile for a vehicle. Combines recalls, complaint summary, NCAP crash test ratings, and investigation counts into a single response. Use this as the default when a user asks about vehicle safety, reliability, or "should I buy this car?"
+Get a comprehensive safety profile for a vehicle. Combines recalls, complaint summary, and NCAP crash test ratings into a single response. Use this as the default when a user asks about vehicle safety, reliability, or "should I buy this car?"
 
 Internally calls the Safety Ratings, Recalls, and Complaints APIs and merges the results. For vehicles without NCAP ratings (pre-2011, some vehicle types), returns recalls and complaints only.
 
@@ -44,7 +44,7 @@ Internally calls the Safety Ratings, Recalls, and Complaints APIs and merges the
 | `model` | string | Yes | Vehicle model (e.g., "Camry", "F-150"). Case-insensitive. |
 | `modelYear` | number | Yes | Model year (e.g., 2020). |
 
-**Returns:** `safetyRatings` (overall, frontal, side, rollover stars; rollover probability; ADAS features), `recalls[]` (campaign number, component, summary, remedy, units affected), `complaintSummary` (total count, top components by frequency, crash/fire/injury counts), `investigationCount`. Includes `vehicleId` for follow-up Safety Ratings queries.
+**Returns:** `safetyRatings` (overall, frontal, side, rollover stars; rollover probability; ADAS features), `recalls[]` (campaign number, component, summary, remedy, report date, do-not-drive advisory), `complaintSummary` (total count, top components by frequency, crash/fire/injury/death counts), and `sectionStatus` plus warnings so an upstream outage is not read as a clean record. Includes `vehicleId` for follow-up Safety Ratings queries.
 
 ### `nhtsa_search_recalls`
 
@@ -111,21 +111,24 @@ Accepts a single VIN or a batch of up to 50 VINs.
 
 ### `nhtsa_search_investigations`
 
-Search NHTSA defect investigations (Preliminary Evaluations, Engineering Analyses, Defect Petitions, Recalls Queries). Use for questions about ongoing or past NHTSA investigations into vehicle defects.
+Search NHTSA defect investigations (Preliminary Evaluations, Engineering Analyses, Defect Petitions, Recall Queries, Audit Queries, and the other ODI action codes). Use for questions about ongoing or past NHTSA investigations into vehicle defects.
 
-Note: The NHTSA investigations API does not filter by make/model -- it returns all investigations regardless of query params (confirmed via testing). The full dataset is ~4,200 investigations with pagination (default 10 per page). The server must fetch and locally filter against `subject` and `description` fields. At ~4,200 records this is manageable -- a full scan requires ~420 paginated requests, so the server should cache the investigation index (refreshed periodically) rather than scanning on every query.
+Source is the ODI bulk file `FLAT_INV.zip`, not `api.nhtsa.gov/investigations` — the API returns all investigations regardless of make/model params, so filtering there is impossible without a full paginated scan. The bulk file carries the whole corpus in one TAB-delimited download, including the make/model/year/component associations the API omits. The server streams and inflates it, parsing lines as they arrive so the ~371 MB decompressed file is never held whole in memory, and groups the association rows by NHTSA action number into ~5,300 deduplicated records. The parsed index is cached for 24 hours, matching the file's daily refresh cadence.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | No | Free-text search across investigation subjects and descriptions. |
-| `make` | string | No | Filter by manufacturer (applied locally). |
-| `model` | string | No | Filter by model (applied locally). |
-| `investigationType` | string | No | Filter by type: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query). |
-| `status` | string | No | Filter by status: "O" (Open), "C" (Closed). |
-| `limit` | number | No | Max results to return. Default: 20. |
+| `query` | string | No | Free-text search across investigation subjects and summaries. |
+| `make` | string | No | Structured filter against the investigation's associated vehicle makes. |
+| `model` | string | No | Structured filter against the associated vehicle models. |
+| `component` | string | No | Structured filter against the affected components (e.g., "STEERING"). |
+| `investigationType` | string | No | Filter by ODI action code: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query), "AQ" (Audit Query), and other codes present in the dataset (SQ, EQ, RP, ID, TA, C). |
+| `status` | string | No | Filter by status: "O" (Open) or "C" (Closed). Derived from close-date presence in the flat file, so these are the only two values. |
+| `limit` | number | No | Max results to return. Default: 20, max 25 — summaries are long enough that a larger page produces an oversized response. |
 | `offset` | number | No | Pagination offset. Default: 0. |
 
-**Returns:** `total` count, `investigations[]` each with: `nhtsaId`, `investigationType`, `status`, `subject`, `description` (HTML content stripped to text), `openDate`, `latestActivityDate`, `issueYear`.
+All filters are ANDed.
+
+**Returns:** `totalCount`, `returned`, `offset`, `limit`, and `investigations[]` each with: `nhtsaId`, `investigationType`, `investigationTypeName`, `status`, `statusName`, `makes[]`, `models[]`, `years[]`, `components[]`, `manufacturer`, `subject`, `summary` (plain text as published in the flat file), `openDate`, `closeDate`, `recallCampaign` (the linked campaign number, usable with `nhtsa_search_recalls`).
 
 ### `nhtsa_lookup_vehicles`
 
@@ -148,7 +151,7 @@ Look up valid makes, models, and vehicle types in NHTSA's database. Use to resol
 
 - **Two API layers.** Vehicle-scoped endpoints (`/recalls/recallsByVehicle`, `/complaints/complaintsByVehicle`) return the complete result set for a make/model/year -- no pagination, no date filtering. Base collection endpoints (`/recalls`, `/complaints`, `/investigations`) are paginated (`offset`/`max` params, default 10 per page) and sortable but **do not filter by make/model** (params are accepted but ignored). A newer `/products/` API (`/products/vehicle/makes?modelYear={year}&issueType=r|c|i`) returns valid makes/models/years scoped to an issue type.
 - **No date-range query params on any endpoint.** The base `/recalls` endpoint supports `sort=recall573ReceivedDate&order=desc` for chronological browsing, but there are no `after`/`before` filter params. Date filtering must be implemented locally.
-- **Investigations ignore make/model filters.** Confirmed: the `api.nhtsa.gov/investigations` endpoint returns all ~4,200 investigations regardless of make/model query params. The server must fetch paginated results and apply local text matching against the `subject` and `description` fields. Consider caching the investigation index (refreshed hourly or daily) to avoid scanning ~420 pages per query.
+- **Investigations ignore make/model filters, so the server uses the bulk file instead.** Confirmed: the `api.nhtsa.gov/investigations` endpoint returns all investigations regardless of make/model query params, and its records omit vehicle associations. `FLAT_INV.zip` carries the full corpus with one row per make/model/year/component association, which the server groups by NHTSA action number and caches for 24 hours.
 - **No pagination on vehicle-scoped endpoints.** `/recallsByVehicle` and `/complaintsByVehicle` return the complete set in one response. Complaints for popular vehicles can be 200KB+ (255 complaints for 2020 Camry). Summarize server-side.
 - **Inconsistent field naming everywhere.** The base `/recalls` endpoint uses camelCase with richer fields (`campaignId`, `recall573ReceivedDate`, `potaff`, `createDate`). The vehicle-scoped `/recallsByVehicle` uses PascalCase (`NHTSACampaignNumber`, `ReportReceivedDate`, `Component`) with camelCase booleans (`parkIt`, `overTheAirUpdate`). The base `/complaints` uses `odiId`, `incidentDate`, `receivedDate`; the vehicle-scoped `/complaintsByVehicle` uses `odiNumber`, `dateOfIncident`, `dateComplaintFiled`. Safety Ratings uses PascalCase (`OverallRating`, `VehicleId`) with mixed-case anomalies (`combinedSideBarrierAndPoleRating-Front`, `dynamicTipResult`). VPIC uses PascalCase with a `Results` wrapper. Normalize everything to consistent camelCase in the service layer.
 - **Safety Ratings two-step.** `/SafetyRatings/modelyear/{year}/make/{make}/model/{model}` returns variant IDs, then `/SafetyRatings/VehicleId/{id}` returns the actual ratings. A single make/model/year may have multiple variants (FWD vs AWD, different body styles).
@@ -180,7 +183,8 @@ NHTSA uses "automated traffic rate control" but does not publish specific limits
 - [VPIC API Documentation](https://vpic.nhtsa.dot.gov/api/)
 - [Recalls API](https://api.nhtsa.gov/recalls/) -- vehicle-scoped: `/recallsByVehicle?make=X&model=Y&modelYear=Z`; base: `/recalls?offset=0&max=10&sort=recall573ReceivedDate&order=desc`
 - [Complaints API](https://api.nhtsa.gov/complaints/) -- vehicle-scoped: `/complaintsByVehicle?make=X&model=Y&modelYear=Z`; base: `/complaints?offset=0&max=10`
-- [Investigations API](https://api.nhtsa.gov/investigations) -- paginated only: `?offset=0&max=10&sort=openDate&order=desc`
+- [Investigations bulk file](https://static.nhtsa.gov/odi/ffdd/inv/FLAT_INV.zip) -- TAB-delimited ODI flat file, refreshed daily; the source this server uses
+- [Investigations API](https://api.nhtsa.gov/investigations) -- paginated only: `?offset=0&max=10&sort=openDate&order=desc`; unused, no make/model filtering or vehicle associations
 - [Products API](https://api.nhtsa.gov/products/vehicle/modelYears?issueType=r) -- discovery endpoint for valid makes/models/years by issue type (`r`=recalls, `c`=complaints, `i`=investigations)
 - [Safety Ratings (NCAP) API](https://api.nhtsa.gov/SafetyRatings/)
 - [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core)

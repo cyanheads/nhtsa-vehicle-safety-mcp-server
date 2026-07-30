@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.8.4-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.9.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.14-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -77,8 +77,9 @@ Decode Vehicle Identification Numbers for manufacturing and safety details.
 Search NHTSA defect investigations.
 
 - Investigation types: Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI codes (SQ, EQ, RP, and others)
-- Free-text search across subjects and descriptions
-- First query loads the full investigation index (~10s); subsequent queries use a cached index (1h TTL)
+- Free-text search across subjects and summaries, plus structured make, model, and component filters
+- Sourced from NHTSA's ODI bulk file (`FLAT_INV.zip`) — the first query downloads and parses it (~10s), subsequent queries use the cached index (24h TTL, matching the file's daily refresh)
+- Returns up to 25 investigations per page; the response echoes `offset`/`limit` and the offset for the next page
 
 ---
 
@@ -125,8 +126,8 @@ Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core):
 
 NHTSA-specific:
 
-- Type-safe client wrapping five NHTSA public APIs with retry logic and sparse-field normalization
-- Investigation index caching (1h TTL) for fast repeated queries
+- Type-safe client wrapping four NHTSA JSON APIs with retry logic and sparse-field normalization, plus a streaming parser for the ODI investigations bulk file
+- Investigation index caching (24h TTL) for fast repeated queries
 - No API key required — all NHTSA APIs are public
 
 ## Getting started
@@ -244,12 +245,12 @@ No API keys required — all NHTSA APIs are public.
 
 ## Data sources
 
-All data comes from NHTSA's public APIs:
+All data comes from NHTSA's public APIs and bulk files:
 
 - **Recalls API** — `api.nhtsa.gov/recalls`
 - **Complaints API** — `api.nhtsa.gov/complaints`
 - **Safety Ratings API** — `api.nhtsa.gov/SafetyRatings`
-- **Investigations API** — `api.nhtsa.gov/investigations`
+- **Investigations bulk file** — `static.nhtsa.gov/odi/ffdd/inv/FLAT_INV.zip`
 - **VPIC API** — `vpic.nhtsa.dot.gov/api/vehicles`
 
 ## Running the server
@@ -282,7 +283,7 @@ docker run -p 3010:3010 nhtsa-vehicle-safety-mcp-server
 |:----------|:--------|
 | `src/index.ts` | Server entry point — `createApp()` registration. |
 | `src/mcp-server/tools/definitions/` | Tool definitions (`*.tool.ts`). |
-| `src/services/nhtsa/` | NHTSA API client with retry logic and field normalization. |
+| `src/services/nhtsa/` | NHTSA API client and ODI bulk-file parser with field normalization. |
 
 ## Development guide
 
