@@ -1,6 +1,6 @@
 /**
- * @fileoverview Composite vehicle safety profile tool — combines recalls, complaints,
- * crash test ratings, and investigation counts into a single response.
+ * @fileoverview Composite vehicle safety profile tool — combines recalls, complaints, and
+ * crash test ratings into a single response.
  * @module mcp-server/tools/definitions/get-vehicle-safety.tool
  */
 
@@ -71,11 +71,18 @@ const safetyRatingSchema = z
 const recallSchema = z
   .object({
     campaignNumber: z.string().describe('NHTSA campaign number'),
+    manufacturer: z.string().describe('Vehicle/equipment manufacturer'),
     component: z.string().describe('Affected component'),
     summary: z.string().describe('Recall summary'),
+    consequence: z.string().describe('Safety consequence'),
     remedy: z.string().describe('Corrective action'),
     reportReceivedDate: z.string().describe('Date recall was reported'),
     parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
+    parkOutSide: z.boolean().optional().describe('Park-outside advisory when provided by NHTSA'),
+    overTheAirUpdate: z
+      .boolean()
+      .optional()
+      .describe('OTA update availability when provided by NHTSA'),
   })
   .describe('A single recall campaign');
 
@@ -166,11 +173,17 @@ function summarizeComplaints(complaints: Complaint[]): ComplaintSummary {
 function mapRecalls(recalls: Recall[]): RecallsResult {
   return recalls.map((recall) => ({
     campaignNumber: recall.campaignNumber,
+    manufacturer: recall.manufacturer,
     component: recall.component,
     summary: recall.summary,
+    consequence: recall.consequence,
     remedy: recall.remedy,
     reportReceivedDate: recall.reportReceivedDate,
-    ...omitUndefined({ parkIt: recall.parkIt }),
+    ...omitUndefined({
+      parkIt: recall.parkIt,
+      parkOutSide: recall.parkOutSide,
+      overTheAirUpdate: recall.overTheAirUpdate,
+    }),
   }));
 }
 
@@ -217,7 +230,7 @@ function formatSafetyRatingsSection(result: VehicleSafetyOutput): string[] {
 
   if (ratings.length === 0) {
     lines.push(
-      '## NCAP Safety Ratings\n\nNo NCAP crash test ratings found. Not all vehicles are tested — coverage varies by trim, drivetrain, and model year. Use nhtsa_get_safety_ratings to check specific variants or adjacent years.\n',
+      '## NCAP Safety Ratings\n\nNo NCAP crash test ratings found. Not all vehicles are tested — coverage starts from 1990, is most complete for 2011 and later, and varies by trim, drivetrain, and model year. Use nhtsa_get_safety_ratings to check specific variants or adjacent years.\n',
     );
     return lines;
   }
@@ -269,14 +282,38 @@ function formatRecallsSection(result: VehicleSafetyOutput): string[] {
   }
 
   for (const recall of recalls) {
-    const alert = recall.parkIt ? ' **PARK IT — DO NOT DRIVE**' : '';
+    const alerts: string[] = [];
+    if (recall.parkIt) alerts.push('PARK IT — DO NOT DRIVE');
+    if (recall.parkOutSide) alerts.push('PARK OUTSIDE');
+    if (recall.overTheAirUpdate) alerts.push('OTA UPDATE AVAILABLE');
+    const alert = alerts.length > 0 ? ` **${alerts.join(' | ')}**` : '';
+
     lines.push(`**${recall.campaignNumber}** — ${recall.component}${alert}`);
+    lines.push(`*Manufacturer:* ${recall.manufacturer}`);
     lines.push(recall.summary);
+    lines.push(`*Consequence:* ${recall.consequence}`);
     lines.push(`*Remedy:* ${recall.remedy}`);
-    lines.push(`*Date:* ${recall.reportReceivedDate}\n`);
+    lines.push(`*Date:* ${recall.reportReceivedDate}`);
+    lines.push(`*Advisories:* ${formatRecallAdvisories(recall)}\n`);
   }
 
   return lines;
+}
+
+/**
+ * Render every advisory flag NHTSA set on a recall, including the ones set to false, so an
+ * explicit "no" is distinguishable from an advisory NHTSA never reported.
+ */
+function formatRecallAdvisories(recall: RecallsResult[number]): string {
+  const yesNo = (value: boolean) => (value ? 'yes' : 'no');
+  const flags: string[] = [];
+  if (recall.parkIt !== undefined) flags.push(`Do not drive: ${yesNo(recall.parkIt)}`);
+  if (recall.parkOutSide !== undefined) flags.push(`Park outside: ${yesNo(recall.parkOutSide)}`);
+  if (recall.overTheAirUpdate !== undefined) {
+    flags.push(`Over-the-air update: ${yesNo(recall.overTheAirUpdate)}`);
+  }
+
+  return flags.length > 0 ? flags.join(' | ') : 'None reported by NHTSA';
 }
 
 function formatComplaintsSection(result: VehicleSafetyOutput): string[] {
@@ -299,8 +336,8 @@ function formatComplaintsSection(result: VehicleSafetyOutput): string[] {
   lines.push(
     `Crashes: ${summary.crashCount} | Fires: ${summary.fireCount} | Injuries: ${summary.injuryCount} | Deaths: ${summary.deathCount}\n`,
   );
-  lines.push('**Top Components:**');
-  for (const component of summary.componentBreakdown.slice(0, 10)) {
+  lines.push('**Components:**');
+  for (const component of summary.componentBreakdown) {
     lines.push(
       `- ${component.component}: ${component.count} ${pluralize(component.count, 'complaint')} (${component.crashCount} ${pluralize(component.crashCount, 'crash', 'crashes')}, ${component.fireCount} ${pluralize(component.fireCount, 'fire')}, ${component.injuryCount} ${pluralize(component.injuryCount, 'injury', 'injuries')}, ${component.deathCount} ${pluralize(component.deathCount, 'death')})`,
     );
@@ -319,6 +356,15 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
     modelYear: z.number().describe('Model year (e.g., 2020).'),
   }),
   output: vehicleSafetyOutputSchema,
+  enrichment: {
+    effectiveQuery: z.string().describe('The vehicle queried, as "make model modelYear".'),
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Guidance when no NHTSA records matched the vehicle — e.g. how to verify make/model/year spelling.',
+      ),
+  },
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
@@ -393,6 +439,26 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
       complaintsStatus: sectionStatus.complaints,
     });
 
+    ctx.enrich({ effectiveQuery: `${make} ${model} ${modelYear}` });
+
+    /**
+     * Only when all three sections loaded and every one came back empty — a partial outage
+     * cannot distinguish "nothing on file" from "we could not look".
+     */
+    const allSectionsLoadedEmpty =
+      sectionStatus.safetyRatings === 'available' &&
+      !safetyRatings?.length &&
+      sectionStatus.recalls === 'available' &&
+      !recallResults?.length &&
+      sectionStatus.complaints === 'available' &&
+      complaintSummary?.totalCount === 0;
+
+    if (allSectionsLoadedEmpty) {
+      ctx.enrich.notice(
+        'No NCAP ratings, recalls, or complaints matched this vehicle. It may have a clean record, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
+      );
+    }
+
     return {
       ...(safetyRatings && { safetyRatings }),
       ...(recallResults && { recalls: recallResults }),
@@ -465,12 +531,15 @@ async function resolveSafetyRatings(
     return;
   }
 
+  /**
+   * Zero matching variants means the NHTSA query succeeded and matched nothing — the same
+   * state the recalls and complaints sections report as 'available' with no rows. Leaving the
+   * status alone routes format() to the no-coverage copy instead of the fetch-failure copy,
+   * and the empty array states the absence of coverage to structured-only consumers, for whom
+   * an omitted field would be indistinguishable from a field the response never carried.
+   */
   if (variants.length === 0) {
-    sectionStatus.safetyRatings = 'unavailable';
-    warnings.push(
-      'NCAP crash test data is not available for this vehicle. NCAP coverage starts from 1990, with best coverage for 2011+.',
-    );
-    return;
+    return [];
   }
 
   let failedVariantCount = 0;

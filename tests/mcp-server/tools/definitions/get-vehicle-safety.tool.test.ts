@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/get-vehicle-safety.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -92,7 +92,14 @@ describe('getVehicleSafety', () => {
     expect(result.safetyRatings).toHaveLength(1);
     expect(result.safetyRatings[0].overallRating).toBe('5');
     expect(result.recalls).toHaveLength(1);
-    expect(result.recalls[0].parkIt).toBe(true);
+    expect(result.recalls[0]).toMatchObject({
+      campaignNumber: '20V682000',
+      manufacturer: 'Toyota',
+      consequence: 'Fire risk.',
+      parkIt: true,
+      parkOutSide: false,
+      overTheAirUpdate: false,
+    });
     expect(result.complaintSummary.totalCount).toBe(1);
     expect(result.complaintSummary.crashCount).toBe(1);
     expect(result.complaintSummary.componentBreakdown).toHaveLength(2);
@@ -103,7 +110,7 @@ describe('getVehicleSafety', () => {
     });
   });
 
-  it('marks safetyRatings unavailable with a warning when NCAP has no variants', async () => {
+  it('reports NCAP as available with no rows when the query matched no variants', async () => {
     mockService.getSafetyRatingVariants.mockResolvedValue([]);
     mockService.getRecallsByVehicle.mockResolvedValue([]);
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
@@ -111,14 +118,79 @@ describe('getVehicleSafety', () => {
     const ctx = createMockContext();
     const input = getVehicleSafety.input.parse({ make: 'Fake', model: 'Car', modelYear: 1990 });
     const result = await getVehicleSafety.handler(input, ctx);
+    const text = getVehicleSafety.format!(getVehicleSafety.output.parse(result))[0].text;
 
-    expect(result.safetyRatings).toBeUndefined();
+    /** Every section states its emptiness, so no consumer has to read absence into a missing key. */
+    expect(result.safetyRatings).toEqual([]);
     expect(result.recalls).toEqual([]);
     expect(result.complaintSummary?.totalCount).toBe(0);
-    expect(result.sectionStatus.safetyRatings).toBe('unavailable');
-    expect(result.sectionStatus.recalls).toBe('available');
-    expect(result.sectionStatus.complaints).toBe('available');
-    expect(result.warnings.some((w) => w.includes('NCAP'))).toBe(true);
+    expect(result.sectionStatus).toEqual({
+      safetyRatings: 'available',
+      recalls: 'available',
+      complaints: 'available',
+    });
+    expect(result.warnings).toEqual([]);
+    expect(text).toContain('No NCAP crash test ratings found');
+    expect(text).not.toContain('NCAP safety ratings were unavailable');
+  });
+
+  it('emits a lookup notice when every section loaded and matched nothing', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+    mockService.getRecallsByVehicle.mockResolvedValue([]);
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({
+      make: 'Zorblax',
+      model: 'Nonesuch',
+      modelYear: 2020,
+    });
+    await getVehicleSafety.handler(input, ctx);
+
+    const enrichment = getEnrichment(ctx);
+    expect(enrichment.effectiveQuery).toBe('Zorblax Nonesuch 2020');
+    expect(enrichment.notice).toMatch(/nhtsa_lookup_vehicles/i);
+  });
+
+  it('omits the lookup notice when a section returned data', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+    mockService.getRecallsByVehicle.mockResolvedValue([
+      {
+        campaignNumber: '20V682000',
+        manufacturer: 'Toyota',
+        component: 'FUEL SYSTEM',
+        summary: 'Fuel leak.',
+        consequence: 'Fire risk.',
+        remedy: 'Replace pipe.',
+        reportReceivedDate: '2020-12-11',
+      },
+    ]);
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    const result = await getVehicleSafety.handler(input, ctx);
+
+    expect(getEnrichment(ctx).notice).toBeUndefined();
+    /**
+     * No notice fires here, so the empty NCAP array is the only thing telling a
+     * structured-only consumer the vehicle has no crash test coverage.
+     */
+    expect(result.safetyRatings).toEqual([]);
+    expect(result.sectionStatus.safetyRatings).toBe('available');
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('omits the lookup notice when a section failed to load', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+    mockService.getRecallsByVehicle.mockRejectedValue(new Error('recalls unavailable'));
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
+    await getVehicleSafety.handler(input, ctx);
+
+    expect(getEnrichment(ctx).notice).toBeUndefined();
   });
 
   it('accepts recalls without parkIt', async () => {
@@ -140,10 +212,57 @@ describe('getVehicleSafety', () => {
     const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await getVehicleSafety.handler(input, ctx);
     const parsed = getVehicleSafety.output.parse(result);
+    const text = getVehicleSafety.format!(parsed)[0].text;
 
     expect(parsed.recalls).toHaveLength(1);
     expect(parsed.recalls[0].parkIt).toBeUndefined();
+    expect(parsed.recalls[0].parkOutSide).toBeUndefined();
+    expect(parsed.recalls[0].overTheAirUpdate).toBeUndefined();
     expect(parsed.sectionStatus.recalls).toBe('available');
+    expect(text).toContain('*Advisories:* None reported by NHTSA');
+  });
+
+  it('renders park-outside and OTA advisories alongside the do-not-drive alert', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+    mockService.getRecallsByVehicle.mockResolvedValue([
+      {
+        campaignNumber: '24V407000',
+        manufacturer: 'Kia America, Inc.',
+        component: 'SEATS:FRONT ASSEMBLY:POWER ADJUST',
+        summary: 'Front power seat motor may overheat.',
+        consequence: 'An overheating motor increases the risk of a fire.',
+        remedy: 'Dealers will replace the seat motor.',
+        reportReceivedDate: '2024-06-05',
+        parkIt: false,
+        parkOutSide: true,
+        overTheAirUpdate: false,
+      },
+    ]);
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({
+      make: 'Kia',
+      model: 'Telluride',
+      modelYear: 2023,
+    });
+    const parsed = getVehicleSafety.output.parse(await getVehicleSafety.handler(input, ctx));
+    const text = getVehicleSafety.format!(parsed)[0].text;
+
+    expect(parsed.recalls[0]).toMatchObject({
+      manufacturer: 'Kia America, Inc.',
+      consequence: 'An overheating motor increases the risk of a fire.',
+      parkIt: false,
+      parkOutSide: true,
+      overTheAirUpdate: false,
+    });
+    expect(text).toContain('**PARK OUTSIDE**');
+    expect(text).toContain('*Manufacturer:* Kia America, Inc.');
+    expect(text).toContain('*Consequence:* An overheating motor increases the risk of a fire.');
+    /** A false advisory is stated explicitly rather than rendering as absent. */
+    expect(text).toContain('Do not drive: no');
+    expect(text).toContain('Park outside: yes');
+    expect(text).toContain('Over-the-air update: no');
   });
 
   it('accepts sparse safety rating fields without inventing values', async () => {
@@ -239,8 +358,10 @@ describe('getVehicleSafety', () => {
       recalls: [
         {
           campaignNumber: '20V682000',
+          manufacturer: 'Toyota',
           component: 'FUEL',
           summary: 'Leak.',
+          consequence: 'Fire risk.',
           remedy: 'Fix.',
           reportReceivedDate: '2020-11-12',
           parkIt: true,
@@ -275,7 +396,36 @@ describe('getVehicleSafety', () => {
     const text = blocks[0].text;
     expect(text).toContain('NCAP Safety Ratings');
     expect(text).toContain('DO NOT DRIVE');
+    expect(text).toContain('*Consequence:* Fire risk.');
     expect(text).toContain('Complaints (5)');
     expect(text).toContain('ENGINE');
+  });
+
+  it('renders every component breakdown row rather than truncating the list', async () => {
+    const components = Array.from({ length: 27 }, (_, i) => `COMPONENT_${i}`);
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+    mockService.getRecallsByVehicle.mockResolvedValue([]);
+    mockService.getComplaintsByVehicle.mockResolvedValue(
+      components.map((component, i) => ({
+        odiNumber: i,
+        components: component,
+        crash: false,
+        fire: false,
+        numberOfInjuries: 0,
+        numberOfDeaths: 0,
+      })),
+    );
+
+    const ctx = createMockContext();
+    const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2007 });
+    const parsed = getVehicleSafety.output.parse(await getVehicleSafety.handler(input, ctx));
+    const text = getVehicleSafety.format!(parsed)[0].text;
+
+    expect(parsed.complaintSummary.componentBreakdown).toHaveLength(27);
+    const renderedRows = text.split('\n').filter((line) => line.startsWith('- COMPONENT_'));
+    expect(renderedRows).toHaveLength(27);
+    for (const component of components) {
+      expect(renderedRows.some((row) => row.startsWith(`- ${component}:`))).toBe(true);
+    }
   });
 });

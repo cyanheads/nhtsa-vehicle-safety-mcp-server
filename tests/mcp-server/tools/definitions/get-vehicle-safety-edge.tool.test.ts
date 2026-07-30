@@ -182,7 +182,7 @@ describe('getVehicleSafety — format edge cases', () => {
     expect(text).toContain('No complaints filed');
   });
 
-  it('format shows top complaints when multiple components present', () => {
+  it('format shows every component when multiple components present', () => {
     const output = {
       safetyRatings: [],
       recalls: [],
@@ -272,5 +272,39 @@ describe('getVehicleSafety — decode from output schema', () => {
     expect(parsed.safetyRatings).toHaveLength(1);
     expect(parsed.recalls).toHaveLength(1);
     expect(parsed.complaintSummary?.totalCount).toBe(1);
+  });
+
+  it('omits rollover probability for an untested variant instead of reporting zero risk', () => {
+    const output = {
+      safetyRatings: [
+        {
+          vehicleId: 3440,
+          vehicleDescription: '1995 Geo Metro 4-DR.',
+          frontalCrash: {},
+          sideCrash: {},
+          rollover: { rating: 'Not Rated' },
+          adasFeatures: {},
+        },
+      ],
+      recalls: [],
+      complaintSummary: {
+        totalCount: 0,
+        componentBreakdown: [],
+        crashCount: 0,
+        fireCount: 0,
+        injuryCount: 0,
+        deathCount: 0,
+      },
+      sectionStatus: {
+        safetyRatings: 'available' as const,
+        recalls: 'available' as const,
+        complaints: 'available' as const,
+      },
+      warnings: [],
+    };
+
+    const text = getVehicleSafety.format!(output)[0].text;
+    expect(text).toContain('**Rollover:** Not Rated | Probability: Not available');
+    expect(text).not.toContain('0.0%');
   });
 });
