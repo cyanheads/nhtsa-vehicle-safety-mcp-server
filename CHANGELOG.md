@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.9.0](changelog/0.9.x/0.9.0.md) — 2026-07-30 · ⚠️ Breaking
+
+Breaking: nhtsa_search_investigations status is now an O/C enum; bounded limit/offset, echoed pagination, untruncated summaries; mcp-ts-core ^0.11.0 maintenance
+
 ## [0.8.4](changelog/0.8.x/0.8.4.md) — 2026-06-20
 
 @cyanheads/mcp-ts-core ^0.10.6 → ^0.10.9 maintenance — fresh-scaffold devcheck guards, check-dependency-specifiers gate, plugin-manifest packaging checks, synced framework scripts and skills
