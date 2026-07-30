@@ -44,7 +44,7 @@ Internally calls the Safety Ratings, Recalls, and Complaints APIs and merges the
 | `model` | string | Yes | Vehicle model (e.g., "Camry", "F-150"). Case-insensitive. |
 | `modelYear` | number | Yes | Model year (e.g., 2020). |
 
-**Returns:** `safetyRatings` (overall, frontal, side, rollover stars; rollover probability; ADAS features), `recalls[]` (campaign number, component, summary, remedy, report date, do-not-drive advisory), `complaintSummary` (total count, top components by frequency, crash/fire/injury/death counts), and `sectionStatus` plus warnings so an upstream outage is not read as a clean record. Includes `vehicleId` for follow-up Safety Ratings queries.
+**Returns:** `safetyRatings` (overall, frontal, side, rollover stars; rollover probability, omitted for vehicles NHTSA never rollover-tested; ADAS features), `recalls[]` (campaign number, manufacturer, component, summary, consequence, remedy, report date, and the do-not-drive, park-outside, and over-the-air-update advisories), `complaintSummary` (total count, every component by frequency, crash/fire/injury/death counts), and `sectionStatus` plus warnings so an upstream outage is not read as a clean record. Includes `vehicleId` for follow-up Safety Ratings queries. Enrichment carries `effectiveQuery` and, when every section loaded and matched nothing, a `notice` pointing at `nhtsa_lookup_vehicles`.
 
 ### `nhtsa_search_recalls`
 
