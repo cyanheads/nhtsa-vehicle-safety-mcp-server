@@ -544,7 +544,16 @@ function normalizeSafetyRating(r: RawSafetyRating): SafetyRating {
   const barrierOverall = normalizeOptionalString(r['sideBarrierRating-Overall']);
   const pole = normalizeOptionalString(r.SidePoleCrashRating);
   const rolloverRating = normalizeOptionalString(r.RolloverRating);
-  const rolloverProbability = normalizeOptionalNumber(r.RolloverPossibility);
+  /**
+   * NHTSA pairs an untested rollover result with `RolloverPossibility: 0.0`, which is a
+   * placeholder rather than a measurement — rated vehicles always report a nonzero
+   * probability. Keep the value only when the vehicle carries a real rollover rating so a
+   * never-tested vehicle is not reported as having zero rollover risk.
+   */
+  const rolloverProbability =
+    rolloverRating && rolloverRating !== 'Not Rated'
+      ? normalizeOptionalNumber(r.RolloverPossibility)
+      : undefined;
   const dynamicTipResult = normalizeOptionalString(r.dynamicTipResult);
   const electronicStabilityControl = normalizeOptionalString(r.NHTSAElectronicStabilityControl);
   const forwardCollisionWarning = normalizeOptionalString(r.NHTSAForwardCollisionWarning);

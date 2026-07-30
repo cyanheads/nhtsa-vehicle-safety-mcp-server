@@ -377,6 +377,60 @@ describe('getSafetyRating', () => {
     expect(rating!.complaintsCount).toBeUndefined();
   });
 
+  it('omits the rollover probability sentinel when the vehicle is not rollover-rated', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        Results: [
+          {
+            VehicleId: 3440,
+            VehicleDescription: '1995 Geo Metro 4-DR.',
+            RolloverRating: 'Not Rated',
+            RolloverPossibility: 0,
+          },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const rating = await svc.getSafetyRating(3440);
+
+    expect(rating!.rollover.rating).toBe('Not Rated');
+    expect(rating!.rollover.probability).toBeUndefined();
+  });
+
+  it('omits the rollover probability when no rollover rating is reported', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        Results: [{ VehicleId: 3441, RolloverPossibility: 0 }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const rating = await svc.getSafetyRating(3441);
+
+    expect(rating!.rollover.rating).toBeUndefined();
+    expect(rating!.rollover.probability).toBeUndefined();
+  });
+
+  it('preserves a genuine rollover probability for a rated vehicle', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        Results: [{ VehicleId: 14720, RolloverRating: '5', RolloverPossibility: 0.099 }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const rating = await svc.getSafetyRating(14720);
+
+    expect(rating!.rollover.probability).toBe(0.099);
+  });
+
   it('returns null for empty results', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ Count: 0, Message: 'OK', Results: [] }));
 
