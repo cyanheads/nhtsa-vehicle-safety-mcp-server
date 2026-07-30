@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.9.4](changelog/0.9.x/0.9.4.md) — 2026-07-30
+
+nhtsa_search_complaints flags an incident date its own record contradicts instead of rendering it as fact; nhtsa_lookup_vehicles stops showing a spelling hint for an out-of-range page
+
 ## [0.9.3](changelog/0.9.x/0.9.3.md) — 2026-07-30
 
 Recall/complaint output states false, zero, and clean values instead of dropping them; fractional model years rejected at the schema; out-of-range pagination offsets get an explanatory notice; complaint incident dates match NHTSA's actual placeholders

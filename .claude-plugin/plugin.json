@@ -1,6 +1,6 @@
 {
   "name": "nhtsa-vehicle-safety-mcp-server",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP. STDIO or Streamable HTTP.",
   "author": {
     "name": "cyanheads"
