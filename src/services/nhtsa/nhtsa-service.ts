@@ -1,6 +1,7 @@
 /**
- * @fileoverview NHTSA API client service. Wraps five public APIs (Recalls, Complaints,
- * Safety Ratings, Investigations, VPIC) with field normalization and caching.
+ * @fileoverview NHTSA API client service. Wraps four public JSON APIs (Recalls, Complaints,
+ * Safety Ratings, VPIC) with retry logic and field normalization, plus a streaming parser
+ * for the ODI investigations bulk file with a 24-hour cache.
  * @module services/nhtsa/nhtsa-service
  */
 
@@ -312,7 +313,9 @@ export class NhtsaService {
    */
   private async fetchFlatInvestigations(signal?: AbortSignal): Promise<Investigation[]> {
     const res = await fetch(ODI_FLAT_INV_URL, { signal: signal ?? null });
-    if (!res.ok || !res.body) {
+    /** Bound to a const so the null check narrows inside the reader closure below. */
+    const stream = res.body;
+    if (!res.ok || !stream) {
       throw await httpErrorFromResponse(res, {
         service: 'NHTSA ODI',
         data: { url: ODI_FLAT_INV_URL },
@@ -347,7 +350,7 @@ export class NhtsaService {
         file.start();
       };
 
-      const reader = res.body!.getReader();
+      const reader = stream.getReader();
       const pump = (): void => {
         reader.read().then(({ done, value }) => {
           if (done) {
@@ -646,7 +649,7 @@ function normalizeDecodedVin(r: RawVpicDecodedVin, fallbackVin?: string): Decode
 
 /** Format a YYYYMMDD date string from the flat file to YYYY-MM-DD. */
 function formatFlatDate(raw: string): string | undefined {
-  if (!raw || raw.length !== 8) return;
+  if (raw?.length !== 8) return;
   const y = raw.slice(0, 4);
   const m = raw.slice(4, 6);
   const d = raw.slice(6, 8);
