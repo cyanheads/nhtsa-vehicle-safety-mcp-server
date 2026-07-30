@@ -6,7 +6,9 @@
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
+/** Keeps the module's real constants (e.g. MANUFACTURER_RESULT_CAP) that handlers read. */
+vi.mock('@/services/nhtsa/nhtsa-service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/nhtsa/nhtsa-service.js')>()),
   getNhtsaService: vi.fn(),
   initNhtsaService: vi.fn(),
 }));

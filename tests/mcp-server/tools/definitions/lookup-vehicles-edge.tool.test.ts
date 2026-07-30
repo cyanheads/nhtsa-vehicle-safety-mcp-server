@@ -7,13 +7,15 @@
 import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
+/** Keeps the real MANUFACTURER_RESULT_CAP so cap assertions track the service constant. */
+vi.mock('@/services/nhtsa/nhtsa-service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/nhtsa/nhtsa-service.js')>()),
   getNhtsaService: vi.fn(),
   initNhtsaService: vi.fn(),
 }));
 
 import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.tool.js';
-import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { getNhtsaService, MANUFACTURER_RESULT_CAP } from '@/services/nhtsa/nhtsa-service.js';
 
 const mockService = {
   getAllMakes: vi.fn(),
@@ -104,6 +106,70 @@ describe('lookupVehicles — manufacturer operation edges', () => {
     expect(result.totalCount).toBe(0);
     const notice = getEnrichment(ctx).notice as string;
     expect(notice).toMatch(/manufacturers matching/i);
+  });
+
+  it('manufacturer: discloses the retrieval cap via truncation enrichment', async () => {
+    mockService.getManufacturer.mockResolvedValue(
+      Array.from({ length: MANUFACTURER_RESULT_CAP }, (_, i) => ({
+        manufacturerId: i,
+        manufacturerName: `MFR ${i}`,
+        vehicleTypes: [],
+      })),
+    );
+
+    const ctx = createMockContext();
+    const input = lookupVehicles.input.parse({
+      operation: 'manufacturer',
+      manufacturer: 'a',
+      limit: 2,
+    });
+    const result = await lookupVehicles.handler(input, ctx);
+
+    expect(result.totalCount).toBe(MANUFACTURER_RESULT_CAP);
+    expect(result.returned).toBe(2);
+
+    const enrichment = getEnrichment(ctx);
+    expect(enrichment.truncated).toBe(true);
+    expect(enrichment.shown).toBe(MANUFACTURER_RESULT_CAP);
+    expect(enrichment.cap).toBe(MANUFACTURER_RESULT_CAP);
+    expect(enrichment.notice as string).toMatch(/more may exist/i);
+  });
+
+  it('manufacturer: leaves truncation unset when the match set is under the cap', async () => {
+    mockService.getManufacturer.mockResolvedValue([
+      { manufacturerId: 987, manufacturerName: 'TOYOTA', country: 'JAPAN', vehicleTypes: [] },
+    ]);
+
+    const ctx = createMockContext();
+    const input = lookupVehicles.input.parse({ operation: 'manufacturer', manufacturer: 'Toyota' });
+    await lookupVehicles.handler(input, ctx);
+
+    const enrichment = getEnrichment(ctx);
+    expect(enrichment.truncated).toBeUndefined();
+    expect(enrichment.notice).toBeUndefined();
+  });
+
+  it('manufacturer: composes the out-of-bounds notice with the cap disclosure', async () => {
+    mockService.getManufacturer.mockResolvedValue(
+      Array.from({ length: MANUFACTURER_RESULT_CAP }, (_, i) => ({
+        manufacturerId: i,
+        manufacturerName: `MFR ${i}`,
+        vehicleTypes: [],
+      })),
+    );
+
+    const ctx = createMockContext();
+    const input = lookupVehicles.input.parse({
+      operation: 'manufacturer',
+      manufacturer: 'a',
+      offset: MANUFACTURER_RESULT_CAP,
+    });
+    const result = await lookupVehicles.handler(input, ctx);
+
+    expect(result.returned).toBe(0);
+    const notice = getEnrichment(ctx).notice as string;
+    expect(notice).toMatch(/no results for this page/i);
+    expect(notice).toMatch(/more may exist/i);
   });
 
   it('manufacturer: out-of-bounds offset surfaces recovery notice', async () => {

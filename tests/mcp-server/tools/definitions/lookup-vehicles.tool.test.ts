@@ -6,7 +6,9 @@
 import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
+/** Keeps the real MANUFACTURER_RESULT_CAP so cap assertions track the service constant. */
+vi.mock('@/services/nhtsa/nhtsa-service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/nhtsa/nhtsa-service.js')>()),
   getNhtsaService: vi.fn(),
   initNhtsaService: vi.fn(),
 }));

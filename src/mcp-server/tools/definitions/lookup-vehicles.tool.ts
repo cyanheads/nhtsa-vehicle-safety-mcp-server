@@ -6,7 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { getNhtsaService, MANUFACTURER_RESULT_CAP } from '@/services/nhtsa/nhtsa-service.js';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 200;
@@ -51,7 +51,11 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
   }),
   output: z.object({
     operation: z.string().describe('The operation that was performed'),
-    totalCount: z.number().describe('Total results matching before pagination'),
+    totalCount: z
+      .number()
+      .describe(
+        'Results retrieved before pagination. For "manufacturer" this is capped — check the truncated field, since VPIC reports no match total.',
+      ),
     returned: z.number().describe('Number of results in the returned slice'),
     offset: z.number().describe('Pagination offset used for this response'),
     limit: z.number().describe('Pagination limit used for this response'),
@@ -121,6 +125,17 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
       .string()
       .optional()
       .describe('Guidance when the result set is empty or the page is out of bounds.'),
+    truncated: z
+      .boolean()
+      .optional()
+      .describe(
+        'True when the "manufacturer" lookup stopped at its retrieval cap and further matches may exist upstream.',
+      ),
+    shown: z
+      .number()
+      .optional()
+      .describe('Manufacturer records retrieved before pagination, when the cap was reached.'),
+    cap: z.number().optional().describe('Maximum manufacturer records a single lookup retrieves.'),
   },
   errors: [
     {
@@ -254,23 +269,43 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
         }
         const all = await svc.getManufacturer(input.manufacturer, ctx.signal);
         const slice = all.slice(offset, offset + limit);
+        const capped = all.length >= MANUFACTURER_RESULT_CAP;
         ctx.log.info('VPIC manufacturer lookup', {
           manufacturer: input.manufacturer,
           totalCount: all.length,
           returned: slice.length,
           offset,
           limit,
+          capped,
         });
         ctx.enrich({ effectiveQuery: `manufacturer=${input.manufacturer}` });
+
+        const notices: string[] = [];
         if (all.length === 0) {
-          ctx.enrich.notice(
+          notices.push(
             emptyMessage(
               `manufacturers matching "${input.manufacturer}"`,
               'Partial matches are supported — try a shorter or different query.',
             ),
           );
         } else if (slice.length === 0) {
-          ctx.enrich.notice(outOfBoundsMessage(all.length));
+          notices.push(outOfBoundsMessage(all.length));
+        }
+        if (capped) {
+          /**
+           * VPIC pages this endpoint and publishes no match total, so the walk stops at a
+           * fixed ceiling. Disclose it rather than presenting the retrieved set as complete.
+           */
+          notices.push(
+            `Retrieval stopped at ${MANUFACTURER_RESULT_CAP} records for "${input.manufacturer}" — VPIC publishes no match total, so more may exist. Narrow with a longer or more specific manufacturer name to reach them.`,
+          );
+          ctx.enrich.truncated({
+            shown: all.length,
+            cap: MANUFACTURER_RESULT_CAP,
+            guidance: notices.join(' '),
+          });
+        } else if (notices.length > 0) {
+          ctx.enrich.notice(notices.join(' '));
         }
         return {
           operation: 'manufacturer',
