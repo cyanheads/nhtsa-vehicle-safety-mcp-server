@@ -4,7 +4,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { formatRolloverProbability, formatStars, pluralize } from '@/services/nhtsa/format.js';
+import {
+  formatRecallAdvisories,
+  formatRolloverProbability,
+  formatStars,
+  outOfBoundsMessage,
+  pluralize,
+} from '@/services/nhtsa/format.js';
 
 describe('formatStars', () => {
   it('renders 5-star rating with filled and empty stars', () => {
@@ -76,5 +82,35 @@ describe('pluralize', () => {
 
   it('uses custom plural for zero', () => {
     expect(pluralize(0, 'injury', 'injuries')).toBe('injuries');
+  });
+});
+
+describe('formatRecallAdvisories', () => {
+  it('renders every present flag, false included', () => {
+    expect(
+      formatRecallAdvisories({ parkIt: false, parkOutSide: true, overTheAirUpdate: false }),
+    ).toBe('Do not drive: no | Park outside: yes | Over-the-air update: no');
+  });
+
+  it('renders all-false advisories rather than dropping them', () => {
+    expect(
+      formatRecallAdvisories({ parkIt: false, parkOutSide: false, overTheAirUpdate: false }),
+    ).toBe('Do not drive: no | Park outside: no | Over-the-air update: no');
+  });
+
+  it('omits only the flags NHTSA never reported', () => {
+    expect(formatRecallAdvisories({ parkOutSide: false })).toBe('Park outside: no');
+  });
+
+  it('reports the absent case distinctly from an all-false one', () => {
+    expect(formatRecallAdvisories({})).toBe('None reported by NHTSA');
+  });
+});
+
+describe('outOfBoundsMessage', () => {
+  it('names the offset, limit, and total, and points at a reachable page', () => {
+    expect(outOfBoundsMessage({ offset: 9000, limit: 5, totalCount: 264 })).toBe(
+      'No results for this page (offset 9000, limit 5). 264 total — try a smaller offset.',
+    );
   });
 });

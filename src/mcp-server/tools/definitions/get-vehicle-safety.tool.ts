@@ -5,7 +5,12 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { formatRolloverProbability, formatStars, pluralize } from '@/services/nhtsa/format.js';
+import {
+  formatRecallAdvisories,
+  formatRolloverProbability,
+  formatStars,
+  pluralize,
+} from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type {
   Complaint,
@@ -300,22 +305,6 @@ function formatRecallsSection(result: VehicleSafetyOutput): string[] {
   return lines;
 }
 
-/**
- * Render every advisory flag NHTSA set on a recall, including the ones set to false, so an
- * explicit "no" is distinguishable from an advisory NHTSA never reported.
- */
-function formatRecallAdvisories(recall: RecallsResult[number]): string {
-  const yesNo = (value: boolean) => (value ? 'yes' : 'no');
-  const flags: string[] = [];
-  if (recall.parkIt !== undefined) flags.push(`Do not drive: ${yesNo(recall.parkIt)}`);
-  if (recall.parkOutSide !== undefined) flags.push(`Park outside: ${yesNo(recall.parkOutSide)}`);
-  if (recall.overTheAirUpdate !== undefined) {
-    flags.push(`Over-the-air update: ${yesNo(recall.overTheAirUpdate)}`);
-  }
-
-  return flags.length > 0 ? flags.join(' | ') : 'None reported by NHTSA';
-}
-
 function formatComplaintsSection(result: VehicleSafetyOutput): string[] {
   const lines: string[] = [];
 
@@ -353,7 +342,7 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
   input: z.object({
     make: z.string().describe('Vehicle manufacturer (e.g., "Toyota", "Ford"). Case-insensitive.'),
     model: z.string().describe('Vehicle model (e.g., "Camry", "F-150"). Case-insensitive.'),
-    modelYear: z.number().describe('Model year (e.g., 2020).'),
+    modelYear: z.number().int().describe('Model year, a whole number (e.g., 2020).'),
   }),
   output: vehicleSafetyOutputSchema,
   enrichment: {

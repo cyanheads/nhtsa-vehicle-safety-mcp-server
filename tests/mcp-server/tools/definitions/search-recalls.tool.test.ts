@@ -244,5 +244,82 @@ describe('searchRecalls', () => {
     expect(text).toContain('DO NOT DRIVE');
     expect(text).toContain('PARK OUTSIDE');
     expect(text).toContain('OTA update available');
+    expect(text).toContain(
+      '**Advisories:** Do not drive: yes | Park outside: yes | Over-the-air update: yes',
+    );
+  });
+
+  it('format states present-false advisories instead of dropping them', () => {
+    const output = {
+      recalls: [
+        {
+          campaignNumber: '20V682000',
+          manufacturer: 'Toyota',
+          component: 'FUEL',
+          summary: 'Leak.',
+          consequence: 'Fire.',
+          remedy: 'Fix.',
+          reportReceivedDate: '2020-11-12',
+          parkIt: false,
+          parkOutSide: false,
+          overTheAirUpdate: false,
+        },
+      ],
+      totalCount: 1,
+    };
+    const text = searchRecalls.format!(output)[0].text;
+
+    expect(text).toContain(
+      '**Advisories:** Do not drive: no | Park outside: no | Over-the-air update: no',
+    );
+    // The badge stays reserved for active alerts — an explicit "no" is not one.
+    expect(text).not.toContain('DO NOT DRIVE');
+    expect(text).not.toContain('PARK OUTSIDE');
+  });
+
+  it('format distinguishes advisories NHTSA never reported from explicit "no"', () => {
+    const output = {
+      recalls: [
+        {
+          campaignNumber: '20V682000',
+          manufacturer: 'Toyota',
+          component: 'FUEL',
+          summary: 'Leak.',
+          consequence: 'Fire.',
+          remedy: 'Fix.',
+          reportReceivedDate: '2020-11-12',
+        },
+      ],
+      totalCount: 1,
+    };
+    const text = searchRecalls.format!(output)[0].text;
+
+    expect(text).toContain('**Advisories:** None reported by NHTSA');
+  });
+
+  it('format renders present-false advisories on a campaign-scoped recall too', () => {
+    const output = {
+      recalls: [
+        {
+          campaignNumber: '24V744000',
+          manufacturer: 'Honda',
+          summary: 'Gearbox may bind.',
+          consequence: 'Crash risk.',
+          remedy: 'Replace.',
+          reportReceivedDate: '2024-10-03',
+          potentialUnitsAffected: 1000,
+          affectedVehicles: [{ make: 'HONDA', model: 'CIVIC', modelYear: 2022 }],
+          parkIt: false,
+          parkOutSide: false,
+          overTheAirUpdate: true,
+        },
+      ],
+      totalCount: 1,
+    };
+    const text = searchRecalls.format!(output)[0].text;
+
+    expect(text).toContain(
+      '**Advisories:** Do not drive: no | Park outside: no | Over-the-air update: yes',
+    );
   });
 });

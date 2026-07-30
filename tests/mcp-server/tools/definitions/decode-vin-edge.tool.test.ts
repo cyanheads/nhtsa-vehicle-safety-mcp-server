@@ -200,4 +200,12 @@ describe('decodeVin — input schema validation', () => {
     const parsed = decodeVin.input.parse({ vin: 'VIN1', modelYear: 2020 });
     expect(parsed.modelYear).toBe(2020);
   });
+
+  it('rejects a fractional modelYear rather than forwarding it to VPIC', () => {
+    expect(() => decodeVin.input.parse({ vin: 'VIN1', modelYear: 2020.5 })).toThrow();
+  });
+
+  it('accepts a pre-1980 modelYear — no lower bound is imposed', () => {
+    expect(decodeVin.input.parse({ vin: 'VIN1', modelYear: 1968 }).modelYear).toBe(1968);
+  });
 });

@@ -55,8 +55,11 @@ export const decodeVin = tool('nhtsa_decode_vin', {
       ),
     modelYear: z
       .number()
+      .int()
       .optional()
-      .describe('Helps resolve ambiguity for pre-1980 VINs or partial VINs.'),
+      .describe(
+        'Model year, a whole number. Helps resolve ambiguity for pre-1980 or partial VINs.',
+      ),
   }),
   output: z.object({
     vehicles: z.array(decodedVinSchema).describe('Decoded vehicle information per VIN'),
@@ -142,10 +145,16 @@ export const decodeVin = tool('nhtsa_decode_vin', {
     for (const v of result.vehicles) {
       lines.push(`## ${v.vin}\n`);
 
-      const hasError = v.errorCode != null && v.errorCode !== '0';
-      if (hasError) {
+      /**
+       * VPIC reports decode quality on every result, "0" included. Render the clean case too,
+       * so a VIN that decoded without errors says so rather than saying nothing — which is
+       * otherwise indistinguishable from VPIC omitting the field.
+       */
+      if (v.errorCode != null) {
         lines.push(
-          `**Warning (errorCode: ${v.errorCode}):** ${v.errorText ?? 'VPIC returned a decode warning.'}\n`,
+          v.errorCode === '0'
+            ? `**Decode status (errorCode: 0):** ${v.errorText?.trim() || 'VPIC decoded this VIN with no errors.'}\n`
+            : `**Warning (errorCode: ${v.errorCode}):** ${v.errorText?.trim() || 'VPIC returned a decode warning.'}\n`,
         );
       }
 

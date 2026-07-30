@@ -172,5 +172,17 @@ describe('searchRecalls — format', () => {
     expect(text).not.toContain('DO NOT DRIVE');
     expect(text).not.toContain('PARK OUTSIDE');
     expect(text).toContain('20V682000');
+    expect(text).toContain('**Advisories:** None reported by NHTSA');
+  });
+});
+
+describe('searchRecalls — input schema validation', () => {
+  it('rejects a fractional modelYear rather than sending it upstream', () => {
+    expect(() =>
+      searchRecalls.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020.5 }),
+    ).toThrow();
+    expect(
+      searchRecalls.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 }).modelYear,
+    ).toBe(2020);
   });
 });

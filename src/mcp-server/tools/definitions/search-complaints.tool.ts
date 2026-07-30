@@ -5,7 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { pluralize } from '@/services/nhtsa/format.js';
+import { outOfBoundsMessage, pluralize } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
 
@@ -16,6 +16,31 @@ function formatText(value?: string): string {
   return value || 'Not available';
 }
 
+/**
+ * Render the severity fields NHTSA recorded on a complaint, false and zero included, so an
+ * explicitly clean report is distinguishable from one the complainant left blank. Returns
+ * undefined when NHTSA reported none of them.
+ */
+function formatComplaintSeverity(complaint: {
+  crash?: boolean | undefined;
+  fire?: boolean | undefined;
+  numberOfInjuries?: number | undefined;
+  numberOfDeaths?: number | undefined;
+}): string | undefined {
+  const yesNo = (value: boolean) => (value ? 'yes' : 'no');
+  const reported: string[] = [];
+  if (complaint.crash !== undefined) reported.push(`Crash: ${yesNo(complaint.crash)}`);
+  if (complaint.fire !== undefined) reported.push(`Fire: ${yesNo(complaint.fire)}`);
+  if (complaint.numberOfInjuries !== undefined) {
+    reported.push(`Injuries: ${complaint.numberOfInjuries}`);
+  }
+  if (complaint.numberOfDeaths !== undefined) {
+    reported.push(`Deaths: ${complaint.numberOfDeaths}`);
+  }
+
+  return reported.length > 0 ? reported.join(' | ') : undefined;
+}
+
 export const searchComplaints = tool('nhtsa_search_complaints', {
   description:
     'Search consumer safety complaints filed with NHTSA for a specific vehicle. Returns a component breakdown over all matching complaints plus a paginated slice of the most recent complaints. Use for common problems, failure patterns, or owner-reported issues.',
@@ -23,7 +48,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
   input: z.object({
     make: z.string().describe('Vehicle manufacturer.'),
     model: z.string().describe('Vehicle model.'),
-    modelYear: z.number().describe('Model year.'),
+    modelYear: z.number().int().describe('Model year, a whole number.'),
     component: z
       .string()
       .optional()
@@ -152,6 +177,8 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       ctx.enrich.notice(
         'No complaints found. This may mean no complaints have been filed, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
       );
+    } else if (page.length === 0) {
+      ctx.enrich.notice(outOfBoundsMessage({ offset, limit, totalCount: complaints.length }));
     }
 
     return {
@@ -192,7 +219,9 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     lines.push(
       `\n## Recent Complaints (returned ${result.returned} of ${result.totalCount}, offset ${result.offset}, limit ${result.limit}, date-descending)\n`,
     );
-    if (result.offset + result.returned < result.totalCount) {
+    if (result.returned === 0) {
+      lines.push(`*${outOfBoundsMessage(result)}*\n`);
+    } else if (result.offset + result.returned < result.totalCount) {
       lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
     }
     for (const c of result.complaints) {
@@ -208,6 +237,8 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       lines.push(
         `**#${c.odiNumber ?? 'Unknown'}** — ${formatText(c.dateOfIncident)} (filed ${formatText(c.dateComplaintFiled)})${flagStr}`,
       );
+      const severity = formatComplaintSeverity(c);
+      if (severity) lines.push(`Reported: ${severity}`);
       if (c.vin) lines.push(`VIN: ${c.vin}`);
       lines.push(`Components: ${formatText(c.components)}`);
       lines.push(`${formatText(c.summary)}\n`);

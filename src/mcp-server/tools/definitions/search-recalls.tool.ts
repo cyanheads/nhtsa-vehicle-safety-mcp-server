@@ -6,6 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { formatRecallAdvisories } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 export const searchRecalls = tool('nhtsa_search_recalls', {
@@ -26,7 +27,11 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
         'Vehicle manufacturer. Required with model and modelYear when not using campaignNumber.',
       ),
     model: z.string().optional().describe('Vehicle model. Required with make and modelYear.'),
-    modelYear: z.number().optional().describe('Model year. Required with make and model.'),
+    modelYear: z
+      .number()
+      .int()
+      .optional()
+      .describe('Model year, a whole number. Required with make and model.'),
     dateRange: z
       .object({
         after: z
@@ -265,6 +270,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       }
       lines.push(`**Date:** ${r.reportReceivedDate}`);
       lines.push(`**Manufacturer:** ${r.manufacturer}`);
+      lines.push(`**Advisories:** ${formatRecallAdvisories(r)}`);
       if (r.investigationId) {
         lines.push(
           `**Investigation:** ${r.investigationId} — pass as nhtsaId to nhtsa_search_investigations`,

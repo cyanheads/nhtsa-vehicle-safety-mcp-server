@@ -428,4 +428,13 @@ describe('getVehicleSafety', () => {
       expect(renderedRows.some((row) => row.startsWith(`- ${component}:`))).toBe(true);
     }
   });
+
+  it('rejects a fractional modelYear rather than sending it upstream', () => {
+    expect(() =>
+      getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020.5 }),
+    ).toThrow();
+    expect(
+      getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 }).modelYear,
+    ).toBe(2020);
+  });
 });

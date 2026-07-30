@@ -119,6 +119,59 @@ describe('searchComplaints', () => {
     expect(text).toContain('Not available');
     expect(text).not.toContain('CRASH');
     expect(text).not.toContain('FIRE');
+    // Absent stays absent — no severity line is invented for fields NHTSA never sent.
+    expect(text).not.toContain('Reported:');
+  });
+
+  it('format states present-false and zero severity fields instead of dropping them', () => {
+    const output = {
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      componentBreakdown: [],
+      complaints: [
+        {
+          odiNumber: 11223344,
+          dateOfIncident: '2021-01-01',
+          dateComplaintFiled: '2021-02-01',
+          components: 'ENGINE',
+          summary: 'Stalled.',
+          crash: false,
+          fire: false,
+          numberOfInjuries: 0,
+          numberOfDeaths: 0,
+        },
+      ],
+    };
+    const text = searchComplaints.format!(output)[0].text;
+
+    expect(text).toContain('Reported: Crash: no | Fire: no | Injuries: 0 | Deaths: 0');
+    // The bracketed badge stays reserved for actual crash/fire/casualty reports.
+    expect(text).not.toContain('[CRASH');
+  });
+
+  it('format lists only the severity fields NHTSA reported', () => {
+    const output = {
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      componentBreakdown: [],
+      complaints: [
+        {
+          odiNumber: 11223345,
+          dateComplaintFiled: '2021-02-01',
+          crash: true,
+          numberOfDeaths: 0,
+        },
+      ],
+    };
+    const text = searchComplaints.format!(output)[0].text;
+
+    expect(text).toContain('Reported: Crash: yes | Deaths: 0');
+    expect(text).not.toContain('Fire:');
+    expect(text).not.toContain('Injuries:');
   });
 
   it('paginates complaints with default limit of 20', async () => {
@@ -168,6 +221,70 @@ describe('searchComplaints', () => {
     expect(result.componentBreakdown.length).toBeGreaterThan(0);
   });
 
+  it('notices an offset past the end of a non-empty result set', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(
+      Array.from({ length: 3 }, (_, i) => complaint({ odiNumber: i })),
+    );
+
+    const ctx = createMockContext();
+    const input = searchComplaints.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      limit: 5,
+      offset: 9000,
+    });
+    const result = await searchComplaints.handler(input, ctx);
+
+    expect(result.totalCount).toBe(3);
+    expect(result.returned).toBe(0);
+    const notice = getEnrichment(ctx).notice as string;
+    expect(notice).toContain('offset 9000');
+    expect(notice).toContain('limit 5');
+    expect(notice).toContain('3 total');
+    expect(notice).toMatch(/try a smaller offset/i);
+    // Not the no-matches notice — the filters did match.
+    expect(notice).not.toMatch(/nhtsa_lookup_vehicles/i);
+  });
+
+  it('keeps the no-matches notice when nothing matched at all', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const ctx = createMockContext();
+    const input = searchComplaints.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      offset: 9000,
+    });
+    await searchComplaints.handler(input, ctx);
+
+    expect(getEnrichment(ctx).notice).toMatch(/nhtsa_lookup_vehicles/i);
+  });
+
+  it('format explains an out-of-range page instead of a bare "returned 0"', () => {
+    const text = searchComplaints.format!({
+      totalCount: 264,
+      returned: 0,
+      offset: 9000,
+      limit: 5,
+      componentBreakdown: [
+        {
+          component: 'ENGINE',
+          count: 264,
+          crashCount: 0,
+          fireCount: 0,
+          injuryCount: 0,
+          deathCount: 0,
+        },
+      ],
+      complaints: [],
+    })[0].text;
+
+    expect(text).toContain('No results for this page (offset 9000, limit 5). 264 total');
+    expect(text).not.toContain('to retrieve the next page');
+  });
+
   it('format renders breakdown and complaints', () => {
     const output = {
       totalCount: 2,
@@ -205,5 +322,14 @@ describe('searchComplaints', () => {
     expect(text).toContain('ENGINE');
     expect(text).toContain('CRASH');
     expect(text).toContain('Use offset=1');
+  });
+
+  it('rejects a fractional modelYear rather than sending it upstream', () => {
+    expect(() =>
+      searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020.5 }),
+    ).toThrow();
+    expect(
+      searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 }).modelYear,
+    ).toBe(2020);
   });
 });

@@ -113,6 +113,40 @@ describe('decodeVin', () => {
     expect(text).toContain('MARYSVILLE');
   });
 
+  it('format states a clean decode rather than rendering nothing', () => {
+    const output = {
+      vehicles: [
+        {
+          ...sampleVin,
+          errorCode: '0',
+          errorText: '0 - VIN decoded clean. Check Digit (9th position) is correct',
+        },
+      ],
+    };
+    const text = decodeVin.format!(output)[0].text;
+
+    expect(text).toContain('**Decode status (errorCode: 0):**');
+    expect(text).toContain('VIN decoded clean');
+    expect(text).not.toContain('Warning (errorCode');
+  });
+
+  it('format falls back to plain clean-decode wording when VPIC sends no errorText', () => {
+    const output = { vehicles: [{ ...sampleVin, errorCode: '0', errorText: '' }] };
+    const text = decodeVin.format!(output)[0].text;
+
+    expect(text).toContain(
+      '**Decode status (errorCode: 0):** VPIC decoded this VIN with no errors.',
+    );
+  });
+
+  it('format renders no decode-status line when VPIC omitted errorCode', () => {
+    const output = { vehicles: [{ vin: '1HGCM82633A004352', make: 'HONDA' }] };
+    const text = decodeVin.format!(output)[0].text;
+
+    expect(text).not.toContain('Decode status');
+    expect(text).not.toContain('Warning (errorCode');
+  });
+
   it('returns empty vehicles when service returns null (empty VPIC results)', async () => {
     // #8 fix: decodeVin service now returns null instead of throwing on empty Results[]
     mockService.decodeVin.mockResolvedValue(null);
