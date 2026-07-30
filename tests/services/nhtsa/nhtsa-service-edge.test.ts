@@ -22,8 +22,8 @@ beforeEach(() => {
   initNhtsaService();
 });
 
-describe('getRecallCampaign — subject and notes fields', () => {
-  it('normalizes Subject field from campaign response', async () => {
+describe('getRecallCampaign — sparse campaign fields', () => {
+  it('maps the campaign detail fields the endpoint actually returns', async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
         Count: 1,
@@ -32,7 +32,6 @@ describe('getRecallCampaign — subject and notes fields', () => {
           {
             NHTSACampaignNumber: '20V682000',
             Manufacturer: 'Toyota',
-            Subject: 'Fuel pipe corrosion',
             Component: 'FUEL/PROPULSION SYSTEM',
             Summary: 'Fuel delivery pipe may leak.',
             Consequence: 'Fire risk.',
@@ -48,9 +47,35 @@ describe('getRecallCampaign — subject and notes fields', () => {
     const result = await svc.getRecallCampaign('20V682000');
 
     expect(result).not.toBeNull();
-    // Subject field maps to a separate property if the service exposes it
     expect(result!.campaignNumber).toBe('20V682000');
     expect(result!.summary).toContain('Fuel delivery pipe');
+    expect(result!.component).toBe('FUEL/PROPULSION SYSTEM');
+  });
+
+  it('omits investigationId when the campaign has no linked ODI action', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'Results returned successfully',
+        results: [
+          {
+            NHTSACampaignNumber: '20V682000',
+            Manufacturer: 'Toyota',
+            Component: 'FUEL/PROPULSION SYSTEM',
+            Summary: 'Fuel delivery pipe may leak.',
+            Consequence: 'Fire risk.',
+            Remedy: 'Replace fuel pipe.',
+            ReportReceivedDate: '11/12/2020',
+            NHTSAActionNumber: '   ',
+          },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallCampaign('20V682000');
+
+    expect(result!).not.toHaveProperty('investigationId');
   });
 
   it('handles missing PotentialNumberofUnitsAffected gracefully', async () => {

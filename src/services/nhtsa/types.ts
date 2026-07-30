@@ -54,7 +54,11 @@ export interface RawRecallByVehicle {
   Summary: string;
 }
 
-/** /recalls/campaignNumber — PascalCase (same shape as recallsByVehicle + PotentialNumberofUnitsAffected). */
+/**
+ * /recalls/campaignNumber — PascalCase (same shape as recallsByVehicle +
+ * PotentialNumberofUnitsAffected + NHTSAActionNumber). The endpoint returns one row per
+ * affected make/model/model-year; every row repeats the same campaign detail.
+ */
 export interface RawRecallCampaignDirect {
   Component: string;
   Consequence: string;
@@ -62,6 +66,7 @@ export interface RawRecallCampaignDirect {
   Manufacturer: string;
   Model?: string;
   ModelYear?: string;
+  NHTSAActionNumber?: string;
   NHTSACampaignNumber: string;
   Notes?: string;
   overTheAirUpdate?: boolean;
@@ -144,11 +149,27 @@ export interface Recall {
   summary: string;
 }
 
-/** Recall from the direct /recalls/campaignNumber endpoint. */
+/**
+ * One make/model entry covered by a recall campaign. Equipment and tire campaigns name the
+ * part here — make is the brand, model is the part — and carry no model year. Upstream may
+ * omit any of the three.
+ */
+export interface AffectedVehicle {
+  make?: string;
+  model?: string;
+  modelYear?: number;
+}
+
+/**
+ * Recall from the direct /recalls/campaignNumber endpoint, collapsed from the endpoint's
+ * one-row-per-vehicle response into a single campaign record.
+ */
 export interface RecallCampaign {
+  affectedVehicles: AffectedVehicle[];
   campaignNumber: string;
   component?: string;
   consequence: string;
+  investigationId?: string;
   manufacturer: string;
   overTheAirUpdate?: boolean;
   parkIt?: boolean;

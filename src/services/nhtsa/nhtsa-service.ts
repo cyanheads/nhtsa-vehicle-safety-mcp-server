@@ -10,6 +10,7 @@ import { httpErrorFromResponse } from '@cyanheads/mcp-ts-core/utils';
 import { Unzip, UnzipInflate } from 'fflate';
 
 import type {
+  AffectedVehicle,
   Complaint,
   DecodedVin,
   Investigation,
@@ -40,6 +41,18 @@ const RETRY_BASE_MS = 1000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const INVESTIGATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours (matches daily file cadence)
 
+/** VPIC serves GetManufacturerDetails 100 records per page. */
+const VPIC_MANUFACTURER_PAGE_SIZE = 100;
+/** Pages the manufacturer walk will request before stopping. */
+const MANUFACTURER_PAGE_LIMIT = 5;
+/**
+ * Ceiling on manufacturer records a single lookup retrieves. VPIC's `Count` is the size of
+ * the page it just returned, not a match total, so the only way to learn a true total is to
+ * page until a short page arrives — and a one-letter query already fills page 1, so an
+ * unbounded walk can mean dozens of sequential upstream requests. Callers disclose the cap.
+ */
+export const MANUFACTURER_RESULT_CAP = VPIC_MANUFACTURER_PAGE_SIZE * MANUFACTURER_PAGE_LIMIT;
+
 /** Normalize sparse upstream strings by trimming and omitting blank values. */
 function normalizeOptionalString(value?: string | null): string | undefined {
   if (typeof value !== 'string') return;
@@ -53,15 +66,32 @@ function normalizeOptionalNumber(value?: number | null): number | undefined {
 }
 
 /**
+ * Normalize a complaint date to ISO YYYY-MM-DD. The complaints endpoint emits MM/DD/YYYY —
+ * the inverse of the DD/MM/YYYY the recall endpoints use, so the two paths cannot share a
+ * parser (see `normalizeDate`). Returns the trimmed original when the value is not a
+ * recognizable date, and omits blanks.
+ */
+function normalizeComplaintDate(value?: string | null): string | undefined {
+  const raw = normalizeOptionalString(value);
+  if (!raw) return;
+  const mmddyyyy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mmddyyyy) {
+    const [, mm = '', dd = '', yyyy] = mmddyyyy;
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+  const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return iso?.[1] ?? raw;
+}
+
+/**
  * NHTSA returns "12/31/1969" (Unix epoch at US local TZ) for missing dateOfIncident values.
  * Any date before 1990 (the earliest plausible NHTSA complaint) is treated as missing.
  */
 function normalizeComplaintIncidentDate(value?: string | null): string | undefined {
-  const date = normalizeOptionalString(value);
+  const date = normalizeComplaintDate(value);
   if (!date) return;
-  const parsed = Date.parse(date);
-  if (Number.isNaN(parsed)) return date;
-  return new Date(parsed).getUTCFullYear() < 1990 ? undefined : date;
+  const year = Number(date.slice(0, 4));
+  return Number.isInteger(year) && year < 1990 ? undefined : date;
 }
 
 type DefinedOptionalFields<T extends Record<string, unknown>> = {
@@ -185,8 +215,10 @@ export class NhtsaService {
   }
 
   /**
-   * Look up a recall campaign by campaign number via the direct NHTSA endpoint.
-   * Returns null if the campaign is not found.
+   * Look up a recall campaign by campaign number via the direct NHTSA endpoint. The endpoint
+   * returns one row per affected make/model/model-year in a single response, so the whole row
+   * set collapses into one campaign record carrying the vehicle list. Returns null if the
+   * campaign is not found.
    */
   async getRecallCampaign(
     campaignId: string,
@@ -197,8 +229,7 @@ export class NhtsaService {
       `${NHTSA_API}/recalls/campaignNumber?${params}`,
       { signal },
     );
-    const raw = (data.results ?? data.Results ?? [])[0];
-    return raw ? normalizeRecallCampaignDirect(raw) : null;
+    return normalizeRecallCampaignDirect(data.results ?? data.Results ?? []);
   }
 
   // ── Complaints ───────────────────────────────────────────────────
@@ -423,42 +454,42 @@ export class NhtsaService {
     }));
   }
 
-  /** Get manufacturer details by name or ID (partial match supported). */
+  /**
+   * Get manufacturer details by name or ID (partial match supported). VPIC paginates this
+   * endpoint at {@link VPIC_MANUFACTURER_PAGE_SIZE} records per page and exposes no match
+   * total, so this walks pages until a short page arrives or {@link MANUFACTURER_RESULT_CAP}
+   * is reached. A result length at the cap means more matches may remain upstream.
+   */
   async getManufacturer(nameOrId: string, signal?: AbortSignal): Promise<VpicManufacturer[]> {
-    const data = await this.fetchJson<
-      VpicResponse<{
-        Mfr_ID: number;
-        Mfr_Name: string;
-        Country: string;
-        VehicleTypes: Array<{ IsPrimary: boolean; Name: string; Id?: number }>;
-      }>
-    >(`${VPIC_API}/vehicles/GetManufacturerDetails/${encodeURIComponent(nameOrId)}?format=json`, {
-      signal,
-    });
-    return data.Results.map((r) => {
-      const country = normalizeOptionalString(r.Country);
-      const vehicleTypes = (r.VehicleTypes ?? []).flatMap((vt) => {
-        const name = normalizeOptionalString(vt.Name);
-        if (!name) return [];
-        return [vt.Id != null ? { id: vt.Id, name } : { name }];
-      });
-
-      return {
-        manufacturerId: r.Mfr_ID,
-        manufacturerName: r.Mfr_Name,
-        ...omitUndefined({ country }),
-        vehicleTypes,
-      };
-    });
+    const manufacturers: VpicManufacturer[] = [];
+    for (let page = 1; page <= MANUFACTURER_PAGE_LIMIT; page++) {
+      const data = await this.fetchJson<VpicResponse<RawVpicManufacturer>>(
+        `${VPIC_API}/vehicles/GetManufacturerDetails/${encodeURIComponent(nameOrId)}?format=json&page=${page}`,
+        { signal },
+      );
+      const results = data.Results;
+      manufacturers.push(...results.map(normalizeVpicManufacturer));
+      if (results.length < VPIC_MANUFACTURER_PAGE_SIZE) break;
+    }
+    return manufacturers;
   }
+}
+
+/** VPIC GetManufacturerDetails row. */
+interface RawVpicManufacturer {
+  Country: string;
+  Mfr_ID: number;
+  Mfr_Name: string;
+  VehicleTypes: Array<{ IsPrimary: boolean; Name: string; Id?: number }>;
 }
 
 // ── Normalization ────────────────────────────────────────────────────
 
 /**
- * Parse a date string that may be DD/MM/YYYY (from vehicle recalls API)
+ * Parse a date string that may be DD/MM/YYYY (from the recalls APIs)
  * or ISO 8601 and normalize to YYYY-MM-DD. Returns the original string
- * if parsing fails.
+ * if parsing fails. Complaints use the opposite MM/DD/YYYY order — see
+ * `normalizeComplaintDate`.
  */
 function normalizeDate(raw?: string): string {
   if (!raw) return '';
@@ -489,8 +520,54 @@ function normalizeRecallByVehicle(r: RawRecallByVehicle): Recall {
   };
 }
 
-function normalizeRecallCampaignDirect(r: RawRecallCampaignDirect): RecallCampaign {
+/**
+ * NHTSA writes "9999" where no model year applies — every equipment (`…E…`) and tire
+ * (`…T…`) row, and any such row mixed into a vehicle campaign. Treated as missing.
+ */
+const MODEL_YEAR_NOT_APPLICABLE = 9999;
+
+/** Parse an upstream model-year string; omits blanks, non-integers, and the 9999 placeholder. */
+function normalizeModelYear(value?: string): number | undefined {
+  const raw = normalizeOptionalString(value);
+  if (!raw) return;
+  const year = Number(raw);
+  if (!Number.isInteger(year) || year === MODEL_YEAR_NOT_APPLICABLE) return;
+  return year;
+}
+
+/**
+ * Collapse the campaign row set into the distinct entries it covers, preserving upstream
+ * order. Equipment and tire rows name the part rather than a vehicle — they carry a make
+ * and model with no usable model year, and are kept. Rows carrying none of the three
+ * contribute nothing.
+ */
+function collapseAffectedVehicles(rows: RawRecallCampaignDirect[]): AffectedVehicle[] {
+  const seen = new Set<string>();
+  const vehicles: AffectedVehicle[] = [];
+  for (const row of rows) {
+    const make = normalizeOptionalString(row.Make);
+    const model = normalizeOptionalString(row.Model);
+    const modelYear = normalizeModelYear(row.ModelYear);
+    if (make === undefined && model === undefined && modelYear === undefined) continue;
+    const key = `${make ?? ''}|${model ?? ''}|${modelYear ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    vehicles.push(omitUndefined({ make, model, modelYear }));
+  }
+  return vehicles;
+}
+
+/**
+ * Collapse a campaign row set into one record. The campaignNumber endpoint returns one row
+ * per affected make/model/model-year and repeats identical campaign detail on every row, so
+ * the first row supplies the campaign fields and the whole set supplies `affectedVehicles`.
+ * Returns null for an empty row set (campaign not found).
+ */
+function normalizeRecallCampaignDirect(rows: RawRecallCampaignDirect[]): RecallCampaign | null {
+  const r = rows[0];
+  if (!r) return null;
   const component = normalizeOptionalString(r.Component);
+  const investigationId = normalizeOptionalString(r.NHTSAActionNumber);
   return {
     campaignNumber: r.NHTSACampaignNumber,
     manufacturer: r.Manufacturer,
@@ -499,10 +576,28 @@ function normalizeRecallCampaignDirect(r: RawRecallCampaignDirect): RecallCampai
     remedy: r.Remedy,
     receivedDate: normalizeDate(r.ReportReceivedDate),
     potentialUnitsAffected: r.PotentialNumberofUnitsAffected ?? 0,
+    affectedVehicles: collapseAffectedVehicles(rows),
     ...(component !== undefined ? { component } : {}),
+    ...(investigationId !== undefined ? { investigationId } : {}),
     ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
     ...(r.parkOutSide !== undefined ? { parkOutSide: r.parkOutSide } : {}),
     ...(r.overTheAirUpdate !== undefined ? { overTheAirUpdate: r.overTheAirUpdate } : {}),
+  };
+}
+
+function normalizeVpicManufacturer(r: RawVpicManufacturer): VpicManufacturer {
+  const country = normalizeOptionalString(r.Country);
+  const vehicleTypes = (r.VehicleTypes ?? []).flatMap((vt) => {
+    const name = normalizeOptionalString(vt.Name);
+    if (!name) return [];
+    return [vt.Id != null ? { id: vt.Id, name } : { name }];
+  });
+
+  return {
+    manufacturerId: r.Mfr_ID,
+    manufacturerName: r.Mfr_Name,
+    ...omitUndefined({ country }),
+    vehicleTypes,
   };
 }
 
@@ -515,7 +610,7 @@ function normalizeComplaint(r: RawComplaint): Complaint {
     numberOfInjuries: normalizeOptionalNumber(r.numberOfInjuries),
     numberOfDeaths: normalizeOptionalNumber(r.numberOfDeaths),
     dateOfIncident: normalizeComplaintIncidentDate(r.dateOfIncident),
-    dateComplaintFiled: normalizeOptionalString(r.dateComplaintFiled),
+    dateComplaintFiled: normalizeComplaintDate(r.dateComplaintFiled),
     vin: normalizeOptionalString(r.vin),
     components: normalizeOptionalString(r.components),
     summary: normalizeOptionalString(r.summary),

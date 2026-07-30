@@ -5,7 +5,12 @@
 
 import { zipSync } from 'fflate';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getNhtsaService, initNhtsaService, NhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import {
+  getNhtsaService,
+  initNhtsaService,
+  MANUFACTURER_RESULT_CAP,
+  NhtsaService,
+} from '@/services/nhtsa/nhtsa-service.js';
 
 /** Build a minimal FLAT_INV.zip Response for testing. */
 function makeFlatInvZipResponse(rows: string[][]): Response {
@@ -264,7 +269,66 @@ describe('getComplaintsByVehicle', () => {
       odiNumber: 12345,
       crash: true,
       components: 'ENGINE AND ENGINE COOLING',
+      // MM/DD/YYYY upstream → ISO, matching the recall paths
+      dateOfIncident: '2021-08-15',
+      dateComplaintFiled: '2021-09-01',
     });
+  });
+
+  it('reads complaint dates month-first, not day-first', async () => {
+    // 03/01/2025 is March 1 under MM/DD/YYYY; the recall paths would read it as January 3.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [
+          {
+            odiNumber: 11752925,
+            dateOfIncident: '03/01/2025',
+            dateComplaintFiled: '07/26/2026',
+          },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
+
+    expect(complaints[0].dateOfIncident).toBe('2025-03-01');
+    expect(complaints[0].dateComplaintFiled).toBe('2026-07-26');
+  });
+
+  it('still drops the pre-1990 epoch sentinel from dateOfIncident', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 1, dateOfIncident: '12/31/1969', dateComplaintFiled: '01/15/2020' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
+
+    expect(complaints[0].dateOfIncident).toBeUndefined();
+    // The filing date carries no sentinel rule — an old filing is preserved, normalized.
+    expect(complaints[0].dateComplaintFiled).toBe('2020-01-15');
+  });
+
+  it('passes through complaint dates it cannot parse instead of inventing one', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        results: [{ odiNumber: 1, dateOfIncident: 'unknown', dateComplaintFiled: '  ' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
+
+    expect(complaints[0].dateOfIncident).toBe('unknown');
+    expect(complaints[0].dateComplaintFiled).toBeUndefined();
   });
 
   it('preserves missing complaint fields as undefined', async () => {
@@ -882,6 +946,89 @@ describe('VPIC lookups', () => {
     expect(mfrs[0].vehicleTypes[0]).toEqual({ name: 'Passenger Car' });
   });
 
+  it('getManufacturer requests page 1 and stops on a short page', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'OK',
+        SearchCriteria: '',
+        Results: [{ Mfr_ID: 987, Mfr_Name: 'TOYOTA', Country: 'JAPAN', VehicleTypes: [] }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    await svc.getManufacturer('Toyota');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toContain('page=1');
+  });
+
+  it('getManufacturer walks pages until VPIC returns a short page', async () => {
+    // VPIC serves 100 per page and its Count is that page's size, never a match total.
+    const fullPage = (offset: number) =>
+      jsonResponse({
+        Count: 100,
+        Message: 'OK',
+        SearchCriteria: '',
+        Results: Array.from({ length: 100 }, (_, i) => ({
+          Mfr_ID: offset + i,
+          Mfr_Name: `MFR ${offset + i}`,
+          Country: 'UNITED STATES (USA)',
+          VehicleTypes: [],
+        })),
+      });
+
+    mockFetch
+      .mockResolvedValueOnce(fullPage(0))
+      .mockResolvedValueOnce(fullPage(100))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          Count: 55,
+          Message: 'OK',
+          SearchCriteria: '',
+          Results: Array.from({ length: 55 }, (_, i) => ({
+            Mfr_ID: 200 + i,
+            Mfr_Name: `MFR ${200 + i}`,
+            Country: 'UNITED STATES (USA)',
+            VehicleTypes: [],
+          })),
+        }),
+      );
+
+    const svc = getNhtsaService();
+    const mfrs = await svc.getManufacturer('hon');
+
+    expect(mfrs).toHaveLength(255);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch.mock.calls[1][0]).toContain('page=2');
+    expect(mockFetch.mock.calls[2][0]).toContain('page=3');
+    expect(mfrs[254]?.manufacturerName).toBe('MFR 254');
+  });
+
+  it('getManufacturer stops at the retrieval cap rather than paging without bound', async () => {
+    // Every page comes back full, so only the cap ends the walk. A fresh Response per call —
+    // a single shared one would have its body consumed after the first read.
+    mockFetch.mockImplementation(async () =>
+      jsonResponse({
+        Count: 100,
+        Message: 'OK',
+        SearchCriteria: '',
+        Results: Array.from({ length: 100 }, (_, i) => ({
+          Mfr_ID: i,
+          Mfr_Name: `MFR ${i}`,
+          Country: 'UNITED STATES (USA)',
+          VehicleTypes: [],
+        })),
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const mfrs = await svc.getManufacturer('a');
+
+    expect(mfrs).toHaveLength(MANUFACTURER_RESULT_CAP);
+    expect(mockFetch).toHaveBeenCalledTimes(MANUFACTURER_RESULT_CAP / 100);
+  });
+
   it('getManufacturer omits missing country instead of returning an empty string', async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
@@ -939,6 +1086,151 @@ describe('getRecallCampaign (direct endpoint)', () => {
     // Single request to the direct endpoint
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0][0]).toContain('/recalls/campaignNumber');
+  });
+
+  it('collapses the one-row-per-vehicle response into a single record with the vehicle list', async () => {
+    // The endpoint returns every affected vehicle in one response, repeating campaign detail.
+    const campaignDetail = {
+      NHTSACampaignNumber: '24V744000',
+      Manufacturer: 'Honda (American Honda Motor Co.)',
+      Component: 'STEERING',
+      Summary: 'Steering gearbox may bind.',
+      Consequence: 'Crash risk.',
+      Remedy: 'Replace the gearbox.',
+      ReportReceivedDate: '03/10/2024',
+      PotentialNumberofUnitsAffected: 1_693_199,
+      NHTSAActionNumber: 'EA23003',
+    };
+    const vehicles = [
+      { Make: 'HONDA', Model: 'CIVIC', ModelYear: '2022' },
+      { Make: 'HONDA', Model: 'CIVIC', ModelYear: '2023' },
+      { Make: 'HONDA', Model: 'CR-V', ModelYear: '2023' },
+      { Make: 'ACURA', Model: 'INTEGRA', ModelYear: '2024' },
+    ];
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: vehicles.length,
+        Message: 'Results returned successfully',
+        results: vehicles.map((v) => ({ ...campaignDetail, ...v })),
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallCampaign('24V744000');
+
+    expect(result).not.toBeNull();
+    expect(result!.campaignNumber).toBe('24V744000');
+    expect(result!.investigationId).toBe('EA23003');
+    expect(result!.affectedVehicles).toEqual([
+      { make: 'HONDA', model: 'CIVIC', modelYear: 2022 },
+      { make: 'HONDA', model: 'CIVIC', modelYear: 2023 },
+      { make: 'HONDA', model: 'CR-V', modelYear: 2023 },
+      { make: 'ACURA', model: 'INTEGRA', modelYear: 2024 },
+    ]);
+    // All rows arrive in one response — no follow-up page fetch.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates repeated vehicle rows within a campaign', async () => {
+    const row = {
+      NHTSACampaignNumber: '20V682000',
+      Manufacturer: 'Toyota',
+      Component: 'FUEL/PROPULSION SYSTEM',
+      Summary: 'Fuel delivery pipe may leak.',
+      Consequence: 'Fire risk.',
+      Remedy: 'Replace fuel pipe.',
+      ReportReceivedDate: '11/12/2020',
+      Make: 'TOYOTA',
+      Model: 'CAMRY',
+      ModelYear: '2020',
+    };
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 3,
+        Message: 'Results returned successfully',
+        results: [row, row, { ...row, ModelYear: '2021' }],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallCampaign('20V682000');
+
+    expect(result!.affectedVehicles).toEqual([
+      { make: 'TOYOTA', model: 'CAMRY', modelYear: 2020 },
+      { make: 'TOYOTA', model: 'CAMRY', modelYear: 2021 },
+    ]);
+  });
+
+  it('returns an empty vehicle list when a row names nothing at all', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'Results returned successfully',
+        results: [
+          {
+            NHTSACampaignNumber: '20E123000',
+            Manufacturer: 'Equipment Co',
+            Component: 'CHILD SEAT',
+            Summary: 'Latch may not hold.',
+            Consequence: 'Injury risk.',
+            Remedy: 'Replace latch.',
+            ReportReceivedDate: '11/12/2020',
+            Make: '',
+            Model: '   ',
+          },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallCampaign('20E123000');
+
+    expect(result!.affectedVehicles).toEqual([]);
+    expect(result!.investigationId).toBeUndefined();
+  });
+
+  it('keeps an equipment row but drops its 9999 model-year placeholder', async () => {
+    // Real equipment and tire rows name the brand and the part, with ModelYear "9999".
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 2,
+        Message: 'Results returned successfully',
+        results: [
+          {
+            NHTSACampaignNumber: '25V200000',
+            Manufacturer: 'Great Dane',
+            Component: 'TIRES',
+            Summary: 'Tire may fail.',
+            Consequence: 'Crash risk.',
+            Remedy: 'Replace the tire.',
+            ReportReceivedDate: '11/12/2025',
+            Make: 'BRIDGESTONE',
+            Model: 'R123 ECOPIA',
+            ModelYear: '9999',
+          },
+          {
+            NHTSACampaignNumber: '25V200000',
+            Manufacturer: 'Great Dane',
+            Component: 'TIRES',
+            Summary: 'Tire may fail.',
+            Consequence: 'Crash risk.',
+            Remedy: 'Replace the tire.',
+            ReportReceivedDate: '11/12/2025',
+            Make: 'GREAT DANE',
+            Model: 'CHAMPION',
+            ModelYear: '2025',
+          },
+        ],
+      }),
+    );
+
+    const svc = getNhtsaService();
+    const result = await svc.getRecallCampaign('25V200000');
+
+    expect(result!.affectedVehicles).toEqual([
+      { make: 'BRIDGESTONE', model: 'R123 ECOPIA' },
+      { make: 'GREAT DANE', model: 'CHAMPION', modelYear: 2025 },
+    ]);
   });
 
   it('returns null when campaign is not found (empty results)', async () => {
