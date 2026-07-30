@@ -45,7 +45,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       .min(0)
       .optional()
       .describe(
-        'Pagination offset into the date-descending complaint list. Defaults to 0. componentBreakdown is unaffected by pagination.',
+        'Pagination offset into the filing-date-descending complaint list. Defaults to 0. componentBreakdown is unaffected by pagination.',
       ),
   }),
   output: z.object({
@@ -72,8 +72,14 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
         z
           .object({
             odiNumber: z.number().optional().describe('NHTSA complaint ID'),
-            dateOfIncident: z.string().optional().describe('Date the incident occurred'),
-            dateComplaintFiled: z.string().optional().describe('Date complaint was filed'),
+            dateOfIncident: z
+              .string()
+              .optional()
+              .describe('Date the incident occurred (ISO YYYY-MM-DD)'),
+            dateComplaintFiled: z
+              .string()
+              .optional()
+              .describe('Date complaint was filed (ISO YYYY-MM-DD)'),
             components: z.string().optional().describe('Affected components (comma-separated)'),
             summary: z.string().optional().describe('Consumer-reported description'),
             crash: z.boolean().optional().describe('Involved a crash'),
