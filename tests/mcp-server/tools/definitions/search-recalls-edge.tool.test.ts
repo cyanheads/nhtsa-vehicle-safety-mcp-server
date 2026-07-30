@@ -97,25 +97,55 @@ describe('searchRecalls — date filtering', () => {
 });
 
 describe('searchRecalls — format', () => {
-  it('format renders campaign with units affected', () => {
+  it('format renders campaign with units affected, vehicle list, and investigation link', () => {
     const output = {
       recalls: [
         {
           campaignNumber: '20V682000',
           manufacturer: 'Toyota',
-          subject: 'Fuel pipe',
           summary: 'Leak.',
           consequence: 'Fire.',
           remedy: 'Replace.',
           reportReceivedDate: '2020-11-12',
           potentialUnitsAffected: 5000,
+          investigationId: 'EA23003',
+          affectedVehicles: [
+            { make: 'TOYOTA', model: 'CAMRY', modelYear: 2020 },
+            { make: 'TOYOTA', model: 'AVALON', modelYear: 2021 },
+          ],
         },
       ],
       totalCount: 1,
     };
-    const blocks = searchRecalls.format!(output);
-    expect(blocks[0].text).toContain('Units Affected:** 5000');
-    expect(blocks[0].text).toContain('Fuel pipe');
+    const text = searchRecalls.format!(output)[0].text;
+    expect(text).toContain('Units Affected:** 5000');
+    expect(text).toContain('Affected Vehicles (2)');
+    expect(text).toContain('2020 TOYOTA CAMRY');
+    expect(text).toContain('2021 TOYOTA AVALON');
+    expect(text).toContain('EA23003');
+    expect(text).toContain('nhtsa_search_investigations');
+  });
+
+  it('format omits the vehicle list for an equipment campaign with no vehicles', () => {
+    const output = {
+      recalls: [
+        {
+          campaignNumber: '20E123000',
+          manufacturer: 'Equipment Co',
+          summary: 'Latch defect.',
+          consequence: 'Injury risk.',
+          remedy: 'Replace latch.',
+          reportReceivedDate: '2020-11-12',
+          potentialUnitsAffected: 100,
+          affectedVehicles: [],
+        },
+      ],
+      totalCount: 1,
+    };
+    const text = searchRecalls.format!(output)[0].text;
+    expect(text).not.toContain('Affected Vehicles');
+    expect(text).not.toContain('Investigation:');
+    expect(text).toContain('20E123000');
   });
 
   it('format renders "No recalls found" when totalCount is 0', () => {

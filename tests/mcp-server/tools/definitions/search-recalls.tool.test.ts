@@ -84,12 +84,12 @@ describe('searchRecalls', () => {
     mockService.getRecallCampaign.mockResolvedValue({
       campaignNumber: '20V682000',
       manufacturer: 'Toyota',
-      subject: 'Fuel pipe',
       summary: 'Fuel leak.',
       consequence: 'Fire.',
       remedy: 'Replace.',
       receivedDate: '2020-11-12',
       potentialUnitsAffected: 5000,
+      affectedVehicles: [{ make: 'TOYOTA', model: 'CAMRY', modelYear: 2020 }],
       parkIt: false,
       parkOutSide: true,
       overTheAirUpdate: false,
@@ -104,16 +104,52 @@ describe('searchRecalls', () => {
     expect(result.recalls[0].parkOutSide).toBe(true);
   });
 
+  it('surfaces the full affected-vehicle list and the linked investigation for a campaign', async () => {
+    const affectedVehicles = [
+      { make: 'HONDA', model: 'CIVIC', modelYear: 2022 },
+      { make: 'HONDA', model: 'CR-V', modelYear: 2023 },
+      { make: 'ACURA', model: 'INTEGRA', modelYear: 2024 },
+    ];
+    mockService.getRecallCampaign.mockResolvedValue({
+      campaignNumber: '24V744000',
+      manufacturer: 'Honda (American Honda Motor Co.)',
+      component: 'STEERING',
+      summary: 'Steering gearbox may bind.',
+      consequence: 'Crash risk.',
+      remedy: 'Replace the gearbox.',
+      receivedDate: '2024-10-03',
+      potentialUnitsAffected: 1_693_199,
+      investigationId: 'EA23003',
+      affectedVehicles,
+    });
+
+    const ctx = createMockContext();
+    const input = searchRecalls.input.parse({ campaignNumber: '24V744000' });
+    const result = await searchRecalls.handler(input, ctx);
+    const parsed = searchRecalls.output.parse(result);
+
+    // One collapsed campaign record — not one row per vehicle, and not a hardcoded count.
+    expect(parsed.totalCount).toBe(1);
+    expect(parsed.recalls).toHaveLength(1);
+    expect(parsed.recalls[0].affectedVehicles).toEqual(affectedVehicles);
+    expect(parsed.recalls[0].investigationId).toBe('EA23003');
+
+    const text = searchRecalls.format!(parsed)[0].text;
+    expect(text).toContain('2022 HONDA CIVIC');
+    expect(text).toContain('2024 ACURA INTEGRA');
+    expect(text).toContain('EA23003');
+  });
+
   it('accepts missing advisory fields for campaign lookups', async () => {
     mockService.getRecallCampaign.mockResolvedValue({
       campaignNumber: '20V682000',
       manufacturer: 'Toyota',
-      subject: 'Fuel pipe',
       summary: 'Fuel leak.',
       consequence: 'Fire.',
       remedy: 'Replace.',
       receivedDate: '2020-11-12',
       potentialUnitsAffected: 5000,
+      affectedVehicles: [],
     });
 
     const ctx = createMockContext();
@@ -125,6 +161,8 @@ describe('searchRecalls', () => {
     expect(parsed.recalls[0].parkIt).toBeUndefined();
     expect(parsed.recalls[0].parkOutSide).toBeUndefined();
     expect(parsed.recalls[0].overTheAirUpdate).toBeUndefined();
+    expect(parsed.recalls[0].investigationId).toBeUndefined();
+    expect(parsed.recalls[0].affectedVehicles).toEqual([]);
   });
 
   it('throws when campaign not found', async () => {

@@ -6,6 +6,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { Investigation } from '@/services/nhtsa/types.js';
 
@@ -33,6 +34,7 @@ const STATUS_MAP: Record<string, string> = {
 function matchesText(investigation: Investigation, text: string): boolean {
   const lower = text.toLowerCase();
   return (
+    (investigation.nhtsaId ?? '').toLowerCase().includes(lower) ||
     (investigation.subject ?? '').toLowerCase().includes(lower) ||
     (investigation.summary ?? '').toLowerCase().includes(lower)
   );
@@ -55,13 +57,19 @@ function matchesComponent(investigation: Investigation, component: string): bool
 
 export const searchInvestigations = tool('nhtsa_search_investigations', {
   description:
-    "Search NHTSA defect investigations from the ODI flat file — covering Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI types. make, model, and component are structured filters against the investigation record's vehicle associations. All filters are ANDed. Investigations may link to a resulting recall campaign via recallCampaign.",
+    "Search NHTSA defect investigations from the ODI flat file — covering Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI types. make, model, and component are structured filters against the investigation record's vehicle associations. All filters are ANDed. Use nhtsaId to fetch one investigation by its exact ID — including the investigationId nhtsa_search_recalls returns for a campaign. Investigations may link to a resulting recall campaign via recallCampaign.",
   annotations: { readOnlyHint: true },
   input: z.object({
+    nhtsaId: z
+      .string()
+      .optional()
+      .describe(
+        'Exact NHTSA investigation ID (e.g. "EA23003"), case-insensitive. Fetches that one record — mutually exclusive with every other filter.',
+      ),
     query: z
       .string()
       .optional()
-      .describe('Free-text search across investigation subject and summary.'),
+      .describe('Free-text search across investigation ID, subject, and summary.'),
     make: z
       .string()
       .optional()
@@ -152,13 +160,43 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
         'Guidance when no investigations match — e.g. suggestions for broadening the search.',
       ),
   },
+  errors: [
+    {
+      reason: 'mode_conflict',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'nhtsaId was combined with another filter.',
+      recovery:
+        'Use nhtsaId alone, or the query/make/model/component/investigationType/status filters. limit and offset work with either.',
+    },
+  ],
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
     const limit = input.limit ?? DEFAULT_LIMIT;
     const offset = input.offset ?? 0;
 
+    if (
+      input.nhtsaId &&
+      (input.query ||
+        input.make ||
+        input.model ||
+        input.component ||
+        input.investigationType ||
+        input.status)
+    ) {
+      throw ctx.fail(
+        'mode_conflict',
+        'Provide either nhtsaId for one investigation, or the query/make/model/component/investigationType/status filters — not both.',
+        { ...ctx.recoveryFor('mode_conflict') },
+      );
+    }
+
     let investigations = await svc.getInvestigations(ctx.signal);
+
+    if (input.nhtsaId) {
+      const nhtsaId = input.nhtsaId.trim().toUpperCase();
+      investigations = investigations.filter((i) => i.nhtsaId?.toUpperCase() === nhtsaId);
+    }
 
     // Apply filters
     if (input.investigationType) {
@@ -190,6 +228,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const page = investigations.slice(offset, offset + limit);
 
     ctx.log.info('Investigation search', {
+      nhtsaId: input.nhtsaId,
       query: input.query,
       make: input.make,
       model: input.model,
@@ -201,6 +240,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     });
 
     const appliedFilters = [
+      input.nhtsaId ? `nhtsaId="${input.nhtsaId}"` : null,
       input.query ? `query="${input.query}"` : null,
       input.make ? `make="${input.make}"` : null,
       input.model ? `model="${input.model}"` : null,
@@ -213,10 +253,15 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     ctx.enrich({ effectiveQuery });
 
     if (totalCount === 0) {
-      const notice =
-        appliedFilters.length === 0
-          ? 'No investigations found. This is unexpected — the investigations dataset should contain thousands of records.'
-          : `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter. make/model/component match against structured vehicle associations.`;
+      let notice: string;
+      if (input.nhtsaId) {
+        notice = `No investigation has the ID "${input.nhtsaId}". IDs are a type prefix plus digits, e.g. "EA23003" or "PE24010"; nhtsa_search_recalls returns one as investigationId for campaigns NHTSA links to an investigation.`;
+      } else if (appliedFilters.length === 0) {
+        notice =
+          'No investigations found. This is unexpected — the investigations dataset should contain thousands of records.';
+      } else {
+        notice = `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter. make/model/component match against structured vehicle associations.`;
+      }
       ctx.enrich.notice(notice);
     }
 

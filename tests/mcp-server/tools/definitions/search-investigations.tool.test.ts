@@ -108,6 +108,74 @@ describe('searchInvestigations', () => {
     expect(result.investigations[0].nhtsaId).toBe('PE20001');
   });
 
+  it('fetches one investigation by exact nhtsaId, case-insensitively', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
+    const input = searchInvestigations.input.parse({ nhtsaId: 'ea21002' });
+    const result = await searchInvestigations.handler(input, ctx);
+
+    expect(result.totalCount).toBe(1);
+    expect(result.investigations[0].nhtsaId).toBe('EA21002');
+    expect(getEnrichment(ctx).effectiveQuery).toContain('nhtsaId="ea21002"');
+  });
+
+  it('nhtsaId matches the whole ID, not a prefix or substring', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
+    const input = searchInvestigations.input.parse({ nhtsaId: 'EA21' });
+    const result = await searchInvestigations.handler(input, ctx);
+
+    expect(result.totalCount).toBe(0);
+    expect(getEnrichment(ctx).notice).toMatch(/no investigation has the id/i);
+  });
+
+  it('rejects nhtsaId combined with another filter instead of silently dropping it', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
+    const input = searchInvestigations.input.parse({ nhtsaId: 'EA21002', make: 'Toyota' });
+    await expect(searchInvestigations.handler(input, ctx)).rejects.toThrow(/either nhtsaId/i);
+    expect(mockService.getInvestigations).not.toHaveBeenCalled();
+  });
+
+  it('allows nhtsaId alongside pagination arguments', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
+    const input = searchInvestigations.input.parse({ nhtsaId: 'EA21002', limit: 5, offset: 0 });
+    const result = await searchInvestigations.handler(input, ctx);
+
+    expect(result.totalCount).toBe(1);
+    expect(result.limit).toBe(5);
+  });
+
+  it('free-text query matches an investigation ID that its own text never names', async () => {
+    mockService.getInvestigations.mockResolvedValue([
+      ...sampleInvestigations,
+      {
+        nhtsaId: 'AQ25001',
+        investigationType: 'AQ',
+        status: 'O',
+        makes: ['KIA'],
+        models: ['TELLURIDE'],
+        years: [2025],
+        components: ['ELECTRICAL SYSTEM'],
+        subject: 'Audit query',
+        summary: 'Summary that never quotes its own identifier.',
+        openDate: '2025-02-01',
+      },
+    ]);
+
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
+    const input = searchInvestigations.input.parse({ query: 'AQ25001' });
+    const result = await searchInvestigations.handler(input, ctx);
+
+    expect(result.totalCount).toBe(1);
+    expect(result.investigations[0].nhtsaId).toBe('AQ25001');
+  });
+
   it('filters by query (text match against subject/summary)', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 

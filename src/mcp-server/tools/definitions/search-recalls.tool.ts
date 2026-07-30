@@ -17,7 +17,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       .string()
       .optional()
       .describe(
-        'NHTSA campaign number (e.g., "20V682000"). When provided, returns campaign details. Other params ignored.',
+        'NHTSA campaign number (e.g., "20V682000"). When provided, returns the campaign detail plus every vehicle it covers. Mutually exclusive with make/model/modelYear.',
       ),
     make: z
       .string()
@@ -54,15 +54,34 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
               .string()
               .optional()
               .describe('Affected component (vehicle-scoped queries)'),
-            subject: z.string().optional().describe('Recall subject (campaign queries)'),
             summary: z.string().describe('Recall summary'),
             consequence: z.string().describe('Safety consequence'),
             remedy: z.string().describe('Corrective action'),
-            reportReceivedDate: z.string().describe('Date received by NHTSA'),
+            reportReceivedDate: z.string().describe('Date received by NHTSA (ISO YYYY-MM-DD)'),
             potentialUnitsAffected: z
               .number()
               .optional()
               .describe('Units affected (campaign queries)'),
+            affectedVehicles: z
+              .array(
+                z
+                  .object({
+                    make: z.string().optional().describe('Vehicle make'),
+                    model: z.string().optional().describe('Vehicle model'),
+                    modelYear: z.number().optional().describe('Model year'),
+                  })
+                  .describe('One vehicle covered by the campaign'),
+              )
+              .optional()
+              .describe(
+                'Every distinct make/model the campaign covers (campaign queries). Equipment and tire campaigns name the part here — make is the brand, model is the part — and carry no model year.',
+              ),
+            investigationId: z
+              .string()
+              .optional()
+              .describe(
+                'ODI investigation that preceded this campaign, when NHTSA links one (campaign queries) — pass it as nhtsaId to nhtsa_search_investigations for the full record.',
+              ),
             parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
             parkOutSide: z
               .boolean()
@@ -143,26 +162,28 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       }
 
       ctx.enrich({ effectiveQuery: input.campaignNumber });
-      return {
-        recalls: [
-          {
-            campaignNumber: campaign.campaignNumber,
-            manufacturer: campaign.manufacturer,
-            component: campaign.component,
-            summary: campaign.summary,
-            consequence: campaign.consequence,
-            remedy: campaign.remedy,
-            reportReceivedDate: campaign.receivedDate,
-            potentialUnitsAffected: campaign.potentialUnitsAffected,
-            ...(campaign.parkIt !== undefined ? { parkIt: campaign.parkIt } : {}),
-            ...(campaign.parkOutSide !== undefined ? { parkOutSide: campaign.parkOutSide } : {}),
-            ...(campaign.overTheAirUpdate !== undefined
-              ? { overTheAirUpdate: campaign.overTheAirUpdate }
-              : {}),
-          },
-        ],
-        totalCount: 1,
-      };
+      const recalls = [
+        {
+          campaignNumber: campaign.campaignNumber,
+          manufacturer: campaign.manufacturer,
+          component: campaign.component,
+          summary: campaign.summary,
+          consequence: campaign.consequence,
+          remedy: campaign.remedy,
+          reportReceivedDate: campaign.receivedDate,
+          potentialUnitsAffected: campaign.potentialUnitsAffected,
+          affectedVehicles: campaign.affectedVehicles,
+          ...(campaign.investigationId !== undefined
+            ? { investigationId: campaign.investigationId }
+            : {}),
+          ...(campaign.parkIt !== undefined ? { parkIt: campaign.parkIt } : {}),
+          ...(campaign.parkOutSide !== undefined ? { parkOutSide: campaign.parkOutSide } : {}),
+          ...(campaign.overTheAirUpdate !== undefined
+            ? { overTheAirUpdate: campaign.overTheAirUpdate }
+            : {}),
+        },
+      ];
+      return { recalls, totalCount: recalls.length };
     }
 
     // Vehicle-scoped lookup
@@ -239,12 +260,22 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
 
       lines.push(`### ${r.campaignNumber}${alertStr}`);
       if (r.component) lines.push(`**Component:** ${r.component}`);
-      if (r.subject) lines.push(`**Subject:** ${r.subject}`);
       if (r.potentialUnitsAffected != null) {
         lines.push(`**Units Affected:** ${r.potentialUnitsAffected}`);
       }
       lines.push(`**Date:** ${r.reportReceivedDate}`);
       lines.push(`**Manufacturer:** ${r.manufacturer}`);
+      if (r.investigationId) {
+        lines.push(
+          `**Investigation:** ${r.investigationId} — pass as nhtsaId to nhtsa_search_investigations`,
+        );
+      }
+      if (r.affectedVehicles && r.affectedVehicles.length > 0) {
+        lines.push(`**Affected Vehicles (${r.affectedVehicles.length}):**`);
+        for (const v of r.affectedVehicles) {
+          lines.push(`- ${[v.modelYear, v.make, v.model].filter(Boolean).join(' ')}`);
+        }
+      }
       lines.push(`\n${r.summary}`);
       lines.push(`\n**Consequence:** ${r.consequence}`);
       lines.push(`**Remedy:** ${r.remedy}\n`);
