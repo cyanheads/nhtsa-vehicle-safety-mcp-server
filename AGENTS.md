@@ -1,9 +1,11 @@
 # Agent Protocol
 
 **Server:** nhtsa-vehicle-safety-mcp-server
-**Version:** 0.9.4
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.11.0`
+**Version:** 0.9.5
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.12.3`
 **Engines:** Bun ≥1.3.0, Node ≥24.0.0
+**MCP SDK:** `@modelcontextprotocol/server` 2.0.0
+**Zod:** 4.4.3
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
 
@@ -33,7 +35,7 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 - **Logic throws, framework catches.** Tool/resource handlers are pure — throw on failure, no `try/catch`. Prefer `ctx.fail(reason, ...)` against a declared `errors[]` contract; fall back to error factories (`notFound()`, `validationError()`) or plain `Error` when no contract entry fits.
 - **Use `ctx.log`** for request-scoped logging. No `console` calls.
 - **Use `ctx.state`** for tenant-scoped storage. Never access persistence directly.
-- **Check `ctx.elicit`** for presence before calling.
+- **Need input the caller didn't supply?** `return ctx.requestInput(...)` and read `ctx.inputs` when the handler is re-entered. Never `await` for user input mid-handler.
 - **Secrets in env vars only** — never hardcoded.
 - **Close the loop on issues.** When implementing work tracked by a GitHub issue, comment on the issue with what landed and close it. Do both — a comment without a close leaves stale issues open; a close without a comment leaves no record of what shipped. The comment is for future readers — state the concrete changes, not the conversation that produced them.
 
@@ -97,13 +99,13 @@ Handlers receive a unified `ctx` object. Key properties:
 
 | Property | Description |
 |:---------|:------------|
-| `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. |
+| `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. Dual-sink: Pino and `notifications/message` to the client, so treat it as client-visible. |
 | `ctx.state` | Tenant-scoped KV — `.get(key)`, `.set(key, value, { ttl? })`, `.delete(key)`, `.getMany(keys)`, `.list(prefix, { cursor, limit })`. Accepts any serializable value. |
-| `ctx.elicit` | Ask user for structured input — form call `(message, schema)` or `.url(message, url)` for an external link. **Check for presence first:** `if (ctx.elicit) { ... }` |
+| `ctx.requestInput` | Suspend and ask the caller for more input — `return ctx.requestInput({ inputRequests: { key: inputRequired.elicit({ message, requestedSchema }) } })`. Never returns; the handler is re-entered with the answers. Always present. |
+| `ctx.inputs` | Reader over a retried request's responses — `.accepted(key, schema)`, `.view(key)`, `.state()`, `.dropped`. Empty on the first round. |
 | `ctx.enrich` | Success-path agent context (empty-result notices, query echo, pagination totals) — `ctx.enrich(...)` or `.notice()` / `.total()` / `.echo()` / `.truncated()`. Reaches `structuredContent` and `content[]`; lands only when the definition declares an `enrichment` block (no-op otherwise). |
 | `ctx.content` | Non-text content blocks — `.image(data, mimeType)`, `.audio(data, mimeType)`, or `ctx.content(block)` for a raw block. Prepended to `content[]` after `format()`; never enters `structuredContent`. |
 | `ctx.signal` | `AbortSignal` for cancellation. |
-| `ctx.progress` | Task progress (present when `task: true`) — `.setTotal(n)`, `.increment()`, `.update(message)`. |
 | `ctx.requestId` | Unique request ID. |
 | `ctx.tenantId` | Tenant ID from JWT; `'default'` for stdio or HTTP with auth off. |
 
@@ -208,7 +210,7 @@ Available skills:
 | `api-canvas` | DataCanvas: register tabular data, run SQL, export, plus the `spillover()` helper for big result sets — Tier 3 opt-in |
 | `api-config` | AppConfig, parseConfig, env vars |
 | `api-mirror` | MirrorService: persistent SQLite-backed local mirror of bulk upstream datasets with FTS5 search — Tier 3 opt-in, Node/Bun only |
-| `api-context` | Context interface, logger, state, progress |
+| `api-context` | Context interface, RequestContext, logger, state, multi-round-trip input |
 | `api-errors` | McpError, JsonRpcErrorCode, error patterns |
 | `api-linter` | Definition linter rule catalog — invoked by `bun run lint:mcp` and `devcheck` |
 | `api-services` | LLM, Speech, Graph services |
@@ -250,7 +252,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 ## Bundling
 
-`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. MCPB is stdio-only — HTTP deployments are unaffected. The bundle file ships as `dist/nhtsa-vehicle-safety-mcp-server.mcpb` and the `release-and-publish` skill attaches it to the GitHub Release.
+`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. The pack step runs `scripts/clean-mcpb.ts` to remove dev dependencies, dependency-shipped agent docs, and platform-specific native bindings. MCPB is stdio-only — HTTP deployments are unaffected. The bundle file ships as `dist/nhtsa-vehicle-safety-mcp-server.mcpb` and the `release-and-publish` skill attaches it to the GitHub Release.
 
 **Adding an env var requires both files:** `server.json` (`environmentVariables[]`) and `manifest.json` (`mcp_config.env` + `user_config`). `bun run lint:packaging` (run by `devcheck`) verifies alignment.
 
@@ -273,6 +275,8 @@ security: false                            # optional — true ONLY for a source
 ```
 
 `breaking: true` renders a `· ⚠️ Breaking` badge — use it when consumers must update code on upgrade (signature changes, removed APIs, config renames). `security: true` renders a `· 🛡️ Security` badge and pairs with a `## Security` body section — set it only for a security fix in this server's *own source code*, never for a routine dependency or transitive CVE bump (record those under `## Dependencies`).
+
+`agent-notes` is an optional free-form frontmatter field for maintenance agents processing the release downstream. It does not appear in the rendered CHANGELOG; use it for one-time adoption instructions that do not belong in user-facing release notes.
 
 **Section order** (Keep a Changelog): Added, Changed, Deprecated, Removed, Fixed, Security. Include only sections with entries — don't ship empty headers.
 

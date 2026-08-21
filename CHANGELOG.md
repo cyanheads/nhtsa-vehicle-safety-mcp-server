@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.9.5](changelog/0.9.x/0.9.5.md) — 2026-08-21
+
+MCP SDK 2.0 framework adoption and Bun 1.4 maintenance
+
 ## [0.9.4](changelog/0.9.x/0.9.4.md) — 2026-07-30
 
 nhtsa_search_complaints flags an incident date its own record contradicts instead of rendering it as fact; nhtsa_lookup_vehicles stops showing a spelling hint for an out-of-range page

@@ -1,11 +1,9 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-07-30 19:09:35
+Generated on: 2026-08-21 22:47:13
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
-├── .agents/
-├── .claude/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── .codex-plugin/
@@ -16,6 +14,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   │   ├── bug_report.yml
 │   │   ├── config.yml
 │   │   └── feature_request.yml
+│   ├── CODE_OF_CONDUCT.md
+│   ├── CONTRIBUTING.md
 │   ├── FUNDING.yml
 │   └── SECURITY.md
 ├── .vscode/
@@ -156,6 +156,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   │       └── types.ts
 │   └── index.ts
 ├── tests/
+│   ├── helpers/
+│   │   └── content.ts
 │   ├── mcp-server/
 │   │   └── tools/
 │   │       └── definitions/
