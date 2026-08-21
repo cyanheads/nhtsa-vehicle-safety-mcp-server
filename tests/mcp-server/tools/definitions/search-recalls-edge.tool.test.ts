@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getRecallsByVehicle: vi.fn(),
@@ -64,7 +65,7 @@ describe('searchRecalls — date filtering', () => {
   it('accepts form-client empty-string dateRange (both bounds empty)', async () => {
     mockService.getRecallsByVehicle.mockResolvedValue([sampleRecall]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     // Form clients may submit dateRange with empty string values instead of omitting it
     const input = searchRecalls.input.parse({
       make: 'Toyota',
@@ -83,7 +84,7 @@ describe('searchRecalls — date filtering', () => {
       { ...sampleRecall, campaignNumber: '21V100000', reportReceivedDate: '2021-06-15' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -92,7 +93,7 @@ describe('searchRecalls — date filtering', () => {
     });
     const result = await searchRecalls.handler(input, ctx);
     expect(result.totalCount).toBe(1);
-    expect(result.recalls[0].campaignNumber).toBe('21V100000');
+    expect(result.recalls[0]!.campaignNumber).toBe('21V100000');
   });
 });
 
@@ -117,7 +118,7 @@ describe('searchRecalls — format', () => {
       ],
       totalCount: 1,
     };
-    const text = searchRecalls.format!(output)[0].text;
+    const text = firstText(searchRecalls.format!(output));
     expect(text).toContain('Units Affected:** 5000');
     expect(text).toContain('Affected Vehicles (2)');
     expect(text).toContain('2020 TOYOTA CAMRY');
@@ -142,7 +143,7 @@ describe('searchRecalls — format', () => {
       ],
       totalCount: 1,
     };
-    const text = searchRecalls.format!(output)[0].text;
+    const text = firstText(searchRecalls.format!(output));
     expect(text).not.toContain('Affected Vehicles');
     expect(text).not.toContain('Investigation:');
     expect(text).toContain('20E123000');
@@ -150,7 +151,7 @@ describe('searchRecalls — format', () => {
 
   it('format renders "No recalls found" when totalCount is 0', () => {
     const blocks = searchRecalls.format!({ recalls: [], totalCount: 0 });
-    expect(blocks[0].text).toContain('No recalls found');
+    expect(firstText(blocks)).toContain('No recalls found');
   });
 
   it('format renders recall without optional alert badges when flags absent', () => {
@@ -168,7 +169,7 @@ describe('searchRecalls — format', () => {
       ],
       totalCount: 1,
     };
-    const text = searchRecalls.format!(output)[0].text;
+    const text = firstText(searchRecalls.format!(output));
     expect(text).not.toContain('DO NOT DRIVE');
     expect(text).not.toContain('PARK OUTSIDE');
     expect(text).toContain('20V682000');

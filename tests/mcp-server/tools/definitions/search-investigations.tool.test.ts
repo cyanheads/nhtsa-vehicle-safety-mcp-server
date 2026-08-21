@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { searchInvestigations } from '@/mcp-server/tools/definitions/search-investigations.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = { getInvestigations: vi.fn() };
 
@@ -65,7 +66,7 @@ describe('searchInvestigations', () => {
   it('returns all investigations when no filters and populates effectiveQuery', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -77,7 +78,7 @@ describe('searchInvestigations', () => {
   it('filters by investigationType', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ investigationType: 'PE' });
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -89,23 +90,23 @@ describe('searchInvestigations', () => {
   it('filters by status', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ status: 'C' });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('EA21002');
+    expect(result.investigations[0]!.nhtsaId).toBe('EA21002');
   });
 
   it('filters by make (structured makes[] match)', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ make: 'Toyota' });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('PE20001');
+    expect(result.investigations[0]!.nhtsaId).toBe('PE20001');
   });
 
   it('fetches one investigation by exact nhtsaId, case-insensitively', async () => {
@@ -116,7 +117,7 @@ describe('searchInvestigations', () => {
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('EA21002');
+    expect(result.investigations[0]!.nhtsaId).toBe('EA21002');
     expect(getEnrichment(ctx).effectiveQuery).toContain('nhtsaId="ea21002"');
   });
 
@@ -173,30 +174,30 @@ describe('searchInvestigations', () => {
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('AQ25001');
+    expect(result.investigations[0]!.nhtsaId).toBe('AQ25001');
   });
 
   it('filters by query (text match against subject/summary)', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ query: 'transmission' });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('PE22003');
+    expect(result.investigations[0]!.nhtsaId).toBe('PE22003');
   });
 
   it('paginates with offset/limit and echoes the pagination state', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ limit: 1, offset: 1 });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(3);
     expect(result.investigations).toHaveLength(1);
-    expect(result.investigations[0].nhtsaId).toBe('EA21002');
+    expect(result.investigations[0]!.nhtsaId).toBe('EA21002');
     expect(result.returned).toBe(1);
     expect(result.offset).toBe(1);
     expect(result.limit).toBe(1);
@@ -205,7 +206,7 @@ describe('searchInvestigations', () => {
   it('echoes default pagination values when limit/offset are omitted', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -231,7 +232,7 @@ describe('searchInvestigations', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -270,7 +271,7 @@ describe('searchInvestigations', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -283,7 +284,7 @@ describe('searchInvestigations', () => {
   it('populates enrichment notice when no investigations match filters', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ make: 'Nonexistent Brand XYZ' });
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -295,7 +296,7 @@ describe('searchInvestigations', () => {
   it('notices an offset past the end of a non-empty result set', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ limit: 5, offset: 9000 });
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -313,7 +314,7 @@ describe('searchInvestigations', () => {
   it('keeps the no-matches notice when the filters matched nothing', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ make: 'Nonexistent Brand XYZ', offset: 9000 });
     await searchInvestigations.handler(input, ctx);
 
@@ -321,13 +322,15 @@ describe('searchInvestigations', () => {
   });
 
   it('format explains an out-of-range page instead of a bare "showing 0"', () => {
-    const text = searchInvestigations.format!({
-      totalCount: 5338,
-      returned: 0,
-      offset: 9000,
-      limit: 5,
-      investigations: [],
-    })[0].text;
+    const text = firstText(
+      searchInvestigations.format!({
+        totalCount: 5338,
+        returned: 0,
+        offset: 9000,
+        limit: 5,
+        investigations: [],
+      }),
+    );
 
     expect(text).toContain('No results for this page (offset 9000, limit 5). 5338 total');
     expect(text).not.toContain('to retrieve the next page');
@@ -349,15 +352,15 @@ describe('searchInvestigations', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
     const parsed = searchInvestigations.output.parse(result);
-    const text = searchInvestigations.format!(parsed)[0].text;
+    const text = firstText(searchInvestigations.format!(parsed));
 
     expect(parsed.totalCount).toBe(1);
-    expect(parsed.investigations[0].subject).toBeUndefined();
-    expect(parsed.investigations[0].statusName).toBeUndefined();
+    expect(parsed.investigations[0]!.subject).toBeUndefined();
+    expect(parsed.investigations[0]!.statusName).toBeUndefined();
     expect(text).toContain('Unknown ID');
     expect(text).toContain('Not available');
   });
@@ -387,7 +390,7 @@ describe('searchInvestigations', () => {
       ],
     };
     const blocks = searchInvestigations.format!(output);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('Open');
     expect(text).toContain('Preliminary Evaluation');
     expect(text).toContain('Brake failure');
@@ -397,13 +400,15 @@ describe('searchInvestigations', () => {
 
   it('format renders the full summary without truncation', () => {
     const longSummary = `START ${'A'.repeat(6000)} END`;
-    const text = searchInvestigations.format!({
-      totalCount: 1,
-      returned: 1,
-      offset: 0,
-      limit: 20,
-      investigations: [{ nhtsaId: 'PE20001', summary: longSummary }],
-    })[0].text;
+    const text = firstText(
+      searchInvestigations.format!({
+        totalCount: 1,
+        returned: 1,
+        offset: 0,
+        limit: 20,
+        investigations: [{ nhtsaId: 'PE20001', summary: longSummary }],
+      }),
+    );
 
     expect(text).toContain(longSummary);
     expect(text).not.toContain('A...');
@@ -417,12 +422,12 @@ describe('searchInvestigations', () => {
       limit: 2,
       investigations: [{ nhtsaId: 'PE20001' }, { nhtsaId: 'EA21002' }],
     };
-    expect(searchInvestigations.format!(page)[0].text).toContain(
+    expect(firstText(searchInvestigations.format!(page))).toContain(
       'Use offset=2 to retrieve the next page.',
     );
 
     const lastPage = { ...page, totalCount: 2 };
-    expect(searchInvestigations.format!(lastPage)[0].text).not.toContain(
+    expect(firstText(searchInvestigations.format!(lastPage))).not.toContain(
       'to retrieve the next page',
     );
   });

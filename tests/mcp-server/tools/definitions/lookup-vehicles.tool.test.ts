@@ -15,6 +15,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', async (importOriginal) => ({
 
 import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getAllMakes: vi.fn(),
@@ -35,7 +36,7 @@ describe('lookupVehicles', () => {
       { makeId: 474, makeName: 'HONDA' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'makes' });
     const result = await lookupVehicles.handler(input, ctx);
 
@@ -54,7 +55,7 @@ describe('lookupVehicles', () => {
       { makeId: 3, makeName: 'C' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'makes', limit: 1, offset: 1 });
     const result = await lookupVehicles.handler(input, ctx);
 
@@ -72,7 +73,7 @@ describe('lookupVehicles', () => {
       { modelId: 3, modelName: 'RAV4', makeId: 441, makeName: 'TOYOTA' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'models',
       make: 'Toyota',
@@ -84,14 +85,14 @@ describe('lookupVehicles', () => {
     expect(result.totalCount).toBe(3);
     expect(result.returned).toBe(2);
     expect(result.models).toHaveLength(2);
-    expect(result.models?.[0].modelName).toBe('CAMRY');
+    expect(result.models?.[0]?.modelName).toBe('CAMRY');
     expect(mockService.getModels).toHaveBeenCalledWith('Toyota', undefined, expect.anything());
   });
 
   it('"models" with modelYear passes year to service', async () => {
     mockService.getModels.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'models',
       make: 'Toyota',
@@ -130,18 +131,18 @@ describe('lookupVehicles', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'manufacturer', manufacturer: 'Toyota' });
     const result = await lookupVehicles.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.manufacturers?.[0].country).toBe('JAPAN');
+    expect(result.manufacturers?.[0]?.country).toBe('JAPAN');
   });
 
   it('out-of-bounds offset surfaces a recovery notice via enrichment', async () => {
     mockService.getAllMakes.mockResolvedValue([{ makeId: 1, makeName: 'A' }]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'makes', offset: 50 });
     const result = await lookupVehicles.handler(input, ctx);
 
@@ -153,7 +154,7 @@ describe('lookupVehicles', () => {
   it('empty models result surfaces a recovery notice via enrichment', async () => {
     mockService.getModels.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'models', make: 'Nope' });
     const result = await lookupVehicles.handler(input, ctx);
 
@@ -174,7 +175,7 @@ describe('lookupVehicles', () => {
       ],
     };
     const blocks = lookupVehicles.format!(output);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('TOYOTA');
     expect(text).toContain('HONDA');
   });
@@ -196,7 +197,7 @@ describe('lookupVehicles', () => {
       ],
     };
     const blocks = lookupVehicles.format!(output);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('TOYOTA');
     expect(text).toContain('JAPAN');
     expect(text).toContain('Passenger Car');
@@ -211,7 +212,7 @@ describe('lookupVehicles', () => {
       limit: 100,
       makes: [{ makeId: 1, makeName: 'A' }],
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
     expect(text).toContain('Showing 100 of 500');
     expect(text).toContain('offset 0');
     expect(text).toContain('limit 100');

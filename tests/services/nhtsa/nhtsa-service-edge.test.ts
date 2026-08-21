@@ -132,7 +132,7 @@ describe('getModels — normalization', () => {
       modelId: 1,
       modelName: 'CAMRY',
     });
-    expect(models[1].modelName).toBe('COROLLA');
+    expect(models[1]!.modelName).toBe('COROLLA');
   });
 
   it('returns empty array when no models found', async () => {
@@ -166,7 +166,7 @@ describe('decodeVinBatch — modelYear propagation', () => {
       { vin: 'BBB', modelYear: 2020 },
     ]);
 
-    const [, init] = mockFetch.mock.calls[0];
+    const [, init] = mockFetch.mock.calls[0]!;
     expect(init.body).toContain('AAA,2020');
     expect(init.body).toContain('BBB,2020');
   });
@@ -186,7 +186,7 @@ describe('decodeVinBatch — modelYear propagation', () => {
     const svc = getNhtsaService();
     await svc.decodeVinBatch([{ vin: 'CCC' }]);
 
-    const [, init] = mockFetch.mock.calls[0];
+    const [, init] = mockFetch.mock.calls[0]!;
     // No year in body — just the VIN
     expect(init.body).toBe('DATA=CCC&format=json');
   });
@@ -200,7 +200,7 @@ describe('abort signal handling', () => {
     const svc = getNhtsaService();
     await svc.getRecallsByVehicle('Toyota', 'Camry', 2020, controller.signal);
 
-    const [, init] = mockFetch.mock.calls[0];
+    const [, init] = mockFetch.mock.calls[0]!;
     // The service may wrap the signal in a composite — check it's an AbortSignal
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
@@ -219,7 +219,7 @@ describe('abort signal handling', () => {
     const svc = getNhtsaService();
     await svc.decodeVin('TEST', undefined, controller.signal);
 
-    const [, init] = mockFetch.mock.calls[0];
+    const [, init] = mockFetch.mock.calls[0]!;
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 });
@@ -261,7 +261,7 @@ describe('getSafetyRatingVariants — signal propagation', () => {
     const svc = getNhtsaService();
     await svc.getSafetyRatingVariants(2020, 'Toyota', 'Camry', controller.signal);
 
-    const [, init] = mockFetch.mock.calls[0];
+    const [, init] = mockFetch.mock.calls[0]!;
     // The service may compose the signal — check it's an AbortSignal
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });

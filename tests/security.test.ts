@@ -19,6 +19,7 @@ import { searchComplaints } from '@/mcp-server/tools/definitions/search-complain
 import { searchInvestigations } from '@/mcp-server/tools/definitions/search-investigations.tool.js';
 import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from './helpers/content.js';
 
 const mockService = {
   getAllMakes: vi.fn(),
@@ -53,7 +54,7 @@ describe('injection safety — searchRecalls', () => {
      *  strings to the service. The service is mocked; what matters is no eval/injection occurs. */
     mockService.getRecallsByVehicle.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({
       make: "Toyota'; DROP TABLE recalls; --",
       model: 'Camry',
@@ -96,10 +97,10 @@ describe('injection safety — searchRecalls', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await searchRecalls.handler(input, ctx);
-    const text = searchRecalls.format!(result)[0].text;
+    const text = firstText(searchRecalls.format!(result));
     assertNoSecretLeakage(text);
   });
 });
@@ -147,7 +148,7 @@ describe('injection safety — searchInvestigations', () => {
   it('passes injection-like query string as opaque text search', async () => {
     mockService.getInvestigations.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({
       query: "brake failure'; SELECT * FROM investigations--",
     });
@@ -160,7 +161,7 @@ describe('injection safety — lookupVehicles', () => {
   it('passes URL-override-like make string to service without SSRF', async () => {
     mockService.getModels.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'models',
       make: 'http://evil.example.com/override',
@@ -243,7 +244,7 @@ describe('oversized input handling', () => {
   it('searchInvestigations with limit at max does not crash', async () => {
     mockService.getInvestigations.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ limit: 25 });
     const result = await searchInvestigations.handler(input, ctx);
     expect(result.limit).toBe(25);
@@ -275,7 +276,7 @@ describe('secret leakage prevention', () => {
       ],
     };
     const blocks = searchInvestigations.format!(output);
-    assertNoSecretLeakage(blocks[0].text);
+    assertNoSecretLeakage(firstText(blocks));
   });
 
   it('format output for decoded VIN contains no secret-pattern strings', () => {
@@ -292,6 +293,6 @@ describe('secret leakage prevention', () => {
       ],
     };
     const blocks = decodeVin.format!(output);
-    assertNoSecretLeakage(blocks[0].text);
+    assertNoSecretLeakage(firstText(blocks));
   });
 });

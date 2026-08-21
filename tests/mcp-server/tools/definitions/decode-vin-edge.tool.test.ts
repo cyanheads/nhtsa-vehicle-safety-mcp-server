@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { decodeVin } from '@/mcp-server/tools/definitions/decode-vin.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   decodeVin: vi.fn(),
@@ -54,7 +55,7 @@ describe('decodeVin — wildcard / partial VINs', () => {
   it('passes wildcard VIN through to service (partial VIN with * positions)', async () => {
     mockService.decodeVin.mockResolvedValue({ ...sampleVin, vin: '1HGCM826*3A*04352' });
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: '1HGCM826*3A*04352' });
     const result = await decodeVin.handler(input, ctx);
 
@@ -74,7 +75,7 @@ describe('decodeVin — multiple batch VINs with errorCode warnings', () => {
       { ...sampleVin, vin: 'BBBB', errorCode: '8', errorText: 'Incorrect WMI' },
     ]);
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: ['AAAA', 'BBBB'] });
     await decodeVin.handler(input, ctx);
 
@@ -90,7 +91,7 @@ describe('decodeVin — multiple batch VINs with errorCode warnings', () => {
       { ...sampleVin, vin: 'BBBB', errorCode: '0' },
     ]);
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: ['AAAA', 'BBBB'] });
     await decodeVin.handler(input, ctx);
 
@@ -113,7 +114,7 @@ describe('decodeVin — format edge cases', () => {
         },
       ],
     };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
     expect(text).toContain('Warning (errorCode: 6)');
     expect(text).toContain('Partial VIN decode');
   });
@@ -127,7 +128,7 @@ describe('decodeVin — format edge cases', () => {
         },
       ],
     };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
     expect(text).toContain('Vehicle details:**');
     expect(text).toContain('Not available');
   });
@@ -142,7 +143,7 @@ describe('decodeVin — format edge cases', () => {
         },
       ],
     };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
     expect(text).toContain('Sport');
   });
 
@@ -161,7 +162,7 @@ describe('decodeVin — format edge cases', () => {
         },
       ],
     };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
     expect(text).toContain('Safety Equipment');
     expect(text).toContain('Front airbags: 1st Row');
     expect(text).toContain('ESC: Standard');
@@ -180,7 +181,7 @@ describe('decodeVin — format edge cases', () => {
         },
       ],
     };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
     expect(text).not.toContain('Safety Equipment');
   });
 });

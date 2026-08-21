@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { decodeVin } from '@/mcp-server/tools/definitions/decode-vin.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   decodeVin: vi.fn(),
@@ -56,12 +57,12 @@ describe('decodeVin', () => {
   it('decodes a single VIN', async () => {
     mockService.decodeVin.mockResolvedValue(sampleVin);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: '1HGCM82633A004352' });
     const result = await decodeVin.handler(input, ctx);
 
     expect(result.vehicles).toHaveLength(1);
-    expect(result.vehicles[0].make).toBe('HONDA');
+    expect(result.vehicles[0]!.make).toBe('HONDA');
     expect(mockService.decodeVin).toHaveBeenCalledWith(
       '1HGCM82633A004352',
       undefined,
@@ -72,7 +73,7 @@ describe('decodeVin', () => {
   it('passes modelYear when provided', async () => {
     mockService.decodeVin.mockResolvedValue(sampleVin);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: '1HGCM82633A004352', modelYear: 2003 });
     await decodeVin.handler(input, ctx);
 
@@ -89,7 +90,7 @@ describe('decodeVin', () => {
       { ...sampleVin, vin: 'BBB', make: 'TOYOTA' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: ['1HGCM82633A004352', 'BBB'] });
     const result = await decodeVin.handler(input, ctx);
 
@@ -106,7 +107,7 @@ describe('decodeVin', () => {
   it('format renders vehicle details', () => {
     const output = { vehicles: [sampleVin] };
     const blocks = decodeVin.format!(output);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('HONDA');
     expect(text).toContain('ACCORD');
     expect(text).toContain('160 HP');
@@ -123,7 +124,7 @@ describe('decodeVin', () => {
         },
       ],
     };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
 
     expect(text).toContain('**Decode status (errorCode: 0):**');
     expect(text).toContain('VIN decoded clean');
@@ -132,7 +133,7 @@ describe('decodeVin', () => {
 
   it('format falls back to plain clean-decode wording when VPIC sends no errorText', () => {
     const output = { vehicles: [{ ...sampleVin, errorCode: '0', errorText: '' }] };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
 
     expect(text).toContain(
       '**Decode status (errorCode: 0):** VPIC decoded this VIN with no errors.',
@@ -141,7 +142,7 @@ describe('decodeVin', () => {
 
   it('format renders no decode-status line when VPIC omitted errorCode', () => {
     const output = { vehicles: [{ vin: '1HGCM82633A004352', make: 'HONDA' }] };
-    const text = decodeVin.format!(output)[0].text;
+    const text = firstText(decodeVin.format!(output));
 
     expect(text).not.toContain('Decode status');
     expect(text).not.toContain('Warning (errorCode');
@@ -151,13 +152,13 @@ describe('decodeVin', () => {
     // #8 fix: decodeVin service now returns null instead of throwing on empty Results[]
     mockService.decodeVin.mockResolvedValue(null);
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: 'TEST' });
     const result = await decodeVin.handler(input, ctx);
 
     expect(result.vehicles).toHaveLength(0);
     // format() should render "No VIN decode results."
-    const text = decodeVin.format!(result)[0].text;
+    const text = firstText(decodeVin.format!(result));
     expect(text).toContain('No VIN decode results.');
   });
 
@@ -165,7 +166,7 @@ describe('decodeVin', () => {
     // #14 fix: ctx.enrich({ effectiveQuery }) surfaces batch/count context
     mockService.decodeVin.mockResolvedValue(sampleVin);
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: '1HGCM82633A004352' });
     await decodeVin.handler(input, ctx);
 
@@ -175,7 +176,7 @@ describe('decodeVin', () => {
   it('populates effectiveQuery enrichment for batch VINs', async () => {
     mockService.decodeVinBatch.mockResolvedValue([sampleVin, { ...sampleVin, vin: 'BBB' }]);
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: ['1HGCM82633A004352', 'BBB'] });
     await decodeVin.handler(input, ctx);
 
@@ -187,7 +188,7 @@ describe('decodeVin', () => {
     const partialVin = { ...sampleVin, errorCode: '6', errorText: 'Partial VIN decode' };
     mockService.decodeVin.mockResolvedValue(partialVin);
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: '1HGCM82633A004352' });
     await decodeVin.handler(input, ctx);
 
@@ -199,7 +200,7 @@ describe('decodeVin', () => {
   it('does not populate notice enrichment when errorCode is 0 or absent', async () => {
     mockService.decodeVin.mockResolvedValue({ ...sampleVin, errorCode: '0' });
 
-    const ctx = createMockContext({ enrichment: decodeVin.enrichment });
+    const ctx = createMockContext({ errors: decodeVin.errors });
     const input = decodeVin.input.parse({ vin: '1HGCM82633A004352' });
     await decodeVin.handler(input, ctx);
 

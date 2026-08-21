@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { getVehicleSafety } from '@/mcp-server/tools/definitions/get-vehicle-safety.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getSafetyRatingVariants: vi.fn(),
@@ -90,9 +91,9 @@ describe('getVehicleSafety', () => {
     const result = await getVehicleSafety.handler(input, ctx);
 
     expect(result.safetyRatings).toHaveLength(1);
-    expect(result.safetyRatings[0].overallRating).toBe('5');
+    expect(result.safetyRatings![0]!.overallRating).toBe('5');
     expect(result.recalls).toHaveLength(1);
-    expect(result.recalls[0]).toMatchObject({
+    expect(result.recalls![0]).toMatchObject({
       campaignNumber: '20V682000',
       manufacturer: 'Toyota',
       consequence: 'Fire risk.',
@@ -100,9 +101,9 @@ describe('getVehicleSafety', () => {
       parkOutSide: false,
       overTheAirUpdate: false,
     });
-    expect(result.complaintSummary.totalCount).toBe(1);
-    expect(result.complaintSummary.crashCount).toBe(1);
-    expect(result.complaintSummary.componentBreakdown).toHaveLength(2);
+    expect(result.complaintSummary!.totalCount).toBe(1);
+    expect(result.complaintSummary!.crashCount).toBe(1);
+    expect(result.complaintSummary!.componentBreakdown).toHaveLength(2);
     expect(result.sectionStatus).toEqual({
       safetyRatings: 'available',
       recalls: 'available',
@@ -118,7 +119,7 @@ describe('getVehicleSafety', () => {
     const ctx = createMockContext();
     const input = getVehicleSafety.input.parse({ make: 'Fake', model: 'Car', modelYear: 1990 });
     const result = await getVehicleSafety.handler(input, ctx);
-    const text = getVehicleSafety.format!(getVehicleSafety.output.parse(result))[0].text;
+    const text = firstText(getVehicleSafety.format!(getVehicleSafety.output.parse(result)));
 
     /** Every section states its emptiness, so no consumer has to read absence into a missing key. */
     expect(result.safetyRatings).toEqual([]);
@@ -212,12 +213,12 @@ describe('getVehicleSafety', () => {
     const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await getVehicleSafety.handler(input, ctx);
     const parsed = getVehicleSafety.output.parse(result);
-    const text = getVehicleSafety.format!(parsed)[0].text;
+    const text = firstText(getVehicleSafety.format!(parsed));
 
     expect(parsed.recalls).toHaveLength(1);
-    expect(parsed.recalls[0].parkIt).toBeUndefined();
-    expect(parsed.recalls[0].parkOutSide).toBeUndefined();
-    expect(parsed.recalls[0].overTheAirUpdate).toBeUndefined();
+    expect(parsed.recalls![0]!.parkIt).toBeUndefined();
+    expect(parsed.recalls![0]!.parkOutSide).toBeUndefined();
+    expect(parsed.recalls![0]!.overTheAirUpdate).toBeUndefined();
     expect(parsed.sectionStatus.recalls).toBe('available');
     expect(text).toContain('*Advisories:* None reported by NHTSA');
   });
@@ -247,9 +248,9 @@ describe('getVehicleSafety', () => {
       modelYear: 2023,
     });
     const parsed = getVehicleSafety.output.parse(await getVehicleSafety.handler(input, ctx));
-    const text = getVehicleSafety.format!(parsed)[0].text;
+    const text = firstText(getVehicleSafety.format!(parsed));
 
-    expect(parsed.recalls[0]).toMatchObject({
+    expect(parsed.recalls![0]).toMatchObject({
       manufacturer: 'Kia America, Inc.',
       consequence: 'An overheating motor increases the risk of a fire.',
       parkIt: false,
@@ -298,11 +299,11 @@ describe('getVehicleSafety', () => {
     const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await getVehicleSafety.handler(input, ctx);
     const parsed = getVehicleSafety.output.parse(result);
-    const text = getVehicleSafety.format!(parsed)[0].text;
+    const text = firstText(getVehicleSafety.format!(parsed));
 
     expect(parsed.safetyRatings).toHaveLength(1);
-    expect(parsed.safetyRatings[0].overallRating).toBeUndefined();
-    expect(parsed.safetyRatings[0].rollover.probability).toBeUndefined();
+    expect(parsed.safetyRatings![0]!.overallRating).toBeUndefined();
+    expect(parsed.safetyRatings![0]!.rollover.probability).toBeUndefined();
     expect(text).toContain('Vehicle 14720');
     expect(text).toContain('Not available');
     expect(parsed.sectionStatus.safetyRatings).toBe('available');
@@ -317,7 +318,7 @@ describe('getVehicleSafety', () => {
     const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await getVehicleSafety.handler(input, ctx);
     const parsed = getVehicleSafety.output.parse(result);
-    const text = getVehicleSafety.format!(parsed)[0].text;
+    const text = firstText(getVehicleSafety.format!(parsed));
 
     expect(parsed.safetyRatings).toBeUndefined();
     expect(parsed.recalls).toBeUndefined();
@@ -391,9 +392,9 @@ describe('getVehicleSafety', () => {
       },
       warnings: [],
     };
-    const blocks = getVehicleSafety.format!(output);
+    const blocks = getVehicleSafety.format!(getVehicleSafety.output.parse(output));
     expect(blocks).toHaveLength(1);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('NCAP Safety Ratings');
     expect(text).toContain('DO NOT DRIVE');
     expect(text).toContain('*Consequence:* Fire risk.');
@@ -419,9 +420,9 @@ describe('getVehicleSafety', () => {
     const ctx = createMockContext();
     const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2007 });
     const parsed = getVehicleSafety.output.parse(await getVehicleSafety.handler(input, ctx));
-    const text = getVehicleSafety.format!(parsed)[0].text;
+    const text = firstText(getVehicleSafety.format!(parsed));
 
-    expect(parsed.complaintSummary.componentBreakdown).toHaveLength(27);
+    expect(parsed.complaintSummary!.componentBreakdown).toHaveLength(27);
     const renderedRows = text.split('\n').filter((line) => line.startsWith('- COMPONENT_'));
     expect(renderedRows).toHaveLength(27);
     for (const component of components) {

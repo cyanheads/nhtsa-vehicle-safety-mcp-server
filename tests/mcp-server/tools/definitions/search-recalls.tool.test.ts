@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getRecallsByVehicle: vi.fn(),
@@ -41,12 +42,12 @@ describe('searchRecalls', () => {
   it('searches by vehicle', async () => {
     mockService.getRecallsByVehicle.mockResolvedValue([sampleRecall]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await searchRecalls.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.recalls[0].campaignNumber).toBe('20V682000');
+    expect(result.recalls[0]!.campaignNumber).toBe('20V682000');
     expect(mockService.getRecallsByVehicle).toHaveBeenCalledWith(
       'Toyota',
       'Camry',
@@ -69,15 +70,15 @@ describe('searchRecalls', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await searchRecalls.handler(input, ctx);
     const parsed = searchRecalls.output.parse(result);
 
     expect(parsed.totalCount).toBe(1);
-    expect(parsed.recalls[0].parkIt).toBeUndefined();
-    expect(parsed.recalls[0].parkOutSide).toBeUndefined();
-    expect(parsed.recalls[0].overTheAirUpdate).toBeUndefined();
+    expect(parsed.recalls[0]!.parkIt).toBeUndefined();
+    expect(parsed.recalls[0]!.parkOutSide).toBeUndefined();
+    expect(parsed.recalls[0]!.overTheAirUpdate).toBeUndefined();
   });
 
   it('searches by campaign number', async () => {
@@ -95,13 +96,13 @@ describe('searchRecalls', () => {
       overTheAirUpdate: false,
     });
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ campaignNumber: '20V682000' });
     const result = await searchRecalls.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.recalls[0].potentialUnitsAffected).toBe(5000);
-    expect(result.recalls[0].parkOutSide).toBe(true);
+    expect(result.recalls[0]!.potentialUnitsAffected).toBe(5000);
+    expect(result.recalls[0]!.parkOutSide).toBe(true);
   });
 
   it('surfaces the full affected-vehicle list and the linked investigation for a campaign', async () => {
@@ -123,7 +124,7 @@ describe('searchRecalls', () => {
       affectedVehicles,
     });
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ campaignNumber: '24V744000' });
     const result = await searchRecalls.handler(input, ctx);
     const parsed = searchRecalls.output.parse(result);
@@ -131,10 +132,10 @@ describe('searchRecalls', () => {
     // One collapsed campaign record — not one row per vehicle, and not a hardcoded count.
     expect(parsed.totalCount).toBe(1);
     expect(parsed.recalls).toHaveLength(1);
-    expect(parsed.recalls[0].affectedVehicles).toEqual(affectedVehicles);
-    expect(parsed.recalls[0].investigationId).toBe('EA23003');
+    expect(parsed.recalls[0]!.affectedVehicles).toEqual(affectedVehicles);
+    expect(parsed.recalls[0]!.investigationId).toBe('EA23003');
 
-    const text = searchRecalls.format!(parsed)[0].text;
+    const text = firstText(searchRecalls.format!(parsed));
     expect(text).toContain('2022 HONDA CIVIC');
     expect(text).toContain('2024 ACURA INTEGRA');
     expect(text).toContain('EA23003');
@@ -152,17 +153,17 @@ describe('searchRecalls', () => {
       affectedVehicles: [],
     });
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ campaignNumber: '20V682000' });
     const result = await searchRecalls.handler(input, ctx);
     const parsed = searchRecalls.output.parse(result);
 
     expect(parsed.totalCount).toBe(1);
-    expect(parsed.recalls[0].parkIt).toBeUndefined();
-    expect(parsed.recalls[0].parkOutSide).toBeUndefined();
-    expect(parsed.recalls[0].overTheAirUpdate).toBeUndefined();
-    expect(parsed.recalls[0].investigationId).toBeUndefined();
-    expect(parsed.recalls[0].affectedVehicles).toEqual([]);
+    expect(parsed.recalls[0]!.parkIt).toBeUndefined();
+    expect(parsed.recalls[0]!.parkOutSide).toBeUndefined();
+    expect(parsed.recalls[0]!.overTheAirUpdate).toBeUndefined();
+    expect(parsed.recalls[0]!.investigationId).toBeUndefined();
+    expect(parsed.recalls[0]!.affectedVehicles).toEqual([]);
   });
 
   it('throws when campaign not found', async () => {
@@ -197,7 +198,7 @@ describe('searchRecalls', () => {
       { ...sampleRecall, campaignNumber: '22V200000', reportReceivedDate: '2022-03-01' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -207,13 +208,13 @@ describe('searchRecalls', () => {
     const result = await searchRecalls.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.recalls[0].campaignNumber).toBe('21V100000');
+    expect(result.recalls[0]!.campaignNumber).toBe('21V100000');
   });
 
   it('populates enrichment notice when no vehicle recalls found', async () => {
     mockService.getRecallsByVehicle.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ make: 'Nope', model: 'Ghost', modelYear: 2023 });
     const result = await searchRecalls.handler(input, ctx);
 
@@ -240,7 +241,7 @@ describe('searchRecalls', () => {
       totalCount: 1,
     };
     const blocks = searchRecalls.format!(output);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('DO NOT DRIVE');
     expect(text).toContain('PARK OUTSIDE');
     expect(text).toContain('OTA update available');
@@ -267,7 +268,7 @@ describe('searchRecalls', () => {
       ],
       totalCount: 1,
     };
-    const text = searchRecalls.format!(output)[0].text;
+    const text = firstText(searchRecalls.format!(output));
 
     expect(text).toContain(
       '**Advisories:** Do not drive: no | Park outside: no | Over-the-air update: no',
@@ -292,7 +293,7 @@ describe('searchRecalls', () => {
       ],
       totalCount: 1,
     };
-    const text = searchRecalls.format!(output)[0].text;
+    const text = firstText(searchRecalls.format!(output));
 
     expect(text).toContain('**Advisories:** None reported by NHTSA');
   });
@@ -316,7 +317,7 @@ describe('searchRecalls', () => {
       ],
       totalCount: 1,
     };
-    const text = searchRecalls.format!(output)[0].text;
+    const text = firstText(searchRecalls.format!(output));
 
     expect(text).toContain(
       '**Advisories:** Do not drive: no | Park outside: no | Over-the-air update: yes',

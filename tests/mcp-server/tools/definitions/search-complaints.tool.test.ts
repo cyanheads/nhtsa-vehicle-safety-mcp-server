@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { searchComplaints } from '@/mcp-server/tools/definitions/search-complaints.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = { getComplaintsByVehicle: vi.fn() };
 
@@ -110,11 +111,11 @@ describe('searchComplaints', () => {
     const input = searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await searchComplaints.handler(input, ctx);
     const parsed = searchComplaints.output.parse(result);
-    const text = searchComplaints.format!(parsed)[0].text;
+    const text = firstText(searchComplaints.format!(parsed));
 
     expect(parsed.totalCount).toBe(1);
-    expect(parsed.complaints[0].crash).toBeUndefined();
-    expect(parsed.complaints[0].components).toBeUndefined();
+    expect(parsed.complaints[0]!.crash).toBeUndefined();
+    expect(parsed.complaints[0]!.components).toBeUndefined();
     expect(text).toContain('#Unknown');
     expect(text).toContain('Not available');
     expect(text).not.toContain('CRASH');
@@ -144,7 +145,7 @@ describe('searchComplaints', () => {
         },
       ],
     };
-    const text = searchComplaints.format!(output)[0].text;
+    const text = firstText(searchComplaints.format!(output));
 
     expect(text).toContain('Reported: Crash: no | Fire: no | Injuries: 0 | Deaths: 0');
     // The bracketed badge stays reserved for actual crash/fire/casualty reports.
@@ -167,7 +168,7 @@ describe('searchComplaints', () => {
         },
       ],
     };
-    const text = searchComplaints.format!(output)[0].text;
+    const text = firstText(searchComplaints.format!(output));
 
     expect(text).toContain('Reported: Crash: yes | Deaths: 0');
     expect(text).not.toContain('Fire:');
@@ -190,7 +191,7 @@ describe('searchComplaints', () => {
         },
       ],
     });
-    const text = searchComplaints.format!(output)[0].text;
+    const text = firstText(searchComplaints.format!(output));
 
     expect(text).toContain('1016-06-28');
     expect(text).toContain('predates the vehicle model year');
@@ -214,7 +215,7 @@ describe('searchComplaints', () => {
         },
       ],
     });
-    const text = searchComplaints.format!(output)[0].text;
+    const text = firstText(searchComplaints.format!(output));
 
     expect(text).toContain('2019-07-28');
     expect(text).toContain('falls after the complaint was filed');
@@ -309,23 +310,25 @@ describe('searchComplaints', () => {
   });
 
   it('format explains an out-of-range page instead of a bare "returned 0"', () => {
-    const text = searchComplaints.format!({
-      totalCount: 264,
-      returned: 0,
-      offset: 9000,
-      limit: 5,
-      componentBreakdown: [
-        {
-          component: 'ENGINE',
-          count: 264,
-          crashCount: 0,
-          fireCount: 0,
-          injuryCount: 0,
-          deathCount: 0,
-        },
-      ],
-      complaints: [],
-    })[0].text;
+    const text = firstText(
+      searchComplaints.format!({
+        totalCount: 264,
+        returned: 0,
+        offset: 9000,
+        limit: 5,
+        componentBreakdown: [
+          {
+            component: 'ENGINE',
+            count: 264,
+            crashCount: 0,
+            fireCount: 0,
+            injuryCount: 0,
+            deathCount: 0,
+          },
+        ],
+        complaints: [],
+      }),
+    );
 
     expect(text).toContain('No results for this page (offset 9000, limit 5). 264 total');
     expect(text).not.toContain('to retrieve the next page');
@@ -363,7 +366,7 @@ describe('searchComplaints', () => {
       ],
     };
     const blocks = searchComplaints.format!(output);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('2 complaint(s)');
     expect(text).toContain('ENGINE');
     expect(text).toContain('CRASH');

@@ -231,9 +231,9 @@ describe('getRecallsByVehicle', () => {
     const recalls = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
 
     expect(recalls).toHaveLength(1);
-    expect(recalls[0].parkIt).toBeUndefined();
-    expect(recalls[0].parkOutSide).toBeUndefined();
-    expect(recalls[0].overTheAirUpdate).toBeUndefined();
+    expect(recalls[0]!.parkIt).toBeUndefined();
+    expect(recalls[0]!.parkOutSide).toBeUndefined();
+    expect(recalls[0]!.overTheAirUpdate).toBeUndefined();
   });
 });
 
@@ -294,8 +294,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
 
-    expect(complaints[0].dateOfIncident).toBe('2025-03-01');
-    expect(complaints[0].dateComplaintFiled).toBe('2026-07-26');
+    expect(complaints[0]!.dateOfIncident).toBe('2025-03-01');
+    expect(complaints[0]!.dateComplaintFiled).toBe('2026-07-26');
   });
 
   it('drops the epoch placeholder from dateOfIncident', async () => {
@@ -310,9 +310,9 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
 
-    expect(complaints[0].dateOfIncident).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBeUndefined();
     // The filing date carries no placeholder rule — an old filing is preserved, normalized.
-    expect(complaints[0].dateComplaintFiled).toBe('2020-01-15');
+    expect(complaints[0]!.dateComplaintFiled).toBe('2020-01-15');
   });
 
   it('drops the 1901 placeholder from dateOfIncident', async () => {
@@ -330,8 +330,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Ford', 'Explorer', 1998);
 
-    expect(complaints[0].dateOfIncident).toBeUndefined();
-    expect(complaints[1].dateOfIncident).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBeUndefined();
+    expect(complaints[1]!.dateOfIncident).toBeUndefined();
   });
 
   it('reports a placeholder as absent, not as an unreliable value', async () => {
@@ -348,8 +348,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
 
-    expect(complaints[0].dateOfIncident).toBeUndefined();
-    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBeUndefined();
+    expect(complaints[0]!.unreliableIncidentDate).toBeUndefined();
   });
 
   it('keeps a genuine pre-1990 incident date', async () => {
@@ -366,9 +366,9 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Honda', 'Accord', 1986);
 
-    expect(complaints[0].dateOfIncident).toBe('1989-09-29');
-    expect(complaints[0].dateComplaintFiled).toBe('1995-06-21');
-    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBe('1989-09-29');
+    expect(complaints[0]!.dateComplaintFiled).toBe('1995-06-21');
+    expect(complaints[0]!.unreliableIncidentDate).toBeUndefined();
   });
 
   it('keeps a 1970 incident date that is not the epoch placeholder', async () => {
@@ -383,7 +383,7 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Ford', 'Pinto', 1971);
 
-    expect(complaints[0].dateOfIncident).toBe('1970-07-04');
+    expect(complaints[0]!.dateOfIncident).toBe('1970-07-04');
   });
 
   it('passes through complaint dates it cannot parse instead of inventing one', async () => {
@@ -398,10 +398,10 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
 
-    expect(complaints[0].dateOfIncident).toBe('unknown');
-    expect(complaints[0].dateComplaintFiled).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBe('unknown');
+    expect(complaints[0]!.dateComplaintFiled).toBeUndefined();
     // Ordering comparisons are meaningless on an unparseable value — no verdict is invented.
-    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+    expect(complaints[0]!.unreliableIncidentDate).toBeUndefined();
   });
 
   it('reports a mistyped incident year rather than rendering it as the incident date', async () => {
@@ -419,12 +419,12 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Hyundai', 'Santa Fe', 2016);
 
-    expect(complaints[0].dateOfIncident).toBeUndefined();
-    expect(complaints[0].unreliableIncidentDate).toEqual({
+    expect(complaints[0]!.dateOfIncident).toBeUndefined();
+    expect(complaints[0]!.unreliableIncidentDate).toEqual({
       reported: '1016-06-28',
       reason: 'predates_model_year',
     });
-    expect(complaints[0].dateComplaintFiled).toBe('2016-06-28');
+    expect(complaints[0]!.dateComplaintFiled).toBe('2016-06-28');
   });
 
   it('reports an incident date that postdates the complaint reporting it', async () => {
@@ -442,8 +442,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Chevrolet', 'Corvette', 1998);
 
-    expect(complaints[0].dateOfIncident).toBeUndefined();
-    expect(complaints[0].unreliableIncidentDate).toEqual({
+    expect(complaints[0]!.dateOfIncident).toBeUndefined();
+    expect(complaints[0]!.unreliableIncidentDate).toEqual({
       reported: '2019-07-28',
       reason: 'postdates_filing',
     });
@@ -462,8 +462,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Hyundai', 'Santa Fe', 2016);
 
-    expect(complaints[0].dateOfIncident).toBe('2015-11-02');
-    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBe('2015-11-02');
+    expect(complaints[0]!.unreliableIncidentDate).toBeUndefined();
   });
 
   it('rejects an incident dated before the vehicle could exist', async () => {
@@ -478,8 +478,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Hyundai', 'Santa Fe', 2016);
 
-    expect(complaints[0].dateOfIncident).toBeUndefined();
-    expect(complaints[0].unreliableIncidentDate).toEqual({
+    expect(complaints[0]!.dateOfIncident).toBeUndefined();
+    expect(complaints[0]!.unreliableIncidentDate).toEqual({
       reported: '2014-11-02',
       reason: 'predates_model_year',
     });
@@ -499,8 +499,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Graco', 'Child Safety Seat', 9999);
 
-    expect(complaints[0].dateOfIncident).toBe('0202-04-25');
-    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBe('0202-04-25');
+    expect(complaints[0]!.unreliableIncidentDate).toBeUndefined();
   });
 
   it('leaves the incident date alone when there is no filing date to compare it against', async () => {
@@ -515,8 +515,8 @@ describe('getComplaintsByVehicle', () => {
     const svc = getNhtsaService();
     const complaints = await svc.getComplaintsByVehicle('Chevrolet', 'Corvette', 2018);
 
-    expect(complaints[0].dateOfIncident).toBe('2019-07-28');
-    expect(complaints[0].unreliableIncidentDate).toBeUndefined();
+    expect(complaints[0]!.dateOfIncident).toBe('2019-07-28');
+    expect(complaints[0]!.unreliableIncidentDate).toBeUndefined();
   });
 
   it('preserves missing complaint fields as undefined', async () => {
@@ -532,10 +532,10 @@ describe('getComplaintsByVehicle', () => {
     const complaints = await svc.getComplaintsByVehicle('Toyota', 'Camry', 2020);
 
     expect(complaints).toHaveLength(1);
-    expect(complaints[0].odiNumber).toBe(12345);
-    expect(complaints[0].crash).toBeUndefined();
-    expect(complaints[0].components).toBeUndefined();
-    expect(complaints[0].summary).toBeUndefined();
+    expect(complaints[0]!.odiNumber).toBe(12345);
+    expect(complaints[0]!.crash).toBeUndefined();
+    expect(complaints[0]!.components).toBeUndefined();
+    expect(complaints[0]!.summary).toBeUndefined();
   });
 });
 
@@ -796,7 +796,7 @@ describe('decodeVinBatch', () => {
     const svc = getNhtsaService();
     await svc.decodeVinBatch([{ vin: 'AAA', modelYear: 2020 }, { vin: 'BBB' }]);
 
-    const [url, init] = mockFetch.mock.calls[0];
+    const [url, init] = mockFetch.mock.calls[0]!;
     expect(url).toContain('DecodeVINValuesBatch');
     expect(init.method).toBe('POST');
     expect(init.body).toBe('DATA=AAA,2020;BBB&format=json');
@@ -828,14 +828,14 @@ describe('getInvestigations caching (flat-file source)', () => {
 
     const first = await svc.getInvestigations();
     expect(first).toHaveLength(1);
-    expect(first[0].nhtsaId).toBe('PE12345');
-    expect(first[0].investigationType).toBe('PE');
-    expect(first[0].status).toBe('O'); // no closeDate → open
-    expect(first[0].makes).toEqual(['TOYOTA']);
-    expect(first[0].models).toEqual(['CAMRY']);
-    expect(first[0].components).toEqual(['BRAKES']);
-    expect(first[0].subject).toBe('Brake failure');
-    expect(first[0].openDate).toBe('2023-01-15');
+    expect(first[0]!.nhtsaId).toBe('PE12345');
+    expect(first[0]!.investigationType).toBe('PE');
+    expect(first[0]!.status).toBe('O'); // no closeDate → open
+    expect(first[0]!.makes).toEqual(['TOYOTA']);
+    expect(first[0]!.models).toEqual(['CAMRY']);
+    expect(first[0]!.components).toEqual(['BRAKES']);
+    expect(first[0]!.subject).toBe('Brake failure');
+    expect(first[0]!.openDate).toBe('2023-01-15');
 
     // Second call uses cache — only one fetch
     const second = await svc.getInvestigations();
@@ -879,11 +879,11 @@ describe('getInvestigations caching (flat-file source)', () => {
     const investigations = await svc.getInvestigations();
 
     expect(investigations).toHaveLength(1);
-    expect(investigations[0].nhtsaId).toBe('PE12345');
-    expect(investigations[0].models).toContain('CAMRY');
-    expect(investigations[0].models).toContain('COROLLA');
-    expect(investigations[0].years).toContain(2020);
-    expect(investigations[0].years).toContain(2021);
+    expect(investigations[0]!.nhtsaId).toBe('PE12345');
+    expect(investigations[0]!.models).toContain('CAMRY');
+    expect(investigations[0]!.models).toContain('COROLLA');
+    expect(investigations[0]!.years).toContain(2020);
+    expect(investigations[0]!.years).toContain(2021);
   });
 
   it('marks investigation as closed when closeDate is present', async () => {
@@ -908,10 +908,10 @@ describe('getInvestigations caching (flat-file source)', () => {
     const svc = getNhtsaService();
     const investigations = await svc.getInvestigations();
 
-    expect(investigations[0].status).toBe('C');
-    expect(investigations[0].closeDate).toBe('2022-01-01');
-    expect(investigations[0].recallCampaign).toBe('21V407000');
-    expect(investigations[0].investigationType).toBe('EA');
+    expect(investigations[0]!.status).toBe('C');
+    expect(investigations[0]!.closeDate).toBe('2022-01-01');
+    expect(investigations[0]!.recallCampaign).toBe('21V407000');
+    expect(investigations[0]!.investigationType).toBe('EA');
   });
 
   it('omits fields for sparse rows', async () => {
@@ -923,11 +923,11 @@ describe('getInvestigations caching (flat-file source)', () => {
     const investigations = await svc.getInvestigations();
 
     expect(investigations).toHaveLength(1);
-    expect(investigations[0].nhtsaId).toBe('PE12345');
-    expect(investigations[0].subject).toBeUndefined();
-    expect(investigations[0].openDate).toBeUndefined();
-    expect(investigations[0].years).toEqual([]); // 9999 excluded
-    expect(investigations[0].makes).toEqual([]);
+    expect(investigations[0]!.nhtsaId).toBe('PE12345');
+    expect(investigations[0]!.subject).toBeUndefined();
+    expect(investigations[0]!.openDate).toBeUndefined();
+    expect(investigations[0]!.years).toEqual([]); // 9999 excluded
+    expect(investigations[0]!.makes).toEqual([]);
   });
 
   it('decodes multi-byte UTF-8 characters correctly (not mojibake)', async () => {
@@ -959,11 +959,11 @@ describe('getInvestigations caching (flat-file source)', () => {
 
     expect(investigations).toHaveLength(1);
     // Subject must contain the actual Unicode apostrophe, not its latin1 expansion (â€™)
-    expect(investigations[0].subject).toBe(subject);
-    expect(investigations[0].subject).not.toContain('â');
+    expect(investigations[0]!.subject).toBe(subject);
+    expect(investigations[0]!.subject).not.toContain('â');
     // Summary must contain actual curly quotes, not their latin1 expansions (â€œ / â€)
-    expect(investigations[0].summary).toBe(summary);
-    expect(investigations[0].summary).not.toContain('â€');
+    expect(investigations[0]!.summary).toBe(summary);
+    expect(investigations[0]!.summary).not.toContain('â€');
   });
 
   it('extracts investigationType for 1-letter prefix (C)', async () => {
@@ -991,8 +991,8 @@ describe('getInvestigations caching (flat-file source)', () => {
     const investigations = await svc.getInvestigations();
 
     expect(investigations).toHaveLength(1);
-    expect(investigations[0].nhtsaId).toBe('C85001');
-    expect(investigations[0].investigationType).toBe('C');
+    expect(investigations[0]!.nhtsaId).toBe('C85001');
+    expect(investigations[0]!.investigationType).toBe('C');
   });
 });
 
@@ -1130,8 +1130,8 @@ describe('VPIC lookups', () => {
 
     const svc = getNhtsaService();
     const mfrs = await svc.getManufacturer('Tesla');
-    expect(mfrs[0].vehicleTypes).toHaveLength(3);
-    expect(mfrs[0].vehicleTypes[0]).toEqual({ name: 'Passenger Car' });
+    expect(mfrs[0]!.vehicleTypes).toHaveLength(3);
+    expect(mfrs[0]!.vehicleTypes[0]).toEqual({ name: 'Passenger Car' });
   });
 
   it('getManufacturer requests page 1 and stops on a short page', async () => {
@@ -1148,7 +1148,7 @@ describe('VPIC lookups', () => {
     await svc.getManufacturer('Toyota');
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0][0]).toContain('page=1');
+    expect(mockFetch.mock.calls[0]![0]).toContain('page=1');
   });
 
   it('getManufacturer walks pages until VPIC returns a short page', async () => {
@@ -1188,8 +1188,8 @@ describe('VPIC lookups', () => {
 
     expect(mfrs).toHaveLength(255);
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(mockFetch.mock.calls[1][0]).toContain('page=2');
-    expect(mockFetch.mock.calls[2][0]).toContain('page=3');
+    expect(mockFetch.mock.calls[1]![0]).toContain('page=2');
+    expect(mockFetch.mock.calls[2]![0]).toContain('page=3');
     expect(mfrs[254]?.manufacturerName).toBe('MFR 254');
   });
 
@@ -1273,7 +1273,7 @@ describe('getRecallCampaign (direct endpoint)', () => {
     expect(result!.receivedDate).toBe('2020-12-11');
     // Single request to the direct endpoint
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0][0]).toContain('/recalls/campaignNumber');
+    expect(mockFetch.mock.calls[0]![0]).toContain('/recalls/campaignNumber');
   });
 
   it('collapses the one-row-per-vehicle response into a single record with the vehicle list', async () => {

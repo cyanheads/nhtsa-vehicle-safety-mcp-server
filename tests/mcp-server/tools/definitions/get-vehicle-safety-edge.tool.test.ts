@@ -14,6 +14,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { getVehicleSafety } from '@/mcp-server/tools/definitions/get-vehicle-safety.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getSafetyRatingVariants: vi.fn(),
@@ -104,7 +105,7 @@ describe('getVehicleSafety — complaints unavailable', () => {
     const input = getVehicleSafety.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await getVehicleSafety.handler(input, ctx);
     const parsed = getVehicleSafety.output.parse(result);
-    const text = getVehicleSafety.format!(parsed)[0].text;
+    const text = firstText(getVehicleSafety.format!(parsed));
 
     expect(parsed.sectionStatus.complaints).toBe('unavailable');
     expect(text).toContain('Complaint data was unavailable');
@@ -151,7 +152,7 @@ describe('getVehicleSafety — format edge cases', () => {
       warnings: ['Some NCAP safety ratings could not be retrieved (1 variant).'],
     };
 
-    const text = getVehicleSafety.format!(output)[0].text;
+    const text = firstText(getVehicleSafety.format!(output));
     expect(text).toContain('Some matching NCAP variant ratings could not be loaded');
     expect(text).toContain('Warning:');
   });
@@ -176,7 +177,7 @@ describe('getVehicleSafety — format edge cases', () => {
       warnings: [],
     };
 
-    const text = getVehicleSafety.format!(output)[0].text;
+    const text = firstText(getVehicleSafety.format!(output));
     expect(text).toContain('No NCAP crash test ratings found');
     expect(text).toContain('No recalls found');
     expect(text).toContain('No complaints filed');
@@ -227,7 +228,7 @@ describe('getVehicleSafety — format edge cases', () => {
       warnings: ['NCAP crash test data is not available for this vehicle.'],
     };
 
-    const text = getVehicleSafety.format!(output)[0].text;
+    const text = firstText(getVehicleSafety.format!(output));
     expect(text).toContain('ENGINE');
     expect(text).toContain('BRAKES');
     expect(text).toContain('STEERING');
@@ -303,7 +304,7 @@ describe('getVehicleSafety — decode from output schema', () => {
       warnings: [],
     };
 
-    const text = getVehicleSafety.format!(output)[0].text;
+    const text = firstText(getVehicleSafety.format!(output));
     expect(text).toContain('**Rollover:** Not Rated | Probability: Not available');
     expect(text).not.toContain('0.0%');
   });

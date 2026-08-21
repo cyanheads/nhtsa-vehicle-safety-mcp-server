@@ -53,10 +53,10 @@ describe('buildComponentBreakdown', () => {
       { components: 'ENGINE' },
     ]);
 
-    expect(result[0].component).toBe('ENGINE');
-    expect(result[0].count).toBe(3);
-    expect(result[1].component).toBe('BRAKES');
-    expect(result[1].count).toBe(1);
+    expect(result[0]!.component).toBe('ENGINE');
+    expect(result[0]!.count).toBe(3);
+    expect(result[1]!.component).toBe('BRAKES');
+    expect(result[1]!.count).toBe(1);
   });
 
   it('aggregates crash, fire, injury, and death counts across multiple complaints', () => {
@@ -79,13 +79,13 @@ describe('buildComponentBreakdown', () => {
   it('handles complaints with undefined components (skips them)', () => {
     const result = buildComponentBreakdown([
       { crash: false },
-      { components: undefined, crash: true },
+      { crash: true },
       { components: 'ENGINE' },
     ]);
 
     // Only ENGINE complaint has a component; the others are skipped
     expect(result).toHaveLength(1);
-    expect(result[0].component).toBe('ENGINE');
+    expect(result[0]!.component).toBe('ENGINE');
   });
 
   it('trims whitespace around component names', () => {
@@ -99,9 +99,9 @@ describe('buildComponentBreakdown', () => {
   it('handles missing crash/fire/injury/death as zero', () => {
     const result = buildComponentBreakdown([{ components: 'ENGINE' }]);
 
-    expect(result[0].crashCount).toBe(0);
-    expect(result[0].fireCount).toBe(0);
-    expect(result[0].injuryCount).toBe(0);
-    expect(result[0].deathCount).toBe(0);
+    expect(result[0]!.crashCount).toBe(0);
+    expect(result[0]!.fireCount).toBe(0);
+    expect(result[0]!.injuryCount).toBe(0);
+    expect(result[0]!.deathCount).toBe(0);
   });
 });

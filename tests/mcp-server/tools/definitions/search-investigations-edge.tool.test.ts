@@ -14,6 +14,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { searchInvestigations } from '@/mcp-server/tools/definitions/search-investigations.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = { getInvestigations: vi.fn() };
 
@@ -79,18 +80,18 @@ describe('searchInvestigations — model filter', () => {
   it('filters by model (case-insensitive)', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ model: 'civic' });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('EA21002');
+    expect(result.investigations[0]!.nhtsaId).toBe('EA21002');
   });
 
   it('model filter returns zero when no matches', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ model: 'Nonexistent' });
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -102,12 +103,12 @@ describe('searchInvestigations — component filter', () => {
   it('filters by component (case-insensitive)', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ component: 'steering' });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('DP22003');
+    expect(result.investigations[0]!.nhtsaId).toBe('DP22003');
   });
 });
 
@@ -115,7 +116,7 @@ describe('searchInvestigations — combined ANDed filters', () => {
   it('make AND investigationType narrows results correctly', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({
       make: 'Toyota',
       investigationType: 'PE',
@@ -123,13 +124,13 @@ describe('searchInvestigations — combined ANDed filters', () => {
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('PE20001');
+    expect(result.investigations[0]!.nhtsaId).toBe('PE20001');
   });
 
   it('make AND status AND component all ANDed — returns zero if no match', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     // Toyota + Open + ENGINE — Toyota only has BRAKES
     const input = searchInvestigations.input.parse({
       make: 'Toyota',
@@ -146,7 +147,7 @@ describe('searchInvestigations — combined ANDed filters', () => {
   it('effectiveQuery lists all applied filters', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({
       make: 'Ford',
       status: 'O',
@@ -165,25 +166,25 @@ describe('searchInvestigations — DP and RQ type codes', () => {
   it('filters by DP (Defect Petition) type', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ investigationType: 'DP' });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('DP22003');
-    expect(result.investigations[0].investigationTypeName).toBe('Defect Petition');
+    expect(result.investigations[0]!.nhtsaId).toBe('DP22003');
+    expect(result.investigations[0]!.investigationTypeName).toBe('Defect Petition');
   });
 
   it('filters by RQ (Recall Query) type', async () => {
     mockService.getInvestigations.mockResolvedValue(baseInvestigations);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({ investigationType: 'RQ' });
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.totalCount).toBe(1);
-    expect(result.investigations[0].nhtsaId).toBe('RQ23004');
-    expect(result.investigations[0].investigationTypeName).toBe('Recall Query');
+    expect(result.investigations[0]!.nhtsaId).toBe('RQ23004');
+    expect(result.investigations[0]!.investigationTypeName).toBe('Recall Query');
   });
 
   it('unknown investigation type code returns the raw code as the name', async () => {
@@ -199,11 +200,11 @@ describe('searchInvestigations — DP and RQ type codes', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
 
-    expect(result.investigations[0].investigationTypeName).toBe('XY');
+    expect(result.investigations[0]!.investigationTypeName).toBe('XY');
   });
 });
 
@@ -211,7 +212,7 @@ describe('searchInvestigations — empty dataset notice', () => {
   it('surfaces unexpected-notice when dataset returns zero with no filters', async () => {
     mockService.getInvestigations.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchInvestigations.errors });
     const input = searchInvestigations.input.parse({});
     const result = await searchInvestigations.handler(input, ctx);
 
@@ -230,7 +231,7 @@ describe('searchInvestigations — format edge cases', () => {
       limit: 20,
       investigations: [],
     });
-    expect(blocks[0].text).toContain('No investigations found');
+    expect(firstText(blocks)).toContain('No investigations found');
   });
 
   it('format shows correct count header', () => {
@@ -256,7 +257,7 @@ describe('searchInvestigations — format edge cases', () => {
         },
       ],
     };
-    const text = searchInvestigations.format!(output)[0].text;
+    const text = firstText(searchInvestigations.format!(output));
     expect(text).toContain('2 investigation(s) found');
     // Only 1 shown
     expect(text).toContain('showing 1');
@@ -281,7 +282,7 @@ describe('searchInvestigations — format edge cases', () => {
         },
       ],
     };
-    const text = searchInvestigations.format!(output)[0].text;
+    const text = firstText(searchInvestigations.format!(output));
     expect(text).not.toContain('**Makes:**');
     expect(text).not.toContain('**Models:**');
   });

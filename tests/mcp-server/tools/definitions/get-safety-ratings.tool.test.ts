@@ -13,6 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { getSafetyRatings } from '@/mcp-server/tools/definitions/get-safety-ratings.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getSafetyRatingVariants: vi.fn(),
@@ -56,13 +57,13 @@ describe('getSafetyRatings', () => {
     ]);
     mockService.getSafetyRating.mockResolvedValue(sampleRating);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: getSafetyRatings.errors });
     const input = getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await getSafetyRatings.handler(input, ctx);
 
     expect(result.ratings).toHaveLength(1);
-    expect(result.ratings[0].overallRating).toBe('5');
-    expect(result.ratings[0].frontalCrash.driverSide).toBe('4');
+    expect(result.ratings[0]!.overallRating).toBe('5');
+    expect(result.ratings[0]!.frontalCrash.driverSide).toBe('4');
     expect(mockService.getSafetyRatingVariants).toHaveBeenCalledWith(
       2020,
       'Toyota',
@@ -74,7 +75,7 @@ describe('getSafetyRatings', () => {
   it('fetches rating by vehicleId directly', async () => {
     mockService.getSafetyRating.mockResolvedValue(sampleRating);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: getSafetyRatings.errors });
     const input = getSafetyRatings.input.parse({ vehicleId: 14720 });
     const result = await getSafetyRatings.handler(input, ctx);
 
@@ -119,15 +120,15 @@ describe('getSafetyRatings', () => {
       investigationCount: undefined,
     });
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: getSafetyRatings.errors });
     const input = getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await getSafetyRatings.handler(input, ctx);
     const parsed = getSafetyRatings.output.parse(result);
-    const text = getSafetyRatings.format!(parsed)[0].text;
+    const text = firstText(getSafetyRatings.format!(parsed));
 
     expect(parsed.ratings).toHaveLength(1);
-    expect(parsed.ratings[0].overallRating).toBeUndefined();
-    expect(parsed.ratings[0].rollover.probability).toBeUndefined();
+    expect(parsed.ratings[0]!.overallRating).toBeUndefined();
+    expect(parsed.ratings[0]!.rollover.probability).toBeUndefined();
     expect(text).toContain('Vehicle 14720');
     expect(text).toContain('Not available');
   });
@@ -135,7 +136,7 @@ describe('getSafetyRatings', () => {
   it('returns empty and populates enrichment notice when no variants found', async () => {
     mockService.getSafetyRatingVariants.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: getSafetyRatings.errors });
     const input = getSafetyRatings.input.parse({ make: 'Fake', model: 'Car', modelYear: 1990 });
     const result = await getSafetyRatings.handler(input, ctx);
 
@@ -148,7 +149,7 @@ describe('getSafetyRatings', () => {
   it('populates enrichment notice when vehicleId not found', async () => {
     mockService.getSafetyRating.mockResolvedValue(null);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: getSafetyRatings.errors });
     const input = getSafetyRatings.input.parse({ vehicleId: 99999 });
     const result = await getSafetyRatings.handler(input, ctx);
 
@@ -160,7 +161,7 @@ describe('getSafetyRatings', () => {
   it('format renders star ratings', () => {
     const output = { ratings: [sampleRating] };
     const blocks = getSafetyRatings.format!(output);
-    const text = blocks[0].text;
+    const text = firstText(blocks);
     expect(text).toContain('2020 Toyota CAMRY FWD');
     expect(text).toContain('★');
     expect(text).toContain('No Tip');
@@ -169,7 +170,7 @@ describe('getSafetyRatings', () => {
 
   it('format handles no ratings', () => {
     const blocks = getSafetyRatings.format!({ ratings: [] });
-    expect(blocks[0].text).toContain('No NCAP safety ratings');
+    expect(firstText(blocks)).toContain('No NCAP safety ratings');
   });
 
   it('rejects a fractional modelYear rather than building a fractional path segment', () => {

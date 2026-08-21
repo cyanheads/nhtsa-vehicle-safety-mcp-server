@@ -16,6 +16,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', async (importOriginal) => ({
 
 import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.tool.js';
 import { getNhtsaService, MANUFACTURER_RESULT_CAP } from '@/services/nhtsa/nhtsa-service.js';
+import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getAllMakes: vi.fn(),
@@ -36,7 +37,7 @@ describe('lookupVehicles — vehicle_types operation', () => {
       { vehicleTypeId: 7, vehicleTypeName: 'Multipurpose Passenger Vehicle (MPV)' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'vehicle_types', make: 'Toyota' });
     const result = await lookupVehicles.handler(input, ctx);
 
@@ -44,14 +45,14 @@ describe('lookupVehicles — vehicle_types operation', () => {
     expect(result.totalCount).toBe(2);
     expect(result.returned).toBe(2);
     expect(result.vehicleTypes).toHaveLength(2);
-    expect(result.vehicleTypes![0].vehicleTypeName).toBe('Passenger Car');
+    expect(result.vehicleTypes![0]!.vehicleTypeName).toBe('Passenger Car');
     expect(mockService.getVehicleTypes).toHaveBeenCalledWith('Toyota', expect.anything());
   });
 
   it('vehicle_types: empty result populates enrichment notice', async () => {
     mockService.getVehicleTypes.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'vehicle_types', make: 'UnknownMake' });
     const result = await lookupVehicles.handler(input, ctx);
 
@@ -65,7 +66,7 @@ describe('lookupVehicles — vehicle_types operation', () => {
       { vehicleTypeId: 2, vehicleTypeName: 'Passenger Car' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'vehicle_types',
       make: 'Toyota',
@@ -83,7 +84,7 @@ describe('lookupVehicles — vehicle_types operation', () => {
       { vehicleTypeId: 2, vehicleTypeName: 'Passenger Car' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'vehicle_types', make: 'Toyota' });
     await lookupVehicles.handler(input, ctx);
 
@@ -96,7 +97,7 @@ describe('lookupVehicles — manufacturer operation edges', () => {
   it('empty manufacturer result surfaces enrichment notice', async () => {
     mockService.getManufacturer.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'manufacturer',
       manufacturer: 'UnknownManufacturer',
@@ -117,7 +118,7 @@ describe('lookupVehicles — manufacturer operation edges', () => {
       })),
     );
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'manufacturer',
       manufacturer: 'a',
@@ -140,7 +141,7 @@ describe('lookupVehicles — manufacturer operation edges', () => {
       { manufacturerId: 987, manufacturerName: 'TOYOTA', country: 'JAPAN', vehicleTypes: [] },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'manufacturer', manufacturer: 'Toyota' });
     await lookupVehicles.handler(input, ctx);
 
@@ -158,7 +159,7 @@ describe('lookupVehicles — manufacturer operation edges', () => {
       })),
     );
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'manufacturer',
       manufacturer: 'a',
@@ -182,7 +183,7 @@ describe('lookupVehicles — manufacturer operation edges', () => {
       },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({
       operation: 'manufacturer',
       manufacturer: 'Toyota',
@@ -203,7 +204,7 @@ describe('lookupVehicles — makes effectiveQuery', () => {
       { makeId: 2, makeName: 'B' },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
     const input = lookupVehicles.input.parse({ operation: 'makes', limit: 10, offset: 5 });
     await lookupVehicles.handler(input, ctx);
 
@@ -226,7 +227,7 @@ describe('lookupVehicles — format', () => {
         { vehicleTypeId: 7, vehicleTypeName: 'MPV' },
       ],
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
     expect(text).toContain('Passenger Car');
     expect(text).toContain('MPV');
   });
@@ -243,7 +244,7 @@ describe('lookupVehicles — format', () => {
         { modelId: 2, modelName: 'COROLLA', makeId: 441, makeName: 'TOYOTA' },
       ],
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
     expect(text).toContain('CAMRY');
     expect(text).toContain('COROLLA');
     expect(text).toContain('TOYOTA');
@@ -258,7 +259,7 @@ describe('lookupVehicles — format', () => {
       offset: 0,
       limit: 100,
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
     expect(text).toContain('No results');
     expect(text).toContain('Check the spelling');
   });
@@ -271,7 +272,7 @@ describe('lookupVehicles — format', () => {
       offset: 99000,
       limit: 5,
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
 
     expect(text).toBe(
       'No results for this page (offset 99000, limit 5). 12309 total — try a smaller offset.',
@@ -289,7 +290,7 @@ describe('lookupVehicles — format', () => {
       limit: 100,
       manufacturers: [],
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
 
     expect(text).toContain('try a smaller offset');
     expect(text).toContain(`Retrieval stopped at ${MANUFACTURER_RESULT_CAP} records`);
@@ -306,7 +307,7 @@ describe('lookupVehicles — format', () => {
       limit: 100,
       manufacturers: [],
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
 
     expect(text).toContain('12 total — try a smaller offset');
     expect(text).not.toMatch(/retrieval stopped/i);
@@ -327,7 +328,7 @@ describe('lookupVehicles — format', () => {
         },
       ],
     };
-    const text = lookupVehicles.format!(output)[0].text;
+    const text = firstText(lookupVehicles.format!(output));
     expect(text).toContain('TESLA, INC.');
     expect(text).toContain('Not available');
   });
