@@ -1,13 +1,17 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "nhtsa-vehicle-safety-mcp-server",
   "version": "0.9.5",
   "description": "Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP. STDIO or Streamable HTTP.",
   "author": {
-    "name": "cyanheads"
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
   },
   "homepage": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server#readme",
   "repository": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server",
   "license": "Apache-2.0",
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "nhtsa", "vehicle-safety", "recalls", "vin-decoder"],
   "mcpServers": {
     "nhtsa-vehicle-safety-mcp-server": {
       "command": "npx",
