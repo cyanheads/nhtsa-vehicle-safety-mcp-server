@@ -16,9 +16,18 @@ import {
 } from '@/mcp-server/tools/definitions/index.js';
 import { initNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
-await createApp({
+/** Lifecycle handle for embedders and integration tests; running as a CLI ignores it. */
+export const app = await createApp({
   name: 'nhtsa-vehicle-safety-mcp-server',
   title: 'nhtsa-vehicle-safety-mcp-server',
+  /**
+   * Every tool here is a read-only NHTSA query — no handler suspends on
+   * `ctx.requestInput`, and nothing is kept per session. Declaring the posture in
+   * code rather than leaving it to `MCP_SESSION_MODE` keeps a `bunx` or
+   * from-source run on the same footing as the container and the hosted
+   * deployment, which have run stateless all along.
+   */
+  sessionMode: 'stateless',
   tools: [
     getVehicleSafety,
     searchRecalls,

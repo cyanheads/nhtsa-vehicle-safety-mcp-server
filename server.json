@@ -89,6 +89,13 @@
           "default": "none"
         },
         {
+          "name": "MCP_SESSION_MODE",
+          "description": "HTTP session posture: 'auto', 'stateful', or 'stateless'. Overrides the stateless mode the server declares in code.",
+          "format": "string",
+          "isRequired": false,
+          "default": "stateless"
+        },
+        {
           "name": "MCP_LOG_LEVEL",
           "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
           "format": "string",
