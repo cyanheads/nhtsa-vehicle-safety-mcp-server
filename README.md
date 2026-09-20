@@ -202,7 +202,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
 
 ### Prerequisites
 
-- [Bun v1.3.0](https://bun.sh/) or higher (or Node.js >= 24.0.0)
+- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js >= 24.0.0)
 
 ### Installation
 
