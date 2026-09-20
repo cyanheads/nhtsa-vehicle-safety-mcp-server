@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.9.6](changelog/0.9.x/0.9.6.md) — 2026-09-20
+
+mcp-ts-core 0.13.6 upgrade, stateless session posture, and a manifest.json packaging fix
+
 ## [0.9.5](changelog/0.9.x/0.9.5.md) — 2026-08-21
 
 MCP SDK 2.0 framework adoption and Bun 1.4 maintenance
