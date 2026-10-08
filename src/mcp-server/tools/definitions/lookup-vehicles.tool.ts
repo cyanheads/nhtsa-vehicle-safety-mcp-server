@@ -185,11 +185,7 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
 
       case 'models': {
         if (!input.make) {
-          throw ctx.fail(
-            'missing_operation_arg',
-            '"make" is required for the "models" operation.',
-            { ...ctx.recoveryFor('missing_operation_arg') },
-          );
+          throw ctx.fail('missing_operation_arg', '"make" is required for the "models" operation.');
         }
         const all = await svc.getModels(input.make, input.modelYear, ctx.signal);
         const slice = all.slice(offset, offset + limit);
@@ -228,7 +224,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           throw ctx.fail(
             'missing_operation_arg',
             '"make" is required for the "vehicle_types" operation.',
-            { ...ctx.recoveryFor('missing_operation_arg') },
           );
         }
         const all = await svc.getVehicleTypes(input.make, ctx.signal);
@@ -266,7 +261,6 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           throw ctx.fail(
             'missing_operation_arg',
             '"manufacturer" is required for the "manufacturer" operation.',
-            { ...ctx.recoveryFor('missing_operation_arg') },
           );
         }
         const all = await svc.getManufacturer(input.manufacturer, ctx.signal);

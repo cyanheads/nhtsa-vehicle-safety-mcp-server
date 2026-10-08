@@ -188,7 +188,6 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       throw ctx.fail(
         'mode_conflict',
         'Provide either nhtsaId for one investigation, or the query/make/model/component/investigationType/status filters — not both.',
-        { ...ctx.recoveryFor('mode_conflict') },
       );
     }
 

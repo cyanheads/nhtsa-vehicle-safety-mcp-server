@@ -149,7 +149,6 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       throw ctx.fail(
         'mode_conflict',
         'Provide either campaignNumber OR make/model/modelYear, not both.',
-        { ...ctx.recoveryFor('mode_conflict') },
       );
     }
 
@@ -162,7 +161,6 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
         throw ctx.fail(
           'campaign_not_found',
           `No recall found for campaign "${input.campaignNumber}". Verify the campaign number format (e.g., "24V744000").`,
-          { ...ctx.recoveryFor('campaign_not_found') },
         );
       }
 
@@ -196,7 +194,6 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       throw ctx.fail(
         'missing_required_combo',
         'Provide either campaignNumber for a specific recall, or make + model + modelYear for vehicle recalls.',
-        { ...ctx.recoveryFor('missing_required_combo') },
       );
     }
 
@@ -223,7 +220,6 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
         throw ctx.fail(
           'invalid_date',
           `Invalid date in dateRange: after=${input.dateRange.after ?? '(none)'}, before=${input.dateRange.before ?? '(none)'}. Use ISO 8601 format (e.g., "2025-01-01").`,
-          { ...ctx.recoveryFor('invalid_date') },
         );
       }
       recalls = recalls.filter((r) => {

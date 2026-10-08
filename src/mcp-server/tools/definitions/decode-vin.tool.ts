@@ -96,16 +96,13 @@ export const decodeVin = tool('nhtsa_decode_vin', {
 
     const nonEmpty = vins.filter((v) => v.trim().length > 0);
     if (nonEmpty.length === 0) {
-      throw ctx.fail('empty_vin_list', 'At least one non-empty VIN is required.', {
-        ...ctx.recoveryFor('empty_vin_list'),
-      });
+      throw ctx.fail('empty_vin_list', 'At least one non-empty VIN is required.');
     }
 
     if (nonEmpty.length > MAX_BATCH_SIZE) {
       throw ctx.fail(
         'batch_too_large',
         `Maximum ${MAX_BATCH_SIZE} VINs per batch. Received ${nonEmpty.length}.`,
-        { ...ctx.recoveryFor('batch_too_large') },
       );
     }
 

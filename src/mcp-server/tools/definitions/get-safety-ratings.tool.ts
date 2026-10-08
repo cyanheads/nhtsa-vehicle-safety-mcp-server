@@ -157,7 +157,6 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
         throw ctx.fail(
           'missing_required_combo',
           'Provide either vehicleId, or make + model + modelYear to look up NCAP safety ratings.',
-          { ...ctx.recoveryFor('missing_required_combo') },
         );
       }
       const variants = await svc.getSafetyRatingVariants(
