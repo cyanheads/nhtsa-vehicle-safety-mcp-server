@@ -4,7 +4,7 @@ All notable changes to this project. Each entry links to its full per-version fi
 
 ## [0.9.7](changelog/0.9.x/0.9.7.md) — 2026-10-08
 
-mcp-ts-core 0.13.14: numeric-string and null-optional tool arguments are repaired before validation, tool errors carry a request id, error data no longer carries server stacks, request context, or root causes, and the Docker image installs dependencies in a build-platform deps stage
+mcp-ts-core 0.13.14: numeric-string and null-optional tool arguments are repaired before validation, tool errors carry a request id, and the Docker image installs dependencies in a build-platform deps stage
 
 ## [0.9.6](changelog/0.9.x/0.9.6.md) — 2026-09-20
 
