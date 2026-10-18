@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.10.0](changelog/0.10.x/0.10.0.md) — 2026-10-18 · ⚠️ Breaking
+
+Vehicle date filters and shared investigation loading
+
 ## [0.9.7](changelog/0.9.x/0.9.7.md) — 2026-10-08
 
 mcp-ts-core 0.13.14: numeric-string and null-optional tool arguments are repaired before validation, tool errors carry a request id, and the Docker image installs dependencies in a build-platform deps stage
