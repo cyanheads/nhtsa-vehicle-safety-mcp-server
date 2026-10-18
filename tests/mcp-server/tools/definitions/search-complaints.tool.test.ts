@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/search-complaints.tool
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -40,6 +40,48 @@ function complaint(overrides: Record<string, unknown> = {}) {
 }
 
 describe('searchComplaints', () => {
+  it.each([0, 1, 999])(
+    'renders all severity aggregates independent of offset %s (#40) and one recovery (#39)',
+    async (offset) => {
+      mockService.getComplaintsByVehicle.mockResolvedValue([
+        complaint({ components: 'ZERO' }),
+        complaint({ components: 'MIXED', fire: true }),
+        complaint({
+          components: 'POSITIVE',
+          crash: true,
+          fire: true,
+          numberOfInjuries: 2,
+          numberOfDeaths: 1,
+        }),
+      ]);
+      const result = await runToolContract(searchComplaints, {
+        make: 'Toyota',
+        model: 'Camry',
+        modelYear: 2020,
+        offset,
+        limit: 1,
+      });
+      expect(result.isError).not.toBe(true);
+      const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+      expect(text).toContain('0 crashes, 0 fires, 0 injuries, 0 deaths');
+      expect(text).toContain('0 crashes, 1 fire, 0 injuries, 0 deaths');
+      expect(text).toContain('1 crash, 1 fire, 2 injuries, 1 death');
+      expect(result.structuredContent).toMatchObject({
+        totalCount: 3,
+        componentBreakdown: expect.arrayContaining([
+          {
+            component: 'ZERO',
+            count: 1,
+            crashCount: 0,
+            fireCount: 0,
+            injuryCount: 0,
+            deathCount: 0,
+          },
+        ]),
+      });
+      if (offset === 999) expect(text.split('try a smaller offset').length - 1).toBe(1);
+    },
+  );
   it('returns complaints with component breakdown and enrichment query', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([
       complaint({ components: 'ENGINE', crash: true, numberOfInjuries: 1 }),
@@ -309,7 +351,7 @@ describe('searchComplaints', () => {
     expect(getEnrichment(ctx).notice).toMatch(/nhtsa_lookup_vehicles/i);
   });
 
-  it('format explains an out-of-range page instead of a bare "returned 0"', () => {
+  it('format retains out-of-range page facts and leaves recovery to enrichment', () => {
     const text = firstText(
       searchComplaints.format!({
         totalCount: 264,
@@ -330,7 +372,8 @@ describe('searchComplaints', () => {
       }),
     );
 
-    expect(text).toContain('No results for this page (offset 9000, limit 5). 264 total');
+    expect(text).toContain('returned 0 of 264, offset 9000, limit 5');
+    expect(text).not.toContain('try a smaller offset');
     expect(text).not.toContain('to retrieve the next page');
   });
 

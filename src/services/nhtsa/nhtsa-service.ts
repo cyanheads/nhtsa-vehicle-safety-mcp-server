@@ -6,7 +6,11 @@
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
-import { httpErrorFromResponse } from '@cyanheads/mcp-ts-core/utils';
+import {
+  fetchWithTimeout,
+  httpErrorFromResponse,
+  requestContextService,
+} from '@cyanheads/mcp-ts-core/utils';
 import { Unzip, UnzipInflate } from 'fflate';
 
 import type {
@@ -40,6 +44,8 @@ const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const INVESTIGATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours (matches daily file cadence)
+/** Shared bulk downloads can outlive callers, but cannot hold the pending slot indefinitely. */
+const INVESTIGATION_LOAD_TIMEOUT_MS = 120_000;
 
 /** VPIC serves GetManufacturerDetails 100 records per page. */
 const VPIC_MANUFACTURER_PAGE_SIZE = 100;
@@ -207,6 +213,7 @@ type FetchInit = Omit<RequestInit, 'signal'> & { signal?: AbortSignal | undefine
 
 export class NhtsaService {
   private investigationCache: { data: Investigation[]; fetchedAt: number } | null = null;
+  private pendingInvestigations: Promise<Investigation[]> | undefined;
 
   // ── HTTP ─────────────────────────────────────────────────────────
 
@@ -389,15 +396,42 @@ export class NhtsaService {
 
   /** Get all investigations from cache, refreshing if stale (24 h TTL). */
   async getInvestigations(signal?: AbortSignal): Promise<Investigation[]> {
+    signal?.throwIfAborted();
     if (
       this.investigationCache &&
       Date.now() - this.investigationCache.fetchedAt < INVESTIGATION_CACHE_TTL_MS
     ) {
       return this.investigationCache.data;
     }
-    const data = await this.fetchFlatInvestigations(signal);
-    this.investigationCache = { data, fetchedAt: Date.now() };
-    return data;
+    this.pendingInvestigations ??= this.fetchFlatInvestigations()
+      .then((data) => {
+        this.investigationCache = { data, fetchedAt: Date.now() };
+        return data;
+      })
+      .finally(() => {
+        this.pendingInvestigations = undefined;
+      });
+    const pending = this.pendingInvestigations;
+    if (!signal) return await pending;
+
+    return new Promise<Investigation[]>((resolve, reject) => {
+      const cleanup = () => signal.removeEventListener('abort', onAbort);
+      const onAbort = () => {
+        cleanup();
+        reject(signal.reason);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      pending.then(
+        (data) => {
+          cleanup();
+          resolve(data);
+        },
+        (error) => {
+          cleanup();
+          reject(error);
+        },
+      );
+    });
   }
 
   /**
@@ -408,8 +442,14 @@ export class NhtsaService {
    * Synchronous `UnzipInflate` fires `ondata` synchronously during each `push`, so the
    * terminal `resolve()` is reached only after every line has been parsed (no async race).
    */
-  private async fetchFlatInvestigations(signal?: AbortSignal): Promise<Investigation[]> {
-    const res = await fetch(ODI_FLAT_INV_URL, { signal: signal ?? null });
+  private async fetchFlatInvestigations(): Promise<Investigation[]> {
+    const res = await fetchWithTimeout(
+      ODI_FLAT_INV_URL,
+      INVESTIGATION_LOAD_TIMEOUT_MS,
+      requestContextService.createRequestContext({
+        operation: 'NhtsaService.fetchFlatInvestigations',
+      }),
+    );
     /** Bound to a const so the null check narrows inside the reader closure below. */
     const stream = res.body;
     if (!res.ok || !stream) {

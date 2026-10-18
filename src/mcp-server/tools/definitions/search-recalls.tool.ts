@@ -6,6 +6,12 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import {
+  dateRangeSchema,
+  describeDateRange,
+  matchesDateRange,
+  normalizeDateRange,
+} from '@/services/nhtsa/date-range.js';
 import { formatRecallAdvisories } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
@@ -32,20 +38,10 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       .int()
       .optional()
       .describe('Model year, a whole number. Required with make and model.'),
-    dateRange: z
-      .object({
-        after: z
-          .string()
-          .optional()
-          .describe('Only recalls received after this date (ISO 8601, e.g., "2025-01-01").'),
-        before: z
-          .string()
-          .optional()
-          .describe('Only recalls received before this date (ISO 8601, e.g., "2026-01-01").'),
-      })
+    dateRange: dateRangeSchema
       .optional()
       .describe(
-        'Filter recalls by received date. Applied locally since the API lacks native date filtering.',
+        'Inclusive received-date bounds in YYYY-MM-DD, in either lookup mode. Blank bounds are unset; records without a usable date are excluded only with active bounds.',
       ),
   }),
   output: z.object({
@@ -137,13 +133,29 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
     {
       reason: 'invalid_date',
       code: JsonRpcErrorCode.ValidationError,
-      when: 'A dateRange bound could not be parsed as a date.',
-      recovery: 'Use ISO 8601 date format such as 2025-01-01 in dateRange bounds.',
+      when: 'A dateRange bound is not a calendar-valid YYYY-MM-DD date.',
+      recovery: 'Use calendar-valid YYYY-MM-DD dates such as 2025-01-01.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'inverted_date_range',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'dateRange.after is later than dateRange.before.',
+      recovery: 'Set after on or before before, or omit a bound.',
+      thrownBy: 'service',
     },
   ],
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
+    input = {
+      ...input,
+      campaignNumber: input.campaignNumber?.trim() || undefined,
+      make: input.make?.trim() || undefined,
+      model: input.model?.trim() || undefined,
+    };
+    const dateRange = normalizeDateRange(input.dateRange, 'dateRange');
+    const dateQuery = describeDateRange('dateRange', dateRange);
 
     if (input.campaignNumber && (input.make || input.model || input.modelYear)) {
       throw ctx.fail(
@@ -164,7 +176,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
         );
       }
 
-      ctx.enrich({ effectiveQuery: input.campaignNumber });
+      ctx.enrich({ effectiveQuery: [input.campaignNumber, dateQuery].filter(Boolean).join(' ') });
       const recalls = [
         {
           campaignNumber: campaign.campaignNumber,
@@ -186,7 +198,12 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
             : {}),
         },
       ];
-      return { recalls, totalCount: recalls.length };
+      const filtered = recalls.filter((r) => matchesDateRange(r.reportReceivedDate, dateRange));
+      if (filtered.length === 0)
+        ctx.enrich.notice(
+          'The campaign exists, but no recalls match the date range. Broaden or remove the date bounds.',
+        );
+      return { recalls: filtered, totalCount: filtered.length };
     }
 
     // Vehicle-scoped lookup
@@ -197,7 +214,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       );
     }
 
-    let recalls = (
+    const all = (
       await svc.getRecallsByVehicle(input.make, input.model, input.modelYear, ctx.signal)
     ).map((r) => ({
       campaignNumber: r.campaignNumber,
@@ -212,21 +229,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       ...(r.overTheAirUpdate !== undefined ? { overTheAirUpdate: r.overTheAirUpdate } : {}),
     }));
 
-    // Apply date filtering locally
-    if (input.dateRange?.after || input.dateRange?.before) {
-      const after = input.dateRange.after ? new Date(input.dateRange.after).getTime() : 0;
-      const before = input.dateRange.before ? new Date(input.dateRange.before).getTime() : Infinity;
-      if (Number.isNaN(after) || Number.isNaN(before)) {
-        throw ctx.fail(
-          'invalid_date',
-          `Invalid date in dateRange: after=${input.dateRange.after ?? '(none)'}, before=${input.dateRange.before ?? '(none)'}. Use ISO 8601 format (e.g., "2025-01-01").`,
-        );
-      }
-      recalls = recalls.filter((r) => {
-        const d = new Date(r.reportReceivedDate).getTime();
-        return d >= after && d <= before;
-      });
-    }
+    const recalls = all.filter((r) => matchesDateRange(r.reportReceivedDate, dateRange));
 
     ctx.log.info('Vehicle recall search', {
       make: input.make,
@@ -235,9 +238,15 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       count: recalls.length,
     });
 
-    const effectiveQuery = `${input.make} ${input.model} ${input.modelYear}`;
+    const effectiveQuery = [`${input.make} ${input.model} ${input.modelYear}`, dateQuery]
+      .filter(Boolean)
+      .join(' ');
     ctx.enrich({ effectiveQuery });
-    if (recalls.length === 0) {
+    if (all.length > 0 && recalls.length === 0) {
+      ctx.enrich.notice(
+        'The vehicle has recalls, but none match the date range. Broaden or remove the date bounds.',
+      );
+    } else if (all.length === 0) {
       ctx.enrich.notice(
         'No recalls found. This vehicle may have no recalls on file, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
       );

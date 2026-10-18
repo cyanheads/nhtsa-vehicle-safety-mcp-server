@@ -178,6 +178,14 @@ describe('injection safety — lookupVehicles', () => {
 });
 
 describe('oversized input handling', () => {
+  it('rejects a mixed blank VIN list atomically', async () => {
+    const input = decodeVin.input.parse({ vin: ['1HGCM82633A004352', '  '] });
+    await expect(
+      decodeVin.handler(input, createMockContext({ errors: decodeVin.errors })),
+    ).rejects.toMatchObject({ data: { reason: 'empty_vin_list' } });
+    expect(mockService.decodeVin).not.toHaveBeenCalled();
+    expect(mockService.decodeVinBatch).not.toHaveBeenCalled();
+  });
   it('searchComplaints with limit at max (50) does not crash', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
 

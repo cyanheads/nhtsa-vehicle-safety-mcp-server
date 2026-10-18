@@ -50,7 +50,7 @@ Internally calls the Safety Ratings, Recalls, and Complaints APIs and merges the
 
 Search recall campaigns by vehicle or campaign number. Use for questions about specific recalls, recall history for a vehicle, or looking up a known campaign number.
 
-Supports time-based filtering via `dateRange`. The NHTSA API does not natively support date-range queries -- the vehicle-scoped endpoint returns all recalls for a make/model/year, and the base `/recalls` endpoint supports sorting by `recall573ReceivedDate` but not filtering. The server implements date filtering locally: for vehicle queries, filter the complete response by `ReportReceivedDate`; for broad queries ("recalls in the last year"), use the paginated base endpoint sorted by date descending and scan pages until outside the range.
+Supports inclusive `dateRange` filtering in both vehicle and campaign modes. The NHTSA API does not natively support date-range queries, so the server filters normalized received dates locally. Bounds must be calendar-valid `YYYY-MM-DD`, with `after` on or before `before`; blank bounds are unset. Active bounds exclude records without a usable received date. An existing result filtered to zero carries date-bound recovery, distinct from a genuine upstream miss. Broad queries without either a campaign number or a full make/model/modelYear triple are not supported.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -58,11 +58,11 @@ Supports time-based filtering via `dateRange`. The NHTSA API does not natively s
 | `make` | string | No | Vehicle manufacturer. Required with `model` and `modelYear` when not using `campaignNumber`. |
 | `model` | string | No | Vehicle model. Required with `make` and `modelYear`. |
 | `modelYear` | integer | No | Model year. Required with `make` and `model`. |
-| `dateRange` | object | No | Filter recalls by received date. `{ after?: string, before?: string }` -- ISO 8601 dates (e.g., "2025-01-01"). Applied locally by the server since the API lacks native date filtering. |
+| `dateRange` | object | No | Inclusive received-date bounds in either mode: `{ after?: string, before?: string }`, calendar-valid `YYYY-MM-DD`. Blank bounds are unset; inverted ranges are rejected before upstream work. |
 
 **Returns:** Array of recalls, each with: `NHTSACampaignNumber`, `manufacturer`, `component`, `summary`, `consequence`, `remedy`, `reportReceivedDate` (ISO 8601), `parkIt`, `parkOutSide` (do-not-drive advisories), `overTheAirUpdate`. Campaign number queries return one collapsed campaign record and additionally carry `potentialUnitsAffected`, `affectedVehicles[]` (every distinct make/model/model-year the campaign covers; equipment and tire campaigns name the part here -- make is the brand, model is the part -- with no model year), and `investigationId` (the ODI action number, when NHTSA links one; feed it to `nhtsa_search_investigations` as `nhtsaId`).
 
-**Error modes:** Both `campaignNumber` and vehicle params provided -- reject with guidance. All three vehicle params required together. Invalid campaign number format returns empty results, not an error.
+**Error modes:** Both `campaignNumber` and vehicle params provided -- reject with guidance. All three vehicle params required together. A campaign number NHTSA has no record of is a `campaign_not_found` error; a vehicle with no recalls is an empty success with a `notice`.
 
 ### `nhtsa_search_complaints`
 
@@ -77,7 +77,7 @@ Returns can be large (200+ complaints for a popular vehicle year). The server su
 | `modelYear` | integer | Yes | Model year. |
 | `component` | string | No | Filter to a specific component. Values are uppercase from NHTSA's taxonomy. Common values: `AIR BAGS`, `BACK OVER PREVENTION`, `ELECTRICAL SYSTEM`, `ENGINE`, `ENGINE AND ENGINE COOLING`, `EQUIPMENT`, `FORWARD COLLISION AVOIDANCE`, `FUEL/PROPULSION SYSTEM`, `LANE DEPARTURE`, `LATCHES/LOCKS/LINKAGES`, `POWER TRAIN`, `SEATS`, `SEAT BELTS`, `SERVICE BRAKES`, `STEERING`, `STRUCTURE`, `VEHICLE SPEED CONTROL`, `VISIBILITY`, `VISIBILITY/WIPER`, `UNKNOWN OR OTHER`. Note: a single complaint can list multiple components comma-separated (e.g., "ELECTRICAL SYSTEM,ENGINE"). The server should match if the filter value appears anywhere in the component string. Omit to see all. |
 
-**Returns:** `totalCount`, `componentBreakdown[]` (component name, count, crash/fire/injury totals), `complaints[]` (top N most recent: odiNumber, dateOfIncident and dateComplaintFiled as ISO 8601, components, summary, crash/fire/injury flags, VIN prefix). A complaint whose reported incident date its own record rules out carries `unreliableIncidentDate` in place of `dateOfIncident`. When filtered by component, returns all matching complaints up to a limit.
+**Returns:** `totalCount`, `componentBreakdown[]` (component name, complaint count, crash/fire/injury/death totals, including zeros in text), `complaints[]` (top N most recent: odiNumber, dateOfIncident and dateComplaintFiled as ISO 8601, components, summary, reported severity, VIN prefix). Component aggregates cover all matching complaints independently of narrative pagination. A complaint whose reported incident date its own record rules out carries `unreliableIncidentDate` in place of `dateOfIncident`.
 
 ### `nhtsa_get_safety_ratings`
 
@@ -87,10 +87,10 @@ Requires a two-step lookup internally: year/make/model resolves to one or more v
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `make` | string | Yes | Vehicle manufacturer. |
-| `model` | string | Yes | Vehicle model. |
-| `modelYear` | integer | Yes | Model year. NCAP data available from 1990+, but coverage and detail increase significantly for 2011+. Pre-2011 vehicles may lack ADAS fields and have fewer test categories. |
-| `vehicleId` | number | No | Specific NCAP vehicle ID (from prior results). Skips the year/make/model lookup. Use when you already have the ID from `nhtsa_get_vehicle_safety`. |
+| `make` | string | Unless `vehicleId` | Vehicle manufacturer. |
+| `model` | string | Unless `vehicleId` | Vehicle model. |
+| `modelYear` | integer | Unless `vehicleId` | Model year. NCAP data available from 1990+, but coverage and detail increase significantly for 2011+. Pre-2011 vehicles may lack ADAS fields and have fewer test categories. |
+| `vehicleId` | number | No | Specific NCAP vehicle ID (from prior results). Mutually exclusive with active make/model/modelYear criteria; optional blank strings are unset. |
 
 **Returns:** Per variant: `vehicleDescription`, `vehicleId`, `overallRating` (1-5 stars), `frontalCrash` (overall, driver, passenger), `sideCrash` (overall, driver, passenger, barrier, pole), `rollover` (rating, probability percentage, tip test result), `adasFeatures` (ESC, forward collision warning, lane departure -- each "Standard", "Optional", or "Not Available"), `complaintsCount`, `recallsCount`, `investigationCount`.
 
@@ -98,7 +98,7 @@ Requires a two-step lookup internally: year/make/model resolves to one or more v
 
 Decode a Vehicle Identification Number to extract make, model, year, body type, engine, safety equipment, and manufacturing details. Use when the user has a VIN and needs to identify the vehicle or look up its specifications. Supports partial VINs (use `*` for unknown characters).
 
-Accepts a single VIN or a batch of up to 50 VINs.
+Accepts a single VIN or a batch of up to 50 VINs. VINs are trimmed, and any blank entry rejects the entire batch before upstream work; nonblank partial VINs remain supported.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -113,7 +113,7 @@ Accepts a single VIN or a batch of up to 50 VINs.
 
 Search NHTSA defect investigations (Preliminary Evaluations, Engineering Analyses, Defect Petitions, Recall Queries, Audit Queries, and the other ODI action codes). Use for questions about ongoing or past NHTSA investigations into vehicle defects.
 
-Source is the ODI bulk file `FLAT_INV.zip`, not `api.nhtsa.gov/investigations` — the API returns all investigations regardless of make/model params, so filtering there is impossible without a full paginated scan. The bulk file carries the whole corpus in one TAB-delimited download, including the make/model/year/component associations the API omits. The server streams and inflates it, parsing lines as they arrive so the ~371 MB decompressed file is never held whole in memory, and groups the association rows by NHTSA action number into ~5,300 deduplicated records. The parsed index is cached for 24 hours, matching the file's daily refresh cadence.
+Source is the ODI bulk file `FLAT_INV.zip`, not `api.nhtsa.gov/investigations` — the API returns all investigations regardless of make/model params, so filtering there is impossible without a full paginated scan. The bulk file carries the whole corpus in one TAB-delimited download, including the make/model/year/component associations the API omits. The server streams and inflates it, parsing lines as they arrive so the ~371 MB decompressed file is never held whole in memory, and groups the association rows by NHTSA action number into ~5,300 deduplicated records. Each service instance shares one pending load, independent of caller cancellation, with a two-minute deadline across headers and body. Failed or timed-out loads clear pending work for retry; successful loads cache for 24 hours from completion, matching the file's daily refresh cadence.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -124,16 +124,20 @@ Source is the ODI bulk file `FLAT_INV.zip`, not `api.nhtsa.gov/investigations` �
 | `component` | string | No | Structured filter against the affected components (e.g., "STEERING"). |
 | `investigationType` | string | No | Filter by ODI action code: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query), "AQ" (Audit Query), and other codes present in the dataset (SQ, EQ, RP, ID, TA, C). |
 | `status` | string | No | Filter by status: "O" (Open) or "C" (Closed). Derived from close-date presence in the flat file, so these are the only two values. |
+| `openDateRange` | object | No | Inclusive opened-date bounds: `{ after?: string, before?: string }`, calendar-valid `YYYY-MM-DD`. |
+| `closeDateRange` | object | No | Inclusive closed-date bounds with the same contract; active bounds exclude records without a usable close date, including open investigations. |
 | `limit` | number | No | Max results to return. Default: 20, max 25 — summaries are long enough that a larger page produces an oversized response. |
 | `offset` | number | No | Pagination offset. Default: 0. |
 
-All filters are ANDed.
+All filters are ANDed before counting and pagination. Blank date bounds are unset; inverted ranges fail before loading. Active date ranges conflict with exact `nhtsaId`, but empty or blank ranges do not. One shared date contract keeps recall and investigation boundaries identical.
 
 **Returns:** `totalCount`, `returned`, `offset`, `limit`, and `investigations[]` each with: `nhtsaId`, `investigationType`, `investigationTypeName`, `status`, `statusName`, `makes[]`, `models[]`, `years[]`, `components[]`, `manufacturer`, `subject`, `summary` (plain text as published in the flat file), `openDate`, `closeDate`, `recallCampaign` (the linked campaign number, usable with `nhtsa_search_recalls`). An `nhtsaId` filter fetches a single investigation by its exact ID -- the reverse of that link, and the consumer of the `investigationId` `nhtsa_search_recalls` returns for a campaign. It is mutually exclusive with the other filters, matching the `campaignNumber` precedent in `nhtsa_search_recalls`.
 
 ### `nhtsa_lookup_vehicles`
 
 Look up valid makes, models, and vehicle types in NHTSA's database. Use to resolve ambiguous vehicle names, find the correct make/model spelling, or discover what models a manufacturer produces. Consolidates several VPIC reference endpoints.
+
+Identifiers are trimmed. Optional blank strings are unset; required make/model names in complaints and composite vehicle safety must be nonblank. Lookup operations reject arguments unused by the selected operation: `makes` accepts no filters, `models` accepts `make`/`modelYear`, `vehicle_types` accepts `make`, and `manufacturer` accepts `manufacturer`. Limit and offset work for every operation.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -175,7 +179,7 @@ NHTSA uses "automated traffic rate control" but does not publish specific limits
 
 - **Pre-purchase vehicle research** -- "Is the 2020 Camry safe? Any recalls I should know about?"
 - **VIN lookup** -- "Decode this VIN and tell me what vehicle it is, then check for recalls"
-- **Recall monitoring** -- "What recalls have been issued for Toyota vehicles in the last year?" (uses `dateRange` param with local filtering)
+- **Recall monitoring** -- "What recalls have been issued for the 2020 Camry in the last year?" (uses `dateRange` param with local filtering; needs the full make/model/modelYear)
 - **Complaint analysis** -- "What are the most common complaints about the 2019 Honda CR-V? Any crash-related issues?"
 - **Fleet safety audit** -- batch-decode VINs, cross-reference against active recalls
 - **Comparative safety** -- "Compare crash test ratings for the 2024 RAV4 vs CR-V vs Tucson"

@@ -80,8 +80,8 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     'Search consumer safety complaints filed with NHTSA for a specific vehicle. Returns a component breakdown over all matching complaints plus a paginated slice of the most recent complaints. Use for common problems, failure patterns, or owner-reported issues.',
   annotations: { readOnlyHint: true },
   input: z.object({
-    make: z.string().describe('Vehicle manufacturer.'),
-    model: z.string().describe('Vehicle model.'),
+    make: z.string().trim().min(1).describe('Nonblank vehicle manufacturer.'),
+    model: z.string().trim().min(1).describe('Nonblank vehicle model.'),
     modelYear: z.number().int().describe('Model year, a whole number.'),
     component: z
       .string()
@@ -179,6 +179,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
   },
 
   async handler(input, ctx) {
+    input = { ...input, component: input.component?.trim() || undefined };
     const svc = getNhtsaService();
     const limit = input.limit ?? DEFAULT_LIMIT;
     const offset = input.offset ?? 0;
@@ -249,26 +250,18 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     lines.push('## Component Breakdown\n');
     for (const b of result.componentBreakdown) {
       const flags = [
-        b.crashCount > 0 ? `${b.crashCount} ${pluralize(b.crashCount, 'crash', 'crashes')}` : '',
-        b.fireCount > 0 ? `${b.fireCount} ${pluralize(b.fireCount, 'fire')}` : '',
-        b.injuryCount > 0
-          ? `${b.injuryCount} ${pluralize(b.injuryCount, 'injury', 'injuries')}`
-          : '',
-        b.deathCount > 0 ? `${b.deathCount} ${pluralize(b.deathCount, 'death')}` : '',
-      ]
-        .filter(Boolean)
-        .join(', ');
-      lines.push(
-        `- **${b.component}:** ${b.count} ${pluralize(b.count, 'complaint')}${flags ? ` (${flags})` : ''}`,
-      );
+        `${b.crashCount} ${pluralize(b.crashCount, 'crash', 'crashes')}`,
+        `${b.fireCount} ${pluralize(b.fireCount, 'fire')}`,
+        `${b.injuryCount} ${pluralize(b.injuryCount, 'injury', 'injuries')}`,
+        `${b.deathCount} ${pluralize(b.deathCount, 'death')}`,
+      ].join(', ');
+      lines.push(`- **${b.component}:** ${b.count} ${pluralize(b.count, 'complaint')} (${flags})`);
     }
 
     lines.push(
       `\n## Recent Complaints (returned ${result.returned} of ${result.totalCount}, offset ${result.offset}, limit ${result.limit}, date-descending)\n`,
     );
-    if (result.returned === 0) {
-      lines.push(`*${outOfBoundsMessage(result)}*\n`);
-    } else if (result.offset + result.returned < result.totalCount) {
+    if (result.returned > 0 && result.offset + result.returned < result.totalCount) {
       lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
     }
     for (const c of result.complaints) {

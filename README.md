@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.9.7-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.9.7-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/nhtsa-vehicle-safety-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/nhtsa-vehicle-safety-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/nhtsa-vehicle-safety-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.3-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -29,7 +29,7 @@
 
 ## Overview
 
-Vehicle safety data from NHTSA — recall campaigns, consumer complaints, NCAP crash ratings, defect investigations, and VIN decoding. Search, decode, and cross-reference across five NHTSA data sources from any MCP client. Runs as a stdio process, a local Streamable HTTP server, or the public hosted endpoint above.
+Vehicle safety data from NHTSA: recalls, consumer complaints, NCAP crash ratings, defect investigations, and VIN decoding. Get a full safety picture for any make, model, and year in one call, or decode a VIN.
 
 ### Tools
 
@@ -59,7 +59,7 @@ Vehicle safety data from NHTSA — recall campaigns, consumer complaints, NCAP c
 
 - Look up by make/model/year or by specific NHTSA campaign number — the two are mutually exclusive
 - Campaign lookups return every make/model the campaign covers, plus the ODI investigation that preceded it
-- Optional date range filtering (ISO 8601), applied locally
+- Optional inclusive `dateRange` bounds (`after`/`before`, calendar-valid `YYYY-MM-DD`) apply in both modes; blank bounds are unset
 - Includes do-not-drive advisories, park-outside warnings, and OTA update availability
 
 ---
@@ -68,14 +68,14 @@ Vehicle safety data from NHTSA — recall campaigns, consumer complaints, NCAP c
 
 - Component breakdown covers every matching complaint regardless of pagination; up to 50 complaint narratives per page (default 20), offset pagination, sorted by filing date descending
 - Optional `component` filter matches within comma-separated component lists (e.g., "ENGINE", "AIR BAGS")
-- Crash, fire, injury, and death counts on both the breakdown and each complaint
+- Every component line includes crash, fire, injury, and death totals, including zeros; individual complaints preserve fields NHTSA actually reported
 - An incident date NHTSA reported that the complaint's own filing date or model year rules out is disclosed as `unreliableIncidentDate` rather than served as the incident date
 
 ---
 
 ### `nhtsa_get_safety_ratings` <sub>tool</sub>
 
-- Accepts either make + model + modelYear, or a follow-up `vehicleId` from an earlier result
+- Accepts either make + model + modelYear, or a follow-up `vehicleId` from an earlier result; combining the modes is rejected
 - Frontal crash, side crash (barrier + pole), and rollover ratings, plus ESC/forward-collision/lane-departure ADAS availability
 - Per-record complaint, recall, and investigation counts are variant-scoped — not vehicle-level totals
 - NCAP coverage starts at 1990, most complete for 2011+ model years
@@ -84,7 +84,7 @@ Vehicle safety data from NHTSA — recall campaigns, consumer complaints, NCAP c
 
 ### `nhtsa_decode_vin` <sub>tool</sub>
 
-- Single VIN or batch of up to 50; partial VINs accepted using `*` for unknown positions
+- Single VIN or batch of up to 50; partial VINs accepted using `*` for unknown positions; any blank entry rejects the whole batch before decoding
 - Optional `modelYear` helps disambiguate pre-1980 or partial VINs
 - Preserves sparse VPIC fields instead of filling missing data with placeholders
 - Every result carries VPIC's own `errorCode`/`errorText` decode-quality signal, including the clean "0" case
@@ -95,8 +95,9 @@ Vehicle safety data from NHTSA — recall campaigns, consumer complaints, NCAP c
 
 - Investigation types: Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI codes (SQ, EQ, RP, and others)
 - Free-text search across investigation IDs, subjects, and summaries, plus structured make, model, and component filters — all ANDed
+- Inclusive `openDateRange` and `closeDateRange` bounds (`after`/`before`, calendar-valid `YYYY-MM-DD`) filter before counting and pagination; active bounds exclude records without the corresponding usable date
 - `nhtsaId` fetches one investigation by its exact ID, mutually exclusive with the other filters — the reverse of the recall link, closing the campaign-to-investigation round trip
-- Sourced from NHTSA's ODI bulk file (`FLAT_INV.zip`) — the first query downloads and parses it (~10s), subsequent queries use the cached index (24h TTL, matching the file's daily refresh)
+- Sourced from NHTSA's ODI bulk file (`FLAT_INV.zip`) — concurrent cold queries share one streaming load with a two-minute deadline. Cancelling one query leaves other callers running; successful loads remain cached for 24 hours from completion
 - Up to 25 investigations per page (default 20), offset pagination
 
 ---
@@ -105,6 +106,7 @@ Vehicle safety data from NHTSA — recall campaigns, consumer complaints, NCAP c
 
 - Four operations: `makes`, `models`, `vehicle_types`, `manufacturer` — partial match supported on make/manufacturer names
 - `models` can be filtered by year; `models` and `vehicle_types` both require `make`
+- Each operation rejects inactive filters: `makes` accepts none, `models` accepts `make`/`modelYear`, `vehicle_types` accepts `make`, and `manufacturer` accepts `manufacturer`. Optional blank strings are unset; operation-required make/manufacturer names must be nonblank
 - Up to 200 results per page (default 100), offset pagination
 - `manufacturer` lookups stop at a 500-record ceiling and disclose `truncated` when more may exist — VPIC publishes no match total
 

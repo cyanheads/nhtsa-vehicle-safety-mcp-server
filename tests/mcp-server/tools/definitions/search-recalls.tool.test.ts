@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/search-recalls.tool
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -39,6 +39,112 @@ const sampleRecall = {
 };
 
 describe('searchRecalls', () => {
+  it('preserves missing record dates when blank bounds are unset', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([
+      { ...sampleRecall, reportReceivedDate: '' },
+    ]);
+    const result = await runToolContract(searchRecalls, {
+      make: ' Toyota ',
+      model: ' Camry ',
+      modelYear: 2020,
+      campaignNumber: ' ',
+      dateRange: { after: ' ', before: '' },
+    });
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 1,
+      effectiveQuery: 'Toyota Camry 2020',
+    });
+    expect(mockService.getRecallsByVehicle).toHaveBeenCalledWith(
+      'Toyota',
+      'Camry',
+      2020,
+      expect.anything(),
+    );
+  });
+
+  it('retains campaign_not_found with a valid active range', async () => {
+    mockService.getRecallCampaign.mockResolvedValue(null);
+    const result = await runToolContract(searchRecalls, {
+      campaignNumber: 'ZZZ999999',
+      dateRange: { before: '2024-01-01' },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: { data: { reason: 'campaign_not_found' } },
+    });
+    expect(JSON.stringify(result.content)).toContain('Verify the campaign number');
+  });
+  it.each(['campaign', 'vehicle'])(
+    'applies inclusive calendar bounds in %s mode (#35)',
+    async (mode) => {
+      mockService.getRecallCampaign.mockResolvedValue({
+        ...sampleRecall,
+        receivedDate: '2020-12-11',
+        affectedVehicles: [],
+      });
+      mockService.getRecallsByVehicle.mockResolvedValue([
+        sampleRecall,
+        { ...sampleRecall, reportReceivedDate: '' },
+      ]);
+      const key =
+        mode === 'campaign'
+          ? { campaignNumber: '20V682000' }
+          : { make: 'Toyota', model: 'Camry', modelYear: 2020 };
+      const included = await runToolContract(searchRecalls, {
+        ...key,
+        dateRange: { after: '2020-12-11', before: '2020-12-11' },
+      });
+      expect(included.isError).not.toBe(true);
+      expect(included.structuredContent).toMatchObject({
+        totalCount: 1,
+        effectiveQuery: expect.stringContaining('2020-12-11'),
+      });
+      const excluded = await runToolContract(searchRecalls, {
+        ...key,
+        dateRange: { after: '2021-01-01' },
+      });
+      expect(excluded.structuredContent).toMatchObject({
+        totalCount: 0,
+        notice: expect.stringMatching(/date range/i),
+      });
+      expect(excluded.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n')).toMatch(
+        /date range/i,
+      );
+      expect(JSON.stringify(excluded.content)).not.toContain('nhtsa_lookup_vehicles');
+    },
+  );
+
+  it.each(['2025', '2025-02-30', '2025-01-01T00:00:00Z', 'not-a-date'])(
+    'rejects %s before upstream (#35)',
+    async (after) => {
+      const result = await runToolContract(searchRecalls, {
+        campaignNumber: '20V682000',
+        dateRange: { after },
+      });
+      expect(result.structuredContent).toMatchObject({
+        error: {
+          data: {
+            reason: 'invalid_date',
+            recovery: { hint: expect.stringContaining('YYYY-MM-DD') },
+          },
+        },
+      });
+      expect(mockService.getRecallCampaign).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects inverted bounds before upstream (#35)', async () => {
+    const result = await runToolContract(searchRecalls, {
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      dateRange: { after: '2025-01-01', before: '2020-01-01' },
+    });
+    expect(result.structuredContent).toMatchObject({
+      error: { data: { reason: 'inverted_date_range' } },
+    });
+    expect(mockService.getRecallsByVehicle).not.toHaveBeenCalled();
+  });
   it('searches by vehicle', async () => {
     mockService.getRecallsByVehicle.mockResolvedValue([sampleRecall]);
 

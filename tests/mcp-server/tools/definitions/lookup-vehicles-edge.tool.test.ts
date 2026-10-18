@@ -4,7 +4,7 @@
  * @module tests/mcp-server/tools/definitions/lookup-vehicles-edge.tool
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Keeps the real MANUFACTURER_RESULT_CAP so cap assertions track the service constant. */
@@ -31,6 +31,62 @@ beforeEach(() => {
 });
 
 describe('lookupVehicles — vehicle_types operation', () => {
+  it.each(['makes', 'models', 'vehicle_types', 'manufacturer'] as const)(
+    'assembles one recovery for %s (#39)',
+    async (operation) => {
+      mockService.getAllMakes.mockResolvedValue([{ makeId: 1, makeName: 'TOYOTA' }]);
+      mockService.getModels.mockResolvedValue([
+        { makeId: 1, makeName: 'TOYOTA', modelId: 1, modelName: 'CAMRY' },
+      ]);
+      mockService.getVehicleTypes.mockResolvedValue([{ vehicleTypeId: 2, vehicleTypeName: 'Car' }]);
+      mockService.getManufacturer.mockResolvedValue([
+        { manufacturerId: 1, manufacturerName: 'TOYOTA', vehicleTypes: [] },
+      ]);
+      const args =
+        operation === 'manufacturer'
+          ? { manufacturer: 'Toyota' }
+          : operation === 'makes'
+            ? {}
+            : { make: 'Toyota' };
+      const result = await runToolContract(lookupVehicles, {
+        operation,
+        ...args,
+        offset: 99,
+        limit: 1,
+      });
+      const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+      expect(text.split('try a smaller offset').length - 1).toBe(1);
+      expect(text).not.toMatch(/spelling/i);
+      expect(result.structuredContent).toMatchObject({
+        totalCount: 1,
+        returned: 0,
+        notice: expect.stringContaining('try a smaller offset'),
+      });
+    },
+  );
+
+  it('assembles one cap disclosure and one recovery (#39)', async () => {
+    mockService.getManufacturer.mockResolvedValue(
+      Array.from({ length: MANUFACTURER_RESULT_CAP }, (_, manufacturerId) => ({
+        manufacturerId,
+        manufacturerName: 'Synthetic manufacturer',
+        vehicleTypes: [],
+      })),
+    );
+    const result = await runToolContract(lookupVehicles, {
+      operation: 'manufacturer',
+      manufacturer: 'a',
+      offset: MANUFACTURER_RESULT_CAP,
+    });
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text.split('try a smaller offset').length - 1).toBe(1);
+    expect(text.split('Retrieval stopped at').length - 1).toBe(1);
+    expect(result.structuredContent).toMatchObject({
+      truncated: true,
+      cap: MANUFACTURER_RESULT_CAP,
+      shown: MANUFACTURER_RESULT_CAP,
+    });
+  });
   it('returns vehicle types for a make', async () => {
     mockService.getVehicleTypes.mockResolvedValue([
       { vehicleTypeId: 2, vehicleTypeName: 'Passenger Car' },
@@ -274,14 +330,12 @@ describe('lookupVehicles — format', () => {
     };
     const text = firstText(lookupVehicles.format!(output));
 
-    expect(text).toBe(
-      'No results for this page (offset 99000, limit 5). 12309 total — try a smaller offset.',
-    );
+    expect(text).toBe('**12309 makes result(s)** (showing 0, offset 99000, limit 5)');
     // The name was fine; only the offset was wrong.
     expect(text).not.toMatch(/spelling/i);
   });
 
-  it('format keeps the cap disclosure when a capped manufacturer page also overshoots', () => {
+  it('format leaves recovery and cap disclosure to enrichment when a manufacturer page overshoots', () => {
     const output = {
       operation: 'manufacturer',
       totalCount: MANUFACTURER_RESULT_CAP,
@@ -292,9 +346,9 @@ describe('lookupVehicles — format', () => {
     };
     const text = firstText(lookupVehicles.format!(output));
 
-    expect(text).toContain('try a smaller offset');
-    expect(text).toContain(`Retrieval stopped at ${MANUFACTURER_RESULT_CAP} records`);
-    expect(text).toContain('more may exist upstream');
+    expect(text).toContain(`**${MANUFACTURER_RESULT_CAP} manufacturer result(s)**`);
+    expect(text).not.toContain('try a smaller offset');
+    expect(text).not.toContain('Retrieval stopped at');
     expect(text).not.toMatch(/spelling/i);
   });
 
@@ -309,7 +363,7 @@ describe('lookupVehicles — format', () => {
     };
     const text = firstText(lookupVehicles.format!(output));
 
-    expect(text).toContain('12 total — try a smaller offset');
+    expect(text).toContain('**12 manufacturer result(s)** (showing 0, offset 500, limit 100)');
     expect(text).not.toMatch(/retrieval stopped/i);
   });
 

@@ -804,6 +804,229 @@ describe('decodeVinBatch', () => {
 });
 
 describe('getInvestigations caching (flat-file source)', () => {
+  it.each(['headers', 'body'])(
+    'bounds stalled %s after every waiter cancels and permits retry (#44)',
+    async (phase) => {
+      vi.useFakeTimers();
+      const svc = new NhtsaService();
+      const started = Promise.withResolvers<void>();
+      const bodyRead = Promise.withResolvers<void>();
+      const abortedBody = vi.fn();
+      mockFetch.mockImplementation((url, init) => {
+        expect(new URL(url).hostname).toBe('static.nhtsa.gov');
+        started.resolve();
+        if (phase === 'headers')
+          return new Promise((_resolve, reject) =>
+            init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }),
+          );
+        return Promise.resolve(
+          new Response(
+            new ReadableStream(
+              {
+                start(controller) {
+                  init.signal.addEventListener(
+                    'abort',
+                    () => {
+                      abortedBody();
+                      controller.error(init.signal.reason);
+                    },
+                    { once: true },
+                  );
+                },
+                pull() {
+                  bodyRead.resolve();
+                  return new Promise(() => {});
+                },
+              },
+              { highWaterMark: 0 },
+            ),
+          ),
+        );
+      });
+      try {
+        const caller = new AbortController();
+        const waiting = svc.getInvestigations(caller.signal);
+        const rejection = expect(waiting).rejects.toThrow(/abort|cancel/i);
+        await started.promise;
+        if (phase === 'body') await bodyRead.promise;
+        caller.abort();
+        await rejection;
+        await vi.advanceTimersByTimeAsync(120_000);
+        if (phase === 'body') expect(abortedBody).toHaveBeenCalledTimes(1);
+        mockFetch.mockResolvedValueOnce(makeFlatInvZipResponse([]));
+        expect(await svc.getInvestigations()).toEqual([]);
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+  it.each(['cold', 'expired'])('coalesces %s loads (#44)', async (state) => {
+    const svc = new NhtsaService();
+    const rows = [
+      [
+        'PE12345',
+        'TOYOTA',
+        'CAMRY',
+        '2020',
+        'BRAKES',
+        'TOYOTA',
+        '20230115',
+        '',
+        '',
+        'Subject',
+        'Summary',
+      ],
+    ];
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 0, 1));
+    try {
+      if (state === 'expired') {
+        mockFetch.mockImplementation(async () => makeFlatInvZipResponse(rows));
+        await svc.getInvestigations();
+        clock.mockReturnValue(Date.UTC(2026, 0, 2));
+        mockFetch.mockReset();
+      }
+      const response = Promise.withResolvers<Response>();
+      mockFetch.mockImplementation((url) => {
+        expect(new URL(url).hostname).toBe('static.nhtsa.gov');
+        return response.promise;
+      });
+      const calls = [svc.getInvestigations(), svc.getInvestigations(), svc.getInvestigations()];
+      response.resolve(makeFlatInvZipResponse(rows));
+      const results = await Promise.all(calls);
+      expect(results[0]).toHaveLength(1);
+      expect(results[1]).toBe(results[0]);
+      expect(results[2]).toBe(results[0]);
+      expect(await svc.getInvestigations()).toBe(results[0]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([0, 1])(
+    'cancels waiter %s without poisoning followers or cache (#44)',
+    async (cancelledIndex) => {
+      const svc = new NhtsaService();
+      const response = Promise.withResolvers<Response>();
+      const started = Promise.withResolvers<void>();
+      mockFetch.mockImplementation((url) => {
+        expect(new URL(url).hostname).toBe('static.nhtsa.gov');
+        started.resolve();
+        return response.promise;
+      });
+      const controllers = [new AbortController(), new AbortController()];
+      const removals = controllers.map((c) => vi.spyOn(c.signal, 'removeEventListener'));
+      const pending = controllers.map((c) => svc.getInvestigations(c.signal));
+      const cancelled = expect(pending[cancelledIndex]).rejects.toThrow(/cancel|abort/i);
+      await started.promise;
+      controllers[cancelledIndex]!.abort();
+      await cancelled;
+      response.resolve(
+        makeFlatInvZipResponse([
+          [
+            'PE12345',
+            'TOYOTA',
+            'CAMRY',
+            '2020',
+            'BRAKES',
+            'TOYOTA',
+            '20230115',
+            '',
+            '',
+            'Subject',
+            'Summary',
+          ],
+        ]),
+      );
+      const surviving = await pending[1 - cancelledIndex]!;
+      expect(surviving).toHaveLength(1);
+      expect(await svc.getInvestigations()).toBe(surviving);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      for (const removal of removals)
+        expect(removal).toHaveBeenCalledWith('abort', expect.any(Function));
+    },
+  );
+
+  it('starts no load for an already-aborted caller (#44)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(new NhtsaService().getInvestigations(controller.signal)).rejects.toThrow(
+      /abort|cancel/i,
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('shares failure, removes listeners, and retries (#44)', async () => {
+    const response = Promise.withResolvers<Response>();
+    mockFetch.mockImplementation((url) => {
+      expect(new URL(url).hostname).toBe('static.nhtsa.gov');
+      return response.promise;
+    });
+    const svc = new NhtsaService();
+    const controller = new AbortController();
+    const removal = vi.spyOn(controller.signal, 'removeEventListener');
+    const calls = [svc.getInvestigations(controller.signal), svc.getInvestigations()];
+    const settled = Promise.allSettled(calls);
+    response.reject(new Error('synthetic shared failure'));
+    expect(await settled).toEqual([
+      {
+        status: 'rejected',
+        reason: expect.objectContaining({
+          message: expect.stringContaining('synthetic shared failure'),
+        }),
+      },
+      {
+        status: 'rejected',
+        reason: expect.objectContaining({
+          message: expect.stringContaining('synthetic shared failure'),
+        }),
+      },
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(removal).toHaveBeenCalledWith('abort', expect.any(Function));
+    mockFetch.mockResolvedValueOnce(makeFlatInvZipResponse([]));
+    expect(await svc.getInvestigations()).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+  it('characterizes completion-based expiry and retry after failure', async () => {
+    const base = Date.UTC(2026, 0, 1);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(base);
+    const svc = new NhtsaService();
+    const rows = [
+      [
+        'PE12345',
+        'TOYOTA',
+        'CAMRY',
+        '2020',
+        'BRAKES',
+        'TOYOTA',
+        '20230115',
+        '',
+        '',
+        'Subject',
+        'Summary',
+      ],
+    ];
+    try {
+      mockFetch.mockRejectedValueOnce(new Error('synthetic failure'));
+      await expect(svc.getInvestigations()).rejects.toThrow('synthetic failure');
+      mockFetch.mockImplementation(async () => {
+        clock.mockReturnValue(base + 60_000);
+        return makeFlatInvZipResponse(rows);
+      });
+      const first = await svc.getInvestigations();
+      clock.mockReturnValue(base + 24 * 60 * 60 * 1000);
+      expect(await svc.getInvestigations()).toBe(first);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      clock.mockReturnValue(base + 24 * 60 * 60 * 1000 + 60_000);
+      expect(await svc.getInvestigations()).toEqual(first);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   // FLAT_INV column order: nhtsaId, make, model, year, component, mfrName, openDate, closeDate, campno, subject, summary
   it('parses a flat-file zip and caches results', async () => {
     mockFetch.mockResolvedValue(

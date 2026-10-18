@@ -340,8 +340,16 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
     'Get a comprehensive safety profile for a vehicle. Combines NCAP crash test ratings, recalls, and complaint summary into a single response. Use as the default when asked about vehicle safety, reliability, or purchase decisions.',
   annotations: { readOnlyHint: true },
   input: z.object({
-    make: z.string().describe('Vehicle manufacturer (e.g., "Toyota", "Ford"). Case-insensitive.'),
-    model: z.string().describe('Vehicle model (e.g., "Camry", "F-150"). Case-insensitive.'),
+    make: z
+      .string()
+      .trim()
+      .min(1)
+      .describe('Nonblank vehicle manufacturer (e.g., "Toyota", "Ford"). Case-insensitive.'),
+    model: z
+      .string()
+      .trim()
+      .min(1)
+      .describe('Nonblank vehicle model (e.g., "Camry", "F-150"). Case-insensitive.'),
     modelYear: z.number().int().describe('Model year, a whole number (e.g., 2020).'),
   }),
   output: vehicleSafetyOutputSchema,

@@ -51,6 +51,28 @@ const sampleRating = {
 };
 
 describe('getSafetyRatings', () => {
+  it('normalizes blank optional vehicle criteria out of ID mode', async () => {
+    mockService.getSafetyRating.mockResolvedValue(sampleRating);
+    const ctx = createMockContext({ errors: getSafetyRatings.errors });
+    const input = getSafetyRatings.input.parse({ vehicleId: 14720, make: ' ', model: '\t' });
+    const result = await getSafetyRatings.handler(input, ctx);
+    expect(result.ratings).toEqual([sampleRating]);
+    expect(mockService.getSafetyRatingVariants).not.toHaveBeenCalled();
+  });
+
+  it('trims vehicle criteria before variant lookup', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+    await getSafetyRatings.handler(
+      getSafetyRatings.input.parse({ make: ' Toyota ', model: ' Camry ', modelYear: 2020 }),
+      createMockContext({ errors: getSafetyRatings.errors }),
+    );
+    expect(mockService.getSafetyRatingVariants).toHaveBeenCalledWith(
+      2020,
+      'Toyota',
+      'Camry',
+      expect.anything(),
+    );
+  });
   it('fetches ratings via variant lookup', async () => {
     mockService.getSafetyRatingVariants.mockResolvedValue([
       { vehicleId: 14720, vehicleDescription: '2020 Toyota CAMRY FWD' },

@@ -7,6 +7,12 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import {
+  dateRangeSchema,
+  describeDateRange,
+  matchesDateRange,
+  normalizeDateRange,
+} from '@/services/nhtsa/date-range.js';
 import { outOfBoundsMessage } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { Investigation } from '@/services/nhtsa/types.js';
@@ -99,6 +105,16 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .enum(['O', 'C'])
       .optional()
       .describe('Filter by status: "O" (Open) or "C" (Closed). Omit to include both.'),
+    openDateRange: dateRangeSchema
+      .optional()
+      .describe(
+        'Inclusive opened-date bounds in calendar-valid YYYY-MM-DD. ANDed with other filters; blank bounds are unset.',
+      ),
+    closeDateRange: dateRangeSchema
+      .optional()
+      .describe(
+        'Inclusive closed-date bounds in calendar-valid YYYY-MM-DD. Active bounds exclude investigations without a usable close date, including open investigations.',
+      ),
     limit: z
       .number()
       .int()
@@ -167,7 +183,21 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       code: JsonRpcErrorCode.ValidationError,
       when: 'nhtsaId was combined with another filter.',
       recovery:
-        'Use nhtsaId alone, or the query/make/model/component/investigationType/status filters. limit and offset work with either.',
+        'Use nhtsaId alone, or search filters including openDateRange/closeDateRange. limit and offset work with either.',
+    },
+    {
+      reason: 'invalid_date',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A date bound is not a calendar-valid YYYY-MM-DD date.',
+      recovery: 'Use calendar-valid YYYY-MM-DD dates such as 2025-01-01.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'inverted_date_range',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A range has after later than before.',
+      recovery: 'Set after on or before before, or omit a bound.',
+      thrownBy: 'service',
     },
   ],
 
@@ -175,6 +205,17 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const svc = getNhtsaService();
     const limit = input.limit ?? DEFAULT_LIMIT;
     const offset = input.offset ?? 0;
+    input = {
+      ...input,
+      nhtsaId: input.nhtsaId?.trim() || undefined,
+      query: input.query?.trim() || undefined,
+      make: input.make?.trim() || undefined,
+      model: input.model?.trim() || undefined,
+      component: input.component?.trim() || undefined,
+      investigationType: input.investigationType?.trim() || undefined,
+    };
+    const openDateRange = normalizeDateRange(input.openDateRange, 'openDateRange');
+    const closeDateRange = normalizeDateRange(input.closeDateRange, 'closeDateRange');
 
     if (
       input.nhtsaId &&
@@ -183,11 +224,13 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
         input.model ||
         input.component ||
         input.investigationType ||
-        input.status)
+        input.status ||
+        openDateRange ||
+        closeDateRange)
     ) {
       throw ctx.fail(
         'mode_conflict',
-        'Provide either nhtsaId for one investigation, or the query/make/model/component/investigationType/status filters — not both.',
+        'Provide either nhtsaId for one investigation, or search filters including date ranges — not both.',
       );
     }
 
@@ -224,6 +267,11 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       investigations = investigations.filter((i) => matchesText(i, query));
     }
 
+    investigations = investigations.filter(
+      (i) =>
+        matchesDateRange(i.openDate, openDateRange) &&
+        matchesDateRange(i.closeDate, closeDateRange),
+    );
     const totalCount = investigations.length;
     const page = investigations.slice(offset, offset + limit);
 
@@ -247,6 +295,8 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       input.component ? `component="${input.component}"` : null,
       input.investigationType ? `investigationType="${input.investigationType}"` : null,
       input.status ? `status="${input.status}"` : null,
+      describeDateRange('openDateRange', openDateRange) || null,
+      describeDateRange('closeDateRange', closeDateRange) || null,
     ].filter((f): f is string => f !== null);
 
     const effectiveQuery = appliedFilters.length > 0 ? appliedFilters.join(', ') : '(all)';
@@ -307,9 +357,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const lines = [
       `**${result.totalCount} investigation(s) found** (showing ${result.returned}, offset ${result.offset}, limit ${result.limit})\n`,
     ];
-    if (result.returned === 0) {
-      lines.push(`*${outOfBoundsMessage(result)}*\n`);
-    } else if (result.offset + result.returned < result.totalCount) {
+    if (result.returned > 0 && result.offset + result.returned < result.totalCount) {
       lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
     }
 

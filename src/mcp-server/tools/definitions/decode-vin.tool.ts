@@ -79,8 +79,8 @@ export const decodeVin = tool('nhtsa_decode_vin', {
     {
       reason: 'empty_vin_list',
       code: JsonRpcErrorCode.ValidationError,
-      when: 'No non-empty VIN strings supplied.',
-      recovery: 'Provide at least one non-empty VIN string.',
+      when: 'The VIN list is empty or contains a blank VIN.',
+      recovery: 'Provide at least one VIN and remove every blank entry before retrying.',
     },
     {
       reason: 'batch_too_large',
@@ -94,9 +94,12 @@ export const decodeVin = tool('nhtsa_decode_vin', {
     const svc = getNhtsaService();
     const vins = Array.isArray(input.vin) ? input.vin : [input.vin];
 
-    const nonEmpty = vins.filter((v) => v.trim().length > 0);
-    if (nonEmpty.length === 0) {
-      throw ctx.fail('empty_vin_list', 'At least one non-empty VIN is required.');
+    const nonEmpty = vins.map((v) => v.trim());
+    if (nonEmpty.length === 0 || nonEmpty.some((v) => v.length === 0)) {
+      throw ctx.fail(
+        'empty_vin_list',
+        'At least one non-empty VIN is required, and every VIN entry must be nonblank.',
+      );
     }
 
     if (nonEmpty.length > MAX_BATCH_SIZE) {

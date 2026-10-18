@@ -141,6 +141,13 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
   },
   errors: [
     {
+      reason: 'inactive_argument',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'An argument is not used by the chosen operation.',
+      recovery:
+        'makes accepts no filters; models accepts make/modelYear; vehicle_types accepts make; manufacturer accepts manufacturer. Remove other filters.',
+    },
+    {
       reason: 'missing_operation_arg',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A required argument for the chosen operation was not provided.',
@@ -152,6 +159,24 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
     const svc = getNhtsaService();
     const limit = input.limit ?? DEFAULT_LIMIT;
     const offset = input.offset ?? 0;
+    input = {
+      ...input,
+      make: input.make?.trim() || undefined,
+      manufacturer: input.manufacturer?.trim() || undefined,
+    };
+    const inactive = [
+      input.make && input.operation !== 'models' && input.operation !== 'vehicle_types'
+        ? 'make'
+        : null,
+      input.modelYear != null && input.operation !== 'models' ? 'modelYear' : null,
+      input.manufacturer && input.operation !== 'manufacturer' ? 'manufacturer' : null,
+    ].filter(Boolean);
+    if (inactive.length > 0) {
+      throw ctx.fail(
+        'inactive_argument',
+        `The ${input.operation} operation does not accept ${inactive.join(', ')}.`,
+      );
+    }
 
     const emptyMessage = (subject: string, recovery: string): string =>
       `No ${subject} found. ${recovery}`;
@@ -331,12 +356,12 @@ export const lookupVehicles = tool('nhtsa_lookup_vehicles', {
           },
         ];
       }
-      /** A capped manufacturer walk knows a floor, not a total — say so before the total is read as one. */
-      const capDisclosure =
-        result.operation === 'manufacturer' && result.totalCount >= MANUFACTURER_RESULT_CAP
-          ? ` Retrieval stopped at ${MANUFACTURER_RESULT_CAP} records, so that count is a floor and more may exist upstream.`
-          : '';
-      return [{ type: 'text' as const, text: `${outOfBoundsMessage(result)}${capDisclosure}` }];
+      return [
+        {
+          type: 'text' as const,
+          text: `**${result.totalCount} ${result.operation} result(s)** (showing 0, offset ${result.offset}, limit ${result.limit})`,
+        },
+      ];
     }
 
     const lines = [`**${result.totalCount} ${result.operation} result(s)**\n`];

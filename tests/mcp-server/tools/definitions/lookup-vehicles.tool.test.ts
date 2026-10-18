@@ -30,6 +30,42 @@ beforeEach(() => {
 });
 
 describe('lookupVehicles', () => {
+  it('normalizes optional blanks before mode checks and trims required names', async () => {
+    mockService.getAllMakes.mockResolvedValue([]);
+    const ctx = createMockContext({ errors: lookupVehicles.errors });
+    await lookupVehicles.handler(
+      lookupVehicles.input.parse({
+        operation: 'makes',
+        make: ' ',
+        manufacturer: '\t',
+        limit: 1,
+        offset: 0,
+      }),
+      ctx,
+    );
+    expect(mockService.getAllMakes).toHaveBeenCalledTimes(1);
+    mockService.getModels.mockResolvedValue([]);
+    await lookupVehicles.handler(
+      lookupVehicles.input.parse({
+        operation: 'models',
+        make: ' Toyota ',
+        manufacturer: ' ',
+        modelYear: 1968,
+      }),
+      ctx,
+    );
+    expect(mockService.getModels).toHaveBeenCalledWith('Toyota', 1968, expect.anything());
+    mockService.getManufacturer.mockResolvedValue([]);
+    await lookupVehicles.handler(
+      lookupVehicles.input.parse({
+        operation: 'manufacturer',
+        manufacturer: ' Toyota ',
+        make: ' ',
+      }),
+      ctx,
+    );
+    expect(mockService.getManufacturer).toHaveBeenCalledWith('Toyota', expect.anything());
+  });
   it('"makes" operation returns makes', async () => {
     mockService.getAllMakes.mockResolvedValue([
       { makeId: 441, makeName: 'TOYOTA' },

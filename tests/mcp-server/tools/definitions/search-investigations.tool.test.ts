@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/search-investigations.tool
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -63,6 +63,109 @@ const sampleInvestigations = [
 ];
 
 describe('searchInvestigations', () => {
+  it.each([{}, { after: ' ', before: '\t' }])(
+    'allows inactive date range %j with exact ID',
+    async (range) => {
+      mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+      const result = await runToolContract(searchInvestigations, {
+        nhtsaId: ' EA21002 ',
+        openDateRange: range,
+        closeDateRange: range,
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        totalCount: 1,
+        investigations: [{ nhtsaId: 'EA21002' }],
+      });
+      expect(JSON.stringify(result.structuredContent)).not.toContain('DateRange');
+    },
+  );
+
+  it.each(['openDateRange', 'closeDateRange'] as const)(
+    'wires invalid/inverted %s recovery before loading',
+    async (field) => {
+      for (const [range, reason] of [
+        [{ after: '2025-02-29' }, 'invalid_date'],
+        [{ after: '2025-01-01', before: '2020-01-01' }, 'inverted_date_range'],
+      ] as const) {
+        const result = await runToolContract(searchInvestigations, { [field]: range });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toMatchObject({
+          error: { data: { reason, recovery: { hint: expect.any(String) } } },
+        });
+        expect(JSON.stringify(result.content)).toContain(field);
+        expect(mockService.getInvestigations).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('distinguishes dated zero matches from a past-end filtered page', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+    const empty = await runToolContract(searchInvestigations, {
+      openDateRange: { after: '2030-01-01' },
+    });
+    expect(empty.structuredContent).toMatchObject({
+      totalCount: 0,
+      returned: 0,
+      notice: expect.stringContaining('removing a filter'),
+    });
+    const past = await runToolContract(searchInvestigations, {
+      closeDateRange: { before: '2023-01-01' },
+      offset: 1,
+    });
+    expect(past.structuredContent).toMatchObject({
+      totalCount: 1,
+      returned: 0,
+      notice: expect.stringContaining('try a smaller offset'),
+    });
+    expect(JSON.stringify(past.content)).not.toContain('Try broadening');
+  });
+  it('filters both date ranges before count/page and ANDs status (#38)', async () => {
+    mockService.getInvestigations.mockResolvedValue([
+      ...sampleInvestigations,
+      { ...sampleInvestigations[1], nhtsaId: 'EA21003', closeDate: '2023-01-02' },
+      { ...sampleInvestigations[1], nhtsaId: 'EA21004', closeDate: undefined },
+      { ...sampleInvestigations[1], nhtsaId: 'EA21005', openDate: 'bad-date' },
+    ]);
+    const result = await runToolContract(searchInvestigations, {
+      status: 'C',
+      openDateRange: { after: '2022-05-01', before: '2022-05-01' },
+      closeDateRange: { after: '2023-01-01', before: '2023-01-02' },
+      limit: 1,
+      offset: 1,
+    } as never);
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 2,
+      returned: 1,
+      investigations: [{ nhtsaId: 'EA21003' }],
+      effectiveQuery: expect.stringContaining('closeDateRange'),
+    });
+    expect(JSON.stringify(result.content)).toContain('EA21003');
+  });
+
+  it('rejects exact-ID date conflicts before loading (#38)', async () => {
+    const result = await runToolContract(searchInvestigations, {
+      nhtsaId: 'EA21002',
+      closeDateRange: { after: '2020-01-01' },
+    } as never);
+    expect(result.structuredContent).toMatchObject({
+      error: { data: { reason: 'mode_conflict' } },
+    });
+    expect(mockService.getInvestigations).not.toHaveBeenCalled();
+  });
+
+  it('assembles one past-end recovery sentence (#39)', async () => {
+    mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
+    const result = await runToolContract(searchInvestigations, { offset: 999 });
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text.split('try a smaller offset').length - 1).toBe(1);
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 3,
+      returned: 0,
+      notice: expect.stringContaining('try a smaller offset'),
+    });
+  });
   it('returns all investigations when no filters and populates effectiveQuery', async () => {
     mockService.getInvestigations.mockResolvedValue(sampleInvestigations);
 
@@ -321,7 +424,7 @@ describe('searchInvestigations', () => {
     expect(getEnrichment(ctx).notice).toMatch(/no investigations matched/i);
   });
 
-  it('format explains an out-of-range page instead of a bare "showing 0"', () => {
+  it('format retains out-of-range page facts and leaves recovery to enrichment', () => {
     const text = firstText(
       searchInvestigations.format!({
         totalCount: 5338,
@@ -332,7 +435,8 @@ describe('searchInvestigations', () => {
       }),
     );
 
-    expect(text).toContain('No results for this page (offset 9000, limit 5). 5338 total');
+    expect(text).toContain('**5338 investigation(s) found** (showing 0, offset 9000, limit 5)');
+    expect(text).not.toContain('try a smaller offset');
     expect(text).not.toContain('to retrieve the next page');
   });
 

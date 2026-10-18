@@ -8,9 +8,13 @@
  */
 
 import { runToolContract } from '@cyanheads/mcp-ts-core/testing';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { decodeVin } from '@/mcp-server/tools/definitions/decode-vin.tool.js';
+import { getSafetyRatings } from '@/mcp-server/tools/definitions/get-safety-ratings.tool.js';
+import { getVehicleSafety } from '@/mcp-server/tools/definitions/get-vehicle-safety.tool.js';
+import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.tool.js';
+import { searchComplaints } from '@/mcp-server/tools/definitions/search-complaints.tool.js';
 import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
 import { initNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
@@ -20,6 +24,58 @@ import { initNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
  */
 beforeAll(() => {
   initNhtsaService();
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('normalized argument contracts (#36)', () => {
+  it.each([
+    [searchComplaints, { make: '  ', model: 'Camry', modelYear: 2020 }, 'invalid_arguments'],
+    [searchComplaints, { make: 'Toyota', model: ' ', modelYear: 2020 }, 'invalid_arguments'],
+    [getVehicleSafety, { make: ' ', model: 'Camry', modelYear: 2020 }, 'invalid_arguments'],
+    [getVehicleSafety, { make: 'Toyota', model: '\t', modelYear: 2020 }, 'invalid_arguments'],
+    [getSafetyRatings, { vehicleId: 14855, make: 'Toyota' }, 'mode_conflict'],
+    [getSafetyRatings, { vehicleId: 14855, model: 'Camry' }, 'mode_conflict'],
+    [getSafetyRatings, { vehicleId: 14855, modelYear: 2020 }, 'mode_conflict'],
+    [decodeVin, { vin: ['1HGCM82633A004352', ' '] }, 'empty_vin_list'],
+    [decodeVin, { vin: [' ', '\t'] }, 'empty_vin_list'],
+    [lookupVehicles, { operation: 'models', make: ' ' }, 'missing_operation_arg'],
+    [lookupVehicles, { operation: 'vehicle_types', make: ' ' }, 'missing_operation_arg'],
+    [lookupVehicles, { operation: 'manufacturer', manufacturer: ' ' }, 'missing_operation_arg'],
+  ] as const)('rejects before fetching: %s %j', async (definition, args, reason) => {
+    const fetch = vi.fn().mockRejectedValue(new Error('Unexpected upstream work'));
+    vi.stubGlobal('fetch', fetch);
+    const result = await runToolContract(definition as typeof searchComplaints, args as never);
+    expect(result.isError).toBe(true);
+    expect(envelopeOf(result).data?.reason).toBe(reason);
+    expect(envelopeOf(result).data?.recovery?.hint).toBeTypeOf('string');
+    expect(textOf(result)).toContain(envelopeOf(result).data!.recovery!.hint!);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['makes', { make: 'Toyota' }],
+    ['makes', { modelYear: 2020 }],
+    ['makes', { manufacturer: 'Honda' }],
+    ['models', { make: 'Toyota', manufacturer: 'Honda' }],
+    ['vehicle_types', { make: 'Toyota', modelYear: 2020 }],
+    ['vehicle_types', { make: 'Toyota', manufacturer: 'Honda' }],
+    ['manufacturer', { manufacturer: 'Honda', make: 'Toyota' }],
+    ['manufacturer', { manufacturer: 'Honda', modelYear: 2020 }],
+  ] as const)('rejects inactive %s arguments %j', async (operation, args) => {
+    const fetch = vi.fn().mockRejectedValue(new Error('Unexpected upstream work'));
+    vi.stubGlobal('fetch', fetch);
+    const result = await runToolContract(lookupVehicles, {
+      operation,
+      ...args,
+      offset: 1,
+      limit: 2,
+    });
+    expect(result.isError).toBe(true);
+    expect(envelopeOf(result).data?.reason).toBe('inactive_argument');
+    expect(textOf(result)).toContain('Recovery:');
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 interface ErrorEnvelope {

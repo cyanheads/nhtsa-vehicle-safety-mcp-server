@@ -39,7 +39,9 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
     vehicleId: z
       .number()
       .optional()
-      .describe('Specific NCAP vehicle ID (from prior results). Skips the year/make/model lookup.'),
+      .describe(
+        'Specific NCAP vehicle ID (from prior results). Mutually exclusive with active make/model/modelYear criteria.',
+      ),
   }),
   output: z.object({
     ratings: z
@@ -132,6 +134,12 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
   },
   errors: [
     {
+      reason: 'mode_conflict',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'vehicleId was combined with active vehicle criteria.',
+      recovery: 'Use vehicleId alone, or make + model + modelYear.',
+    },
+    {
       reason: 'missing_required_combo',
       code: JsonRpcErrorCode.ValidationError,
       when: 'Neither vehicleId nor a complete vehicle triple was supplied.',
@@ -141,6 +149,14 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
+    input = {
+      ...input,
+      make: input.make?.trim() || undefined,
+      model: input.model?.trim() || undefined,
+    };
+    if (input.vehicleId != null && (input.make || input.model || input.modelYear != null)) {
+      throw ctx.fail('mode_conflict', 'Use vehicleId alone, or make + model + modelYear.');
+    }
     let ratings: SafetyRating[] = [];
 
     if (input.vehicleId != null) {
