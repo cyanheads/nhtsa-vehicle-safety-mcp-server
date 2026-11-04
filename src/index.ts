@@ -5,6 +5,7 @@
  */
 
 import { createApp } from '@cyanheads/mcp-ts-core';
+import { getServerConfig } from '@/config/server-config.js';
 import {
   decodeVin,
   getSafetyRatings,
@@ -39,8 +40,8 @@ export const app = await createApp({
   ],
   resources: [],
   prompts: [],
-  instructions:
-    "Use the nhtsa_* tools for U.S. vehicle safety data: recalls, complaints, NCAP crash ratings, defect investigations, and VIN decoding. nhtsa_get_vehicle_safety is the default for general 'is this car safe?' questions; nhtsa_lookup_vehicles confirms make/model spelling first.",
+  skills: 'skills',
+  instructions: `Use the nhtsa_* tools for U.S. vehicle safety data: recalls, complaints, NCAP crash ratings, defect investigations, and VIN decoding. nhtsa_get_vehicle_safety is the default for general 'is this car safe?' questions. NHTSA's datasets can file one vehicle under different model names (Silverado vs SILVERADO 1500): when a search comes back empty, list the names with nhtsa_lookup_vehicles operation="dataset_models" for the make and model year, then search under each. The nhtsa-vehicle-safety-guide skill (skill://nhtsa-vehicle-safety-guide/SKILL.md) carries the gates for merging results across model names, make versus manufacturer, model year versus received date, campaign number forms, and what an empty or Not Rated result proves.`,
   landing: {
     tagline:
       'Vehicle safety data from NHTSA — recalls, complaints, crash ratings, investigations, VIN decoding.',
@@ -48,6 +49,8 @@ export const app = await createApp({
     requireAuth: false,
   },
   setup() {
+    // Parse server config at startup so an invalid value fails the boot, not the first call.
+    getServerConfig();
     initNhtsaService();
   },
 });
