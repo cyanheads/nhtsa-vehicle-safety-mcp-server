@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.11.0](changelog/0.11.x/0.11.0.md) — 2026-11-03 · ⚠️ Breaking
+
+Breaking: nhtsa_search_investigations rows carry manufacturers[] and recallCampaigns[] and omit summary unless includeSummary is true. Broad recall search, driver-assistance VIN fields, dataset model names, and a published skill.
+
 ## [0.10.0](changelog/0.10.x/0.10.0.md) — 2026-10-18 · ⚠️ Breaking
 
 Vehicle date filters and shared investigation loading
