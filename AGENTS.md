@@ -2,9 +2,9 @@
 
 **Server:** nhtsa-vehicle-safety-mcp-server
 **Version:** 0.10.0
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.15`
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.18`
 **Engines:** Bun ≥1.4.0, Node ≥24.0.0
-**MCP SDK:** `@modelcontextprotocol/server` 2.3.1
+**MCP SDK:** `@modelcontextprotocol/server` 2.4.0
 **Zod:** 4.6.7
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
@@ -103,7 +103,7 @@ await createApp({
 
 `sessionMode` declares the HTTP session posture in `src/` instead of leaving it to a deployment's `MCP_SESSION_MODE`, which still wins whenever it carries a meaningful value (an empty string and an unsubstituted `${…}` placeholder read as unset and fall through to the option). This server declares `stateless`: it holds no per-session state, so the session store and the per-session `McpServer` allocation buy nothing, and the process scales horizontally. Add `require: 'stateful'` only if a tool starts asking the caller for input mid-handler via `ctx.requestInput` — startup then fails with a `ConfigurationError` rather than serving a mode in which a 2025-era client can never answer the prompt. Stdio is never refused.
 
-`teardown(core)` is the `setup()` counterpart — release a watcher, socket, or non-`unref()`'d timer there. It runs after the transport stops and before the logger closes, on every shutdown path, and a signal-triggered shutdown then exits the process explicitly (0, or 1 if a step never settles within the framework's 10 s ceiling). `initNhtsaService()` allocates none of those (the investigation cache is a plain in-memory field), so this server declares no `teardown`.
+`teardown(core)` is the `setup()` counterpart — release a watcher, socket, or non-`unref()`'d timer there. It runs after the transport stops and before the logger closes, on every shutdown path, and a signal-triggered shutdown then exits the process explicitly (0, or 1 if a step never settles within the framework's 10 s ceiling). `initNhtsaService()` allocates none of those (the investigation and recall caches are `FlatFileCache` instance fields, loaded on demand), so this server declares no `teardown`.
 
 ---
 
@@ -113,7 +113,7 @@ Handlers receive a unified `ctx` object. Key properties:
 
 | Property | Description |
 |:---------|:------------|
-| `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. Dual-sink: Pino and `notifications/message` to the client, so treat it as client-visible. |
+| `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. Dual-sink: Pino **and** `notifications/message` to the client, so treat it as client-visible. |
 | `ctx.state` | Tenant-scoped KV — `.get(key)`, `.set(key, value, { ttl? })`, `.delete(key)`, `.getMany(keys)`, `.list(prefix, { cursor, limit })`. Accepts any JSON-serializable value; reads return its JSON form (a `Date` comes back as an ISO string). |
 | `ctx.requestInput` | Suspend and ask the caller for more input — `return ctx.requestInput({ inputRequests: { key: inputRequired.elicit({ message, requestedSchema }) } })`. Never returns; the handler is re-entered with the answers. Always present. |
 | `ctx.inputs` | The request's responses — `.accepted(key, schema)`, `.view(key)`, `.state()`, `.dropped` — limited to what the client declared (`elicitation` and its form/url modes, `sampling`, `roots`). Client-supplied: a consent gate trusts only a `ctx.state` record it stored when it asked, bound to the operation, caller, and target (see the `api-context` skill). |
@@ -141,8 +141,8 @@ errors: [
     recovery: 'Verify the campaign number format like 24V744000, or query by vehicle.' },
 ],
 async handler(input, ctx) {
-  const campaign = await svc.getRecallCampaign(input.campaignNumber, ctx.signal);
-  if (!campaign) {
+  const campaigns = await svc.getRecallCampaigns(input.campaignNumber, ctx.signal);
+  if (campaigns.length === 0) {
     throw ctx.fail('campaign_not_found', `No recall found for "${input.campaignNumber}".`);
   }
 }
@@ -170,13 +170,23 @@ Baseline codes (`InternalError`, `ServiceUnavailable`, `Timeout`, `ValidationErr
 ```text
 src/
   index.ts                              # createApp() entry point
+  config/
+    server-config.ts                    # Server env config (NHTSA_CLAMP_LIMITS)
   services/
     nhtsa/
       nhtsa-service.ts                  # NHTSA API client (init/accessor pattern)
+      flat-file.ts                      # Bulk-file loader: streaming ZIP parse, one-at-a-time load slot, TTL cache
+      recall-index.ts                   # Recall flat-file index behind broad recall searches
+      date-range.ts                     # Shared date-range contract
+      format.ts                         # Shared formatting helpers
       types.ts                          # API response types, normalized domain types
   mcp-server/
-    tools/definitions/
-      [tool-name].tool.ts               # Tool definitions (nhtsa_ prefixed)
+    tools/
+      request-cap.ts                    # limit and VIN-batch caps: clamp or reject, with notice
+      definitions/
+        [tool-name].tool.ts             # Tool definitions (nhtsa_ prefixed)
+skills/
+  nhtsa-vehicle-safety-guide/SKILL.md   # Published skill, served as skill://nhtsa-vehicle-safety-guide/SKILL.md
 ```
 
 ---
@@ -194,9 +204,18 @@ src/
 
 ## Skills
 
-Skills are modular instructions in `framework-skills/` at the project root. Read them directly when a task matches — e.g., `framework-skills/add-tool/SKILL.md` when adding a tool. `bun run list-skills` prints the full registry. The directory is deliberately not `skills/`: Claude Code and Codex auto-load a plugin's root `skills/`, so a server that ships `.claude-plugin/` or `.codex-plugin/` would hand these development skills to every agent that installs it. Keep `skills/` free for skills meant for those agents.
+Two skill trees live at the project root, written for different readers:
 
-**Agent skill directory:** Copy skills into the directory your agent discovers (Claude Code: `.claude/skills/`, others: equivalent). Skills then load as context without referencing `framework-skills/` paths. After framework updates, run the `maintenance` skill — Phase B re-syncs the agent directory.
+| Tree | For | Written by |
+|:-----|:----|:-----------|
+| `framework-skills/` | The agent developing this server — framework skills (`metadata.audience: external`) plus any development-time skills of the server's own | `init` and the `maintenance` sync (framework skills); you (your own) |
+| `skills/` | The agents that install the server and call its tools — tool chains, identifier sources, gates | You, deliberately, with the `add-skill` skill. This server publishes `skills/nhtsa-vehicle-safety-guide/` |
+
+Development skills are modular instructions. Read them directly when a task matches — e.g., `framework-skills/add-tool/SKILL.md` when adding a tool. `bun run list-skills` prints the full registry. Their directory is deliberately not `skills/`: Claude Code and Codex auto-load a plugin's root `skills/`, so a server that ships `.claude-plugin/` or `.codex-plugin/` would hand them to every agent that installs it.
+
+A published skill in root `skills/` reaches plugin installs and the `.mcpb` bundle as-is, ships in the npm package and the Docker image, and reaches MCP clients when the server opts in with `createApp({ skills: 'skills' })`, which this server does. `lint:packaging` validates the tree, and `tests/index.skills.test.ts` pins the delivery.
+
+**Agent skill directory:** Copy `framework-skills/` into the directory your agent discovers (Claude Code: `.claude/skills/`, others: equivalent). Skills then load as context without referencing `framework-skills/` paths. After framework updates, run the `maintenance` skill — Phase B re-syncs the agent directory.
 
 Available skills:
 
@@ -208,6 +227,7 @@ Available skills:
 | `add-app-tool` | Scaffold an MCP App tool + paired UI resource |
 | `add-resource` | Scaffold a new resource definition |
 | `add-prompt` | Scaffold a new prompt definition |
+| `add-skill` | Author a skill the server publishes in root `skills/` for the agents that use it — when one earns its place, structure, validation, delivery |
 | `add-service` | Scaffold a new service integration |
 | `add-test` | Scaffold test file for a tool, resource, or service |
 | `field-test` | Exercise tools/resources/prompts with real inputs, verify behavior, report issues |
@@ -226,7 +246,7 @@ Available skills:
 | `api-auth` | Auth modes, scopes, JWT/OAuth |
 | `api-canvas` | DataCanvas: register tabular data, run SQL, export, plus the `spillover()` helper for big result sets — Tier 3 opt-in |
 | `api-config` | AppConfig, parseConfig, env vars |
-| `api-mirror` | MirrorService: persistent SQLite-backed local mirror of bulk upstream datasets with FTS5 search — Tier 3 opt-in, Node/Bun only |
+| `api-mirror` | MirrorService: persistent self-refreshing local mirror (embedded SQLite + FTS5) of a bulk upstream dataset — Tier 3 opt-in |
 | `api-context` | Context interface, RequestContext, logger, state, multi-round-trip input |
 | `api-errors` | McpError, JsonRpcErrorCode, error patterns |
 | `api-linter` | Definition linter rule catalog — invoked by `bun run lint:mcp` and `devcheck` |
@@ -258,7 +278,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run format` | Auto-fix formatting (safe fixes only) |
 | `bun run format:unsafe` | Also apply Biome's unsafe autofixes — review the diff; they can change behavior |
 | `bun run lint:mcp` | Run the MCP definition linter standalone (rule catalog: `api-linter` skill) |
-| `bun run lint:packaging` | Packaging surface checks — `server.json`/`manifest.json` env-var parity (run by devcheck) |
+| `bun run lint:packaging` | Packaging surface checks — `server.json`/`manifest.json` env-var parity, `.mcpbignore` coverage, plugin manifests, the published `skills/` tree (run by devcheck) |
 | `bun run list-skills` | Print skill index from project `framework-skills/` |
 | `bun run bundle` | Build, pack, and clean a `.mcpb` for one-click Claude Desktop install |
 | `bun run release:github` | Create GitHub Release from the current annotated tag — attach `.mcpb` bundle and set release notes from tag |
@@ -274,7 +294,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 ## Bundling
 
-`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. The pack step runs `scripts/clean-mcpb.ts` to remove dev dependencies, dependency-shipped agent docs (`framework-skills/`, `skills/`, `.claude/`, `.agents/`, `SKILL.md`), and platform-specific native bindings. MCPB is stdio-only — HTTP deployments are unaffected. The bundle file ships as `dist/nhtsa-vehicle-safety-mcp-server.mcpb` and the `release-and-publish` skill attaches it to the GitHub Release.
+`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. `mcpb pack` reads `.mcpbignore`, not `.gitignore`, so every root path the bundle must not ship — source, tests, docs, caches, logs, agent docs, plugin manifests, gitignored local files — needs a root-anchored line there (`/docs/`, never `docs/`, which also strips `node_modules/*/docs/`); `lint:packaging` names each missing or unanchored line. Root `skills/` ships on purpose. The pack step is followed by `scripts/clean-mcpb.ts`, which prunes dev dependencies (`mcpb clean`) and strips four classes of `node_modules/**` content that root-anchored `.mcpbignore` patterns cannot reach: dependency-shipped agent docs (`framework-skills/`, `skills/`, `.claude/`, `.agents/` at a package's root, and `SKILL.md`); platform-specific native bindings; node-gyp build output beside a `binding.gyp`, which records the packing machine's paths — compiled `*.node` addons stay; and build-only package files — the framework's `changelog/`, `scripts/`, `templates/`, `CLAUDE.md`, `AGENTS.md`, and config bases, and `better-sqlite3`'s `deps/` and `src/` C sources. A `skills/` directory deeper inside a package is runtime code and ships: MCP SDK 2.4 loads `@modelcontextprotocol/server/dist/ext/skills/` and `@modelcontextprotocol/core/dist/ext/skills/` at startup, so `AGENT_DOC_ENTRY` in both `scripts/clean-mcpb.ts` and `scripts/lint-packaging.ts` matches package roots only — a local divergence from the framework copy ([mcp-ts-core#794](https://github.com/cyanheads/mcp-ts-core/issues/794)) that a script resync must carry forward until upstream ships the fix; `tests/packaging.test.ts` pins it. MCPB is stdio-only — HTTP deployments are unaffected. The bundle file ships as `dist/nhtsa-vehicle-safety-mcp-server.mcpb` and the `release-and-publish` skill attaches it to the GitHub Release.
 
 **Adding an env var requires both files:** `server.json` (registry discovery, `environmentVariables[]`) and `manifest.json` (bundle install UX, `mcp_config.env` + `user_config`). `bun run lint:packaging` (run by `devcheck`) verifies the env var names match, that every `user_config` option is wired into `mcp_config.env` as `"X": "${user_config.X}"` (the host substitutes nothing else — `"${X}"` reaches the server as that literal string), and that an optional string option carries `"default": ""`.
 
@@ -357,4 +377,7 @@ import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 - [ ] `.codex-plugin/plugin.json` populated — `name`, `version`, `description`, `repository`, `license` from `package.json`; `interface.displayName` = the unscoped repo name (never the npm scope — `lint:packaging` enforces this); `interface.shortDescription` from `package.json` description
 - [ ] `.codex-plugin/mcp.json` updated — server name key is the unscoped repo name; every user-supplied variable is listed in `env_vars` so Codex forwards it from the user's environment. Never write `"KEY": ""` into `env` — an empty value replaces the user's exported key and is read as unset
 - [ ] `.claude-plugin/plugin.json` populated — `name`, `version`, `description`, `author`, `repository`, `license`, `keywords` from `package.json`; inline `mcpServers` entry keyed by the unscoped repo name. Every user-supplied variable is declared under `userConfig` (`type`, `title`, `description`; `sensitive: true` for keys and tokens; `required: true` or `default: ""`) and referenced from `env` as `"KEY": "${user_config.<option>}"` — mirror the `user_config` block in `manifest.json`. Never write `"KEY": ""` into `env`
+- [ ] `plugin.json` + `mcp.json` (Agent Plugins 1.0.0 — read by Codex, Cursor, GitHub Copilot, VS Code, Kiro) populated — `plugin.json` `name` = the unscoped repo name (lowercase `a-z`, `0-9`, `-`, `.` only); `version`, `description`, `author`, `homepage`, `repository`, `license`, `keywords` from `package.json`; no other top-level field, `extensions` included. `mcp.json` holds one `"type": "stdio"` entry keyed by the unscoped name, `npx -y <full package name>`, and the same fixed `env` as `.codex-plugin/mcp.json`. Neither file carries a user-supplied variable (no `""`, no `${…}` besides `${PLUGIN_ROOT}`/`${PLUGIN_DATA}`): keys reach Codex through `.codex-plugin/mcp.json` `env_vars`, which works only while `.codex-plugin/plugin.json` keeps `"mcpServers": "./.codex-plugin/mcp.json"`
+- [ ] Any new root dev path has a root-anchored line in `.mcpbignore`; `bun run bundle` and `lint:packaging` pass
+- [ ] If the server publishes a skill in root `skills/`: `lint:packaging` passes, and `field-test` verified every gate and identifier claim in it against live tool behavior
 - [ ] `bun run devcheck` passes

@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-10-18 22:53:12
+Generated on: 2026-11-04 02:21:42
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -46,6 +46,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── add-resource/
 │   │   └── SKILL.md
 │   ├── add-service/
+│   │   └── SKILL.md
+│   ├── add-skill/
 │   │   └── SKILL.md
 │   ├── add-test/
 │   │   └── SKILL.md
@@ -144,56 +146,70 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── release-github.ts
 │   ├── split-changelog.ts
 │   └── tree.ts
+├── skills/
+│   └── nhtsa-vehicle-safety-guide/
+│       └── SKILL.md
 ├── src/
+│   ├── config/
+│   │   └── server-config.ts
 │   ├── mcp-server/
 │   │   └── tools/
-│   │       └── definitions/
-│   │           ├── decode-vin.tool.ts
-│   │           ├── get-safety-ratings.tool.ts
-│   │           ├── get-vehicle-safety.tool.ts
-│   │           ├── index.ts
-│   │           ├── lookup-vehicles.tool.ts
-│   │           ├── search-complaints.tool.ts
-│   │           ├── search-investigations.tool.ts
-│   │           └── search-recalls.tool.ts
+│   │       ├── definitions/
+│   │       │   ├── decode-vin.tool.ts
+│   │       │   ├── get-safety-ratings.tool.ts
+│   │       │   ├── get-vehicle-safety.tool.ts
+│   │       │   ├── index.ts
+│   │       │   ├── lookup-vehicles.tool.ts
+│   │       │   ├── search-complaints.tool.ts
+│   │       │   ├── search-investigations.tool.ts
+│   │       │   └── search-recalls.tool.ts
+│   │       └── request-cap.ts
 │   ├── services/
 │   │   └── nhtsa/
 │   │       ├── date-range.ts
+│   │       ├── flat-file.ts
 │   │       ├── format.ts
 │   │       ├── nhtsa-service.ts
+│   │       ├── recall-index.ts
 │   │       └── types.ts
 │   └── index.ts
 ├── tests/
+│   ├── config/
+│   │   └── server-config.test.ts
 │   ├── helpers/
 │   │   └── content.ts
 │   ├── mcp-server/
 │   │   └── tools/
-│   │       └── definitions/
-│   │           ├── decode-vin-edge.tool.test.ts
-│   │           ├── decode-vin.tool.test.ts
-│   │           ├── get-safety-ratings.tool.test.ts
-│   │           ├── get-vehicle-safety-edge.tool.test.ts
-│   │           ├── get-vehicle-safety.tool.test.ts
-│   │           ├── lookup-vehicles-edge.tool.test.ts
-│   │           ├── lookup-vehicles.tool.test.ts
-│   │           ├── search-complaints.tool.test.ts
-│   │           ├── search-investigations-edge.tool.test.ts
-│   │           ├── search-investigations.tool.test.ts
-│   │           ├── search-recalls-edge.tool.test.ts
-│   │           └── search-recalls.tool.test.ts
+│   │       ├── definitions/
+│   │       │   ├── decode-vin-edge.tool.test.ts
+│   │       │   ├── decode-vin.tool.test.ts
+│   │       │   ├── get-safety-ratings.tool.test.ts
+│   │       │   ├── get-vehicle-safety-edge.tool.test.ts
+│   │       │   ├── get-vehicle-safety.tool.test.ts
+│   │       │   ├── lookup-vehicles-edge.tool.test.ts
+│   │       │   ├── lookup-vehicles.tool.test.ts
+│   │       │   ├── search-complaints.tool.test.ts
+│   │       │   ├── search-investigations-edge.tool.test.ts
+│   │       │   ├── search-investigations.tool.test.ts
+│   │       │   ├── search-recalls-edge.tool.test.ts
+│   │       │   └── search-recalls.tool.test.ts
+│   │       └── request-cap.test.ts
 │   ├── prompts/
 │   ├── resources/
 │   ├── services/
 │   │   └── nhtsa/
 │   │       ├── date-range.test.ts
+│   │       ├── flat-file.test.ts
 │   │       ├── format.test.ts
 │   │       ├── nhtsa-service-edge.test.ts
 │   │       ├── nhtsa-service.test.ts
+│   │       ├── recall-index.test.ts
 │   │       └── types.test.ts
 │   ├── tools/
 │   ├── error-envelope.test.ts
 │   ├── index.http-session.test.ts
 │   ├── index.session-mode.test.ts
+│   ├── index.skills.test.ts
 │   ├── packaging.test.ts
 │   └── security.test.ts
 ├── .dockerignore
@@ -212,7 +228,9 @@ nhtsa-vehicle-safety-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── mcp.json
 ├── package.json
+├── plugin.json
 ├── README.md
 ├── server.json
 ├── tsconfig.build.json
