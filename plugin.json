@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nhtsa-vehicle-safety-mcp-server",
+  "version": "0.10.0",
+  "description": "Decode VINs, search recalls, complaints, crash ratings, and investigations via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "Casey Hand",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
+  },
+  "homepage": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "nhtsa",
+    "vehicle-safety",
+    "recalls",
+    "vin-decoder",
+    "crash-ratings",
+    "ncap",
+    "stdio",
+    "streamable-http",
+    "typescript"
+  ]
+}
