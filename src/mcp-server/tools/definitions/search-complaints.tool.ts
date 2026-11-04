@@ -5,20 +5,33 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { outOfBoundsMessage, pluralize } from '@/services/nhtsa/format.js';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import {
+  limitClampNotice,
+  limitSchema,
+  limitTooLargeMessage,
+  type PageLimit,
+  resolveLimit,
+} from '@/mcp-server/tools/request-cap.js';
+import {
+  formatText,
+  nextPageHint,
+  outOfBoundsMessage,
+  pluralize,
+} from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { UnreliableIncidentDateReason } from '@/services/nhtsa/types.js';
 import {
   buildComponentBreakdown,
+  splitComponentNames,
   UNRELIABLE_INCIDENT_DATE_REASONS,
 } from '@/services/nhtsa/types.js';
 
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 50;
-
-function formatText(value?: string): string {
-  return value || 'Not available';
-}
+const PAGE = {
+  tool: 'nhtsa_search_complaints',
+  defaultLimit: 20,
+  maxLimit: 50,
+} as const satisfies PageLimit;
 
 /** What each rejection reason contradicts, in the words a reader of the rendered line needs. */
 const INCIDENT_DATE_REJECTIONS: Record<UnreliableIncidentDateReason, string> = {
@@ -87,16 +100,12 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       .string()
       .optional()
       .describe(
-        'Filter to a specific component (uppercase, e.g., "ENGINE", "AIR BAGS", "ELECTRICAL SYSTEM"). Matches within comma-separated component lists. Omit to see all.',
+        'Filter to complaints naming a component (e.g., "ENGINE", "AIR BAGS", "SERVICE BRAKES, HYDRAULIC"). Matches case-insensitively within each component name a complaint lists, so "BRAKES" matches "SERVICE BRAKES, HYDRAULIC". Omit to see all.',
       ),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(MAX_LIMIT)
+    limit: limitSchema()
       .optional()
       .describe(
-        `Max complaint narratives to return. Defaults to ${DEFAULT_LIMIT}; max ${MAX_LIMIT}. componentBreakdown always reflects all matching complaints.`,
+        `Complaint narratives per page. Defaults to ${PAGE.defaultLimit}; at most ${PAGE.maxLimit} per page. componentBreakdown always reflects all matching complaints.`,
       ),
     offset: z
       .number()
@@ -152,7 +161,12 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
               .string()
               .optional()
               .describe('Date complaint was filed (ISO YYYY-MM-DD)'),
-            components: z.string().optional().describe('Affected components (comma-separated)'),
+            components: z
+              .string()
+              .optional()
+              .describe(
+                'Affected component names as NHTSA lists them, joined by a bare comma. A name can itself contain ", " (e.g., "SERVICE BRAKES, HYDRAULIC,AIR BAGS" is two names).',
+              ),
             summary: z.string().optional().describe('Consumer-reported description'),
             crash: z.boolean().optional().describe('Involved a crash'),
             fire: z.boolean().optional().describe('Involved a fire'),
@@ -174,28 +188,39 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       .string()
       .optional()
       .describe(
-        'Guidance when no complaints match the vehicle, or when the requested page overshoots the result set.',
+        'Guidance when no complaints match the vehicle (NHTSA may file them under another model name), when the component filter excludes every complaint, when the requested page overshoots the result set, or when limit was lowered to the page maximum.',
       ),
   },
+  errors: [
+    {
+      reason: 'limit_too_large',
+      code: JsonRpcErrorCode.ValidationError,
+      when: `limit exceeds the ${PAGE.maxLimit}-row page maximum on a server set to reject an over-maximum limit rather than lower it.`,
+      recovery: `Request a limit of ${PAGE.maxLimit} or less and page through the rest with offset.`,
+    },
+  ],
 
   async handler(input, ctx) {
     input = { ...input, component: input.component?.trim() || undefined };
+    const pageLimit = resolveLimit(ctx, PAGE, input.limit);
+    if (pageLimit.kind === 'rejected') {
+      throw ctx.fail('limit_too_large', limitTooLargeMessage(pageLimit));
+    }
     const svc = getNhtsaService();
-    const limit = input.limit ?? DEFAULT_LIMIT;
+    const limit = pageLimit.applied;
     const offset = input.offset ?? 0;
-    let complaints = await svc.getComplaintsByVehicle(
+    const onFile = await svc.getComplaintsByVehicle(
       input.make,
       input.model,
       input.modelYear,
       ctx.signal,
     );
-
-    if (input.component) {
-      const filter = input.component.toUpperCase();
-      complaints = complaints.filter((c) =>
-        (c.components ?? '').split(',').some((comp) => comp.trim().toUpperCase().includes(filter)),
-      );
-    }
+    const filter = input.component?.toUpperCase();
+    const complaints = filter
+      ? onFile.filter((c) =>
+          splitComponentNames(c.components).some((name) => name.toUpperCase().includes(filter)),
+        )
+      : onFile;
 
     const breakdown = buildComponentBreakdown(complaints);
 
@@ -221,13 +246,25 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       ? `${input.make} ${input.model} ${input.modelYear} component=${input.component}`
       : `${input.make} ${input.model} ${input.modelYear}`;
     ctx.enrich({ effectiveQuery });
-    if (complaints.length === 0) {
-      ctx.enrich.notice(
-        'No complaints found. This may mean no complaints have been filed, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
+    const notices: string[] = [];
+    const clamped = limitClampNotice(pageLimit, {
+      offset,
+      returned: page.length,
+      totalCount: complaints.length,
+    });
+    if (clamped) notices.push(clamped);
+    if (onFile.length === 0) {
+      notices.push(
+        'No complaints found. This vehicle may have no complaints on file, or NHTSA may list them under another model name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search complaints under each.',
+      );
+    } else if (complaints.length === 0) {
+      notices.push(
+        'The vehicle has complaints, but none match the component filter. Omit component to see every component on file for this vehicle.',
       );
     } else if (page.length === 0) {
-      ctx.enrich.notice(outOfBoundsMessage({ offset, limit, totalCount: complaints.length }));
+      notices.push(outOfBoundsMessage({ offset, limit, totalCount: complaints.length }));
     }
+    if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
 
     return {
       totalCount: complaints.length,
@@ -241,12 +278,11 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
 
   format: (result) => {
     if (result.totalCount === 0) {
-      return [{ type: 'text' as const, text: 'No complaints found for this vehicle.' }];
+      return [{ type: 'text' as const, text: 'No complaints found matching the search criteria.' }];
     }
 
     const lines = [`**${result.totalCount} complaint(s)**\n`];
 
-    // Component breakdown
     lines.push('## Component Breakdown\n');
     for (const b of result.componentBreakdown) {
       const flags = [
@@ -261,9 +297,8 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
     lines.push(
       `\n## Recent Complaints (returned ${result.returned} of ${result.totalCount}, offset ${result.offset}, limit ${result.limit}, date-descending)\n`,
     );
-    if (result.returned > 0 && result.offset + result.returned < result.totalCount) {
-      lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
-    }
+    const nextPage = nextPageHint(result);
+    if (nextPage) lines.push(nextPage);
     for (const c of result.complaints) {
       const flags: string[] = [];
       if (c.crash) flags.push('CRASH');

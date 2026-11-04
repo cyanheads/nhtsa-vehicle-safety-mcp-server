@@ -8,9 +8,32 @@ import {
   formatRecallAdvisories,
   formatRolloverProbability,
   formatStars,
+  formatText,
+  nextPageHint,
   outOfBoundsMessage,
   pluralize,
 } from '@/services/nhtsa/format.js';
+
+describe('formatText', () => {
+  it('passes a value through and renders absent or blank as Not available', () => {
+    expect(formatText('Standard')).toBe('Standard');
+    expect(formatText()).toBe('Not available');
+    expect(formatText('')).toBe('Not available');
+  });
+});
+
+describe('nextPageHint', () => {
+  it('names the offset of the next page while matches remain', () => {
+    expect(nextPageHint({ offset: 20, returned: 20, totalCount: 45 })).toBe(
+      '*Use offset=40 to retrieve the next page.*\n',
+    );
+  });
+
+  it('is undefined on the last page and on a page past the end', () => {
+    expect(nextPageHint({ offset: 40, returned: 5, totalCount: 45 })).toBeUndefined();
+    expect(nextPageHint({ offset: 90, returned: 0, totalCount: 45 })).toBeUndefined();
+  });
+});
 
 describe('formatStars', () => {
   it('renders 5-star rating with filled and empty stars', () => {

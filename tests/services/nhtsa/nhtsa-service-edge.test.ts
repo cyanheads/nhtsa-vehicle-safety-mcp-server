@@ -22,7 +22,7 @@ beforeEach(() => {
   initNhtsaService();
 });
 
-describe('getRecallCampaign — sparse campaign fields', () => {
+describe('getRecallCampaigns — sparse campaign fields', () => {
   it('maps the campaign detail fields the endpoint actually returns', async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
@@ -44,9 +44,10 @@ describe('getRecallCampaign — sparse campaign fields', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('20V682000');
+    const campaigns = await svc.getRecallCampaigns('20V682000');
 
-    expect(result).not.toBeNull();
+    expect(campaigns).toHaveLength(1);
+    const [result] = campaigns;
     expect(result!.campaignNumber).toBe('20V682000');
     expect(result!.summary).toContain('Fuel delivery pipe');
     expect(result!.component).toBe('FUEL/PROPULSION SYSTEM');
@@ -73,9 +74,10 @@ describe('getRecallCampaign — sparse campaign fields', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('20V682000');
+    const campaigns = await svc.getRecallCampaigns('20V682000');
 
-    expect(result!).not.toHaveProperty('investigationId');
+    expect(campaigns).toHaveLength(1);
+    expect(campaigns[0]).not.toHaveProperty('investigationId');
   });
 
   it('handles missing PotentialNumberofUnitsAffected gracefully', async () => {
@@ -98,13 +100,11 @@ describe('getRecallCampaign — sparse campaign fields', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('20V682000');
+    const campaigns = await svc.getRecallCampaigns('20V682000');
 
-    expect(result).not.toBeNull();
-    // When absent, potentialUnitsAffected should be undefined or 0
-    expect(
-      result!.potentialUnitsAffected === undefined || result!.potentialUnitsAffected === 0,
-    ).toBe(true);
+    expect(campaigns).toHaveLength(1);
+    // An absent count is unknown, never zero units.
+    expect(campaigns[0]).not.toHaveProperty('potentialUnitsAffected');
   });
 });
 
@@ -167,8 +167,7 @@ describe('decodeVinBatch — modelYear propagation', () => {
     ]);
 
     const [, init] = mockFetch.mock.calls[0]!;
-    expect(init.body).toContain('AAA,2020');
-    expect(init.body).toContain('BBB,2020');
+    expect(new URLSearchParams(init.body).get('DATA')).toBe('AAA,2020;BBB,2020');
   });
 
   it('omits modelYear from batch body when not provided', async () => {

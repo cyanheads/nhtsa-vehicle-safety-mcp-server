@@ -17,7 +17,7 @@ import { firstText } from '../../../helpers/content.js';
 
 const mockService = {
   getRecallsByVehicle: vi.fn(),
-  getRecallCampaign: vi.fn(),
+  getRecallCampaigns: vi.fn(),
 };
 
 beforeEach(() => {

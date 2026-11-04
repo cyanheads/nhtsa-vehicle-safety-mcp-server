@@ -11,13 +11,22 @@
   "homepage": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server#readme",
   "repository": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "mcp-server", "model-context-protocol", "nhtsa", "vehicle-safety", "recalls", "vin-decoder"],
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "nhtsa", "vehicle-safety", "recalls", "vin-decoder", "crash-ratings", "ncap", "stdio", "streamable-http", "typescript"],
+  "userConfig": {
+    "NHTSA_CLAMP_LIMITS": {
+      "type": "string",
+      "title": "Clamp over-cap requests",
+      "description": "Clamp an over-cap page size (limit) or VIN batch to its cap and disclose it with a notice. Set false to reject it instead.",
+      "default": "true"
+    }
+  },
   "mcpServers": {
     "nhtsa-vehicle-safety-mcp-server": {
       "command": "npx",
       "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server"],
       "env": {
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "NHTSA_CLAMP_LIMITS": "${user_config.NHTSA_CLAMP_LIMITS}"
       }
     }
   }

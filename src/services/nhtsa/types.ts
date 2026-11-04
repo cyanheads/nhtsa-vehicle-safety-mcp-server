@@ -13,19 +13,6 @@ export interface NhtsaResponse<T> {
   results?: T[];
 }
 
-/** Base collection endpoints (paginated). */
-export interface NhtsaPaginatedResponse<T> {
-  meta: {
-    pagination: {
-      count: number;
-      max: number;
-      offset: number;
-      total: number;
-    };
-  };
-  results: T[];
-}
-
 /** VPIC API wrapper. */
 export interface VpicResponse<T> {
   Count: number;
@@ -36,10 +23,13 @@ export interface VpicResponse<T> {
 
 // ── Raw API Records ────────────────────────────────────────────────
 
-/** /recalls/recallsByVehicle — PascalCase with camelCase booleans. */
+/**
+ * /recalls/recallsByVehicle — PascalCase with camelCase booleans. Older campaigns (the 1960s
+ * ones, for example) send `Summary`, `Consequence`, and `Remedy` as null.
+ */
 export interface RawRecallByVehicle {
   Component: string;
-  Consequence: string;
+  Consequence: string | null;
   Make: string;
   Manufacturer: string;
   Model: string;
@@ -49,19 +39,21 @@ export interface RawRecallByVehicle {
   overTheAirUpdate?: boolean;
   parkIt?: boolean;
   parkOutSide?: boolean;
-  Remedy: string;
+  Remedy: string | null;
   ReportReceivedDate: string;
-  Summary: string;
+  Summary: string | null;
 }
 
 /**
  * /recalls/campaignNumber — PascalCase (same shape as recallsByVehicle +
  * PotentialNumberofUnitsAffected + NHTSAActionNumber). The endpoint returns one row per
- * affected make/model/model-year; every row repeats the same campaign detail.
+ * affected make/model/model-year; every row of a campaign repeats the same campaign detail, null
+ * campaign text included. A 6-character campaign number returns the rows of every campaign it
+ * prefixes, interleaved.
  */
 export interface RawRecallCampaignDirect {
   Component: string;
-  Consequence: string;
+  Consequence: string | null;
   Make?: string;
   Manufacturer: string;
   Model?: string;
@@ -73,17 +65,17 @@ export interface RawRecallCampaignDirect {
   PotentialNumberofUnitsAffected?: number;
   parkIt?: boolean;
   parkOutSide?: boolean;
-  Remedy: string;
+  Remedy: string | null;
   ReportReceivedDate: string;
-  Summary: string;
+  Summary: string | null;
 }
 
-/** /complaints/complaintsByVehicle — camelCase. */
+/** /complaints/complaintsByVehicle — camelCase. A complaint with no incident date sends it as null. */
 export interface RawComplaint {
   components?: string;
   crash?: boolean;
   dateComplaintFiled?: string;
-  dateOfIncident?: string;
+  dateOfIncident?: string | null;
   fire?: boolean;
   manufacturer?: string;
   numberOfDeaths?: number;
@@ -97,6 +89,20 @@ export interface RawComplaint {
 export interface RawSafetyRatingVariant {
   VehicleDescription?: string;
   VehicleId?: number;
+}
+
+/** /SafetyRatings/modelyear/.../make/... — NCAP's model list for a make; `VehicleId` is 0. */
+export interface RawSafetyRatingModel {
+  Make?: string;
+  Model?: string;
+  ModelYear?: number;
+}
+
+/** /products/vehicle/models — one row per model and issue type, so names repeat. */
+export interface RawProductModel {
+  make?: string;
+  model?: string;
+  modelYear?: string;
 }
 
 /** /SafetyRatings/VehicleId/... — full detail. */
@@ -125,9 +131,6 @@ export interface RawSafetyRating {
   VehicleId?: number;
 }
 
-// RawInvestigation removed — investigations now sourced from FLAT_INV.zip flat file.
-// The flat file is parsed directly into Investigation records in nhtsa-service.ts.
-
 /** VPIC DecodeVinValues — PascalCase, 157 fields. Indexed for selective extraction. */
 export interface RawVpicDecodedVin {
   [key: string]: string;
@@ -135,18 +138,21 @@ export interface RawVpicDecodedVin {
 
 // ── Normalized Domain Types ────────────────────────────────────────
 
-/** Recall from vehicle-scoped endpoint. */
+/**
+ * Recall from vehicle-scoped endpoint. Older campaigns carry no summary, consequence, or remedy,
+ * so those are omitted rather than reported empty.
+ */
 export interface Recall {
   campaignNumber: string;
   component: string;
-  consequence: string;
+  consequence?: string;
   manufacturer: string;
   overTheAirUpdate?: boolean;
   parkIt?: boolean;
   parkOutSide?: boolean;
-  remedy: string;
+  remedy?: string;
   reportReceivedDate: string;
-  summary: string;
+  summary?: string;
 }
 
 /**
@@ -161,23 +167,45 @@ export interface AffectedVehicle {
 }
 
 /**
- * Recall from the direct /recalls/campaignNumber endpoint, collapsed from the endpoint's
- * one-row-per-vehicle response into a single campaign record.
+ * One campaign from the direct /recalls/campaignNumber endpoint, collapsed from that campaign's
+ * one-row-per-vehicle rows into a single record. Older campaigns carry no summary, consequence,
+ * or remedy, so those are omitted rather than reported empty.
  */
 export interface RecallCampaign {
   affectedVehicles: AffectedVehicle[];
   campaignNumber: string;
   component?: string;
-  consequence: string;
+  consequence?: string;
   investigationId?: string;
   manufacturer: string;
   overTheAirUpdate?: boolean;
   parkIt?: boolean;
   parkOutSide?: boolean;
-  potentialUnitsAffected: number;
+  potentialUnitsAffected?: number;
   receivedDate: string;
-  remedy: string;
-  summary: string;
+  remedy?: string;
+  summary?: string;
+}
+
+/**
+ * One recall campaign from NHTSA's recall flat files, grouped from the files' rows (one per
+ * make/model/model year and component) by campaign number. The files carry no over-the-air
+ * flag, and older campaigns leave the summary, consequence, and remedy blank, so those are
+ * omitted rather than reported empty.
+ */
+export interface IndexedRecall {
+  campaignNumber: string;
+  /** The campaign's distinct component descriptions, joined with " | ". */
+  component?: string;
+  consequence?: string;
+  manufacturer: string;
+  parkIt?: boolean;
+  parkOutSide?: boolean;
+  potentialUnitsAffected?: number;
+  remedy?: string;
+  /** The Part 573 report's received date, YYYY-MM-DD. */
+  reportReceivedDate: string;
+  summary?: string;
 }
 
 /**
@@ -224,14 +252,25 @@ export interface ComponentBreakdown {
   injuryCount: number;
 }
 
-/** Aggregate complaints by component, sorted by frequency descending. */
+/**
+ * The distinct component names a complaint lists. NHTSA joins them with a bare comma
+ * (`AIR BAGS,SEAT BELTS`), and some names carry a comma followed by a space of their own
+ * (`SERVICE BRAKES, HYDRAULIC`, `Chest Clip, Buckle, Harness`), so only a comma with no
+ * whitespace after it separates two names.
+ */
+export function splitComponentNames(components: string | undefined): string[] {
+  const names = (components ?? '').split(/,(?!\s)/).map((name) => name.trim());
+  return [...new Set(names.filter(Boolean))];
+}
+
+/**
+ * Aggregate complaints by component, sorted by frequency descending. A complaint counts once
+ * toward each name it lists, so no row's count exceeds the number of complaints.
+ */
 export function buildComponentBreakdown(complaints: Complaint[]): ComponentBreakdown[] {
   const map = new Map<string, ComponentBreakdown>();
   for (const c of complaints) {
-    for (const component of (c.components ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)) {
+    for (const component of splitComponentNames(c.components)) {
       const entry = map.get(component) ?? {
         component,
         count: 0,
@@ -289,32 +328,59 @@ export interface SafetyRating {
   vehicleId: number;
 }
 
+/**
+ * One VIN as VPIC decodes it; a field VPIC leaves blank is omitted. The driver-assistance
+ * features read `Standard`, `Optional`, or `Not Available` for the decoded configuration.
+ */
 export interface DecodedVin {
   abs?: string;
+  adaptiveCruiseControl?: string;
   airBagLocCurtain?: string;
   airBagLocFront?: string;
   airBagLocKnee?: string;
+  airBagLocSeatCushion?: string;
   airBagLocSide?: string;
+  backupCamera?: string;
+  blindSpotIntervention?: string;
+  blindSpotWarning?: string;
   bodyClass?: string;
+  crashImminentBraking?: string;
   driveType?: string;
+  dynamicBrakeSupport?: string;
   electronicStabilityControl?: string;
   engineCylinders?: string;
   engineDisplacementL?: string;
   engineHP?: string;
   errorCode?: string;
   errorText?: string;
+  forwardCollisionWarning?: string;
   fuelType?: string;
+  laneCenteringAssistance?: string;
+  laneDepartureWarning?: string;
+  laneKeepingAssistance?: string;
   make?: string;
   manufacturer?: string;
   model?: string;
   modelYear?: string;
+  parkingAssist?: string;
+  pedestrianAutomaticEmergencyBraking?: string;
   plantCity?: string;
   plantCountry?: string;
   plantState?: string;
+  rearAutomaticEmergencyBraking?: string;
+  rearCrossTrafficAlert?: string;
+  tpmsType?: string;
   tractionControl?: string;
   trim?: string;
   vehicleType?: string;
   vin: string;
+}
+
+/** One distinct make/model/model-year association of an investigation, as one flat-file row lists it. */
+export interface InvestigationVehicle {
+  make?: string;
+  model?: string;
+  year?: number; // absent when the row's YEAR is blank or 9999
 }
 
 /** Normalized investigation record — sourced from FLAT_INV.zip flat file. */
@@ -323,15 +389,20 @@ export interface Investigation {
   components?: string[]; // distinct components from flat-file association rows
   investigationType?: string;
   makes?: string[]; // distinct makes from flat-file association rows
-  manufacturer?: string;
+  manufacturers?: string[]; // distinct MFR_NAME values, first-seen row order; absent when no row names one
   models?: string[]; // distinct models from flat-file association rows
   nhtsaId?: string;
   openDate?: string;
-  recallCampaign?: string; // CAMPNO — links to nhtsa_search_recalls by campaignNumber
+  recallCampaigns?: string[]; // distinct CAMPNO values, unpadded as NHTSA lists them — nhtsa_search_recalls campaignNumber
   status?: string; // 'O' = Open (no close date), 'C' = Closed
   subject?: string;
   summary?: string;
-  years?: number[]; // distinct model years (9999 excluded)
+  /**
+   * Every distinct association row, kept so a make/model/model-year search matches all three on
+   * one row rather than across the flattened arrays. Internal: never part of tool output.
+   */
+  vehicles: InvestigationVehicle[];
+  years?: number[]; // distinct model years, ascending (9999 excluded)
 }
 
 export interface VpicMake {
@@ -343,6 +414,20 @@ export interface VpicModel {
   makeId: number;
   makeName: string;
   modelId: number;
+  modelName: string;
+}
+
+/**
+ * The model-name lists NHTSA keeps per make and model year: the complaint products list, NCAP's
+ * model list, and VPIC's catalog. No list enumerates recall names.
+ */
+export const DATASET_MODEL_LISTS = ['products', 'ncap', 'vpic'] as const;
+
+export type DatasetModelList = (typeof DATASET_MODEL_LISTS)[number];
+
+/** One model name merged across the lists, tagged with every list carrying it. */
+export interface DatasetModel {
+  listedBy: DatasetModelList[];
   modelName: string;
 }
 

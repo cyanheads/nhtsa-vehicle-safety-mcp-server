@@ -9,20 +9,12 @@ import {
   formatRecallAdvisories,
   formatRolloverProbability,
   formatStars,
+  formatText,
   pluralize,
 } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import type {
-  Complaint,
-  Recall,
-  SafetyRating,
-  SafetyRatingVariant,
-} from '@/services/nhtsa/types.js';
+import type { Complaint, SafetyRating, SafetyRatingVariant } from '@/services/nhtsa/types.js';
 import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
-
-function formatValue(value?: string): string {
-  return value || 'Not available';
-}
 
 const safetyRatingSchema = z
   .object({
@@ -65,9 +57,18 @@ const safetyRatingSchema = z
       .describe('Rollover risk assessment'),
     adasFeatures: z
       .object({
-        electronicStabilityControl: z.string().optional().describe('ESC availability'),
-        forwardCollisionWarning: z.string().optional().describe('FCW availability'),
-        laneDepartureWarning: z.string().optional().describe('LDW availability'),
+        electronicStabilityControl: z
+          .string()
+          .optional()
+          .describe('Electronic stability control: "Standard", "Optional", or "No"'),
+        forwardCollisionWarning: z
+          .string()
+          .optional()
+          .describe('Forward collision warning: "Standard", "Optional", or "No"'),
+        laneDepartureWarning: z
+          .string()
+          .optional()
+          .describe('Lane departure warning: "Standard", "Optional", or "No"'),
       })
       .describe('Advanced driver assistance features'),
   })
@@ -78,9 +79,18 @@ const recallSchema = z
     campaignNumber: z.string().describe('NHTSA campaign number'),
     manufacturer: z.string().describe('Vehicle/equipment manufacturer'),
     component: z.string().describe('Affected component'),
-    summary: z.string().describe('Recall summary'),
-    consequence: z.string().describe('Safety consequence'),
-    remedy: z.string().describe('Corrective action'),
+    summary: z
+      .string()
+      .optional()
+      .describe('Recall summary. Omitted for older campaigns whose record leaves it blank.'),
+    consequence: z
+      .string()
+      .optional()
+      .describe('Safety consequence. Omitted for older campaigns whose record leaves it blank.'),
+    remedy: z
+      .string()
+      .optional()
+      .describe('Corrective action. Omitted for older campaigns whose record leaves it blank.'),
     reportReceivedDate: z.string().describe('Date recall was reported'),
     parkIt: z.boolean().optional().describe('Do-not-drive advisory when provided by NHTSA'),
     parkOutSide: z.boolean().optional().describe('Park-outside advisory when provided by NHTSA'),
@@ -139,7 +149,6 @@ const vehicleSafetyOutputSchema = z.object({
 type VehicleSafetyOutput = z.infer<typeof vehicleSafetyOutputSchema>;
 type SectionStatus = VehicleSafetyOutput['sectionStatus'];
 type SafetyRatingsResult = NonNullable<VehicleSafetyOutput['safetyRatings']>;
-type RecallsResult = NonNullable<VehicleSafetyOutput['recalls']>;
 type ComplaintSummary = NonNullable<VehicleSafetyOutput['complaintSummary']>;
 
 const EMPTY_COMPLAINT_SUMMARY = {
@@ -175,23 +184,6 @@ function summarizeComplaints(complaints: Complaint[]): ComplaintSummary {
   };
 }
 
-function mapRecalls(recalls: Recall[]): RecallsResult {
-  return recalls.map((recall) => ({
-    campaignNumber: recall.campaignNumber,
-    manufacturer: recall.manufacturer,
-    component: recall.component,
-    summary: recall.summary,
-    consequence: recall.consequence,
-    remedy: recall.remedy,
-    reportReceivedDate: recall.reportReceivedDate,
-    ...omitUndefined({
-      parkIt: recall.parkIt,
-      parkOutSide: recall.parkOutSide,
-      overTheAirUpdate: recall.overTheAirUpdate,
-    }),
-  }));
-}
-
 function mapSafetyRatings(ratings: SafetyRating[]): SafetyRatingsResult {
   return ratings.map((rating) => ({
     vehicleId: rating.vehicleId,
@@ -200,15 +192,7 @@ function mapSafetyRatings(ratings: SafetyRating[]): SafetyRatingsResult {
       overallRating: rating.overallRating,
     }),
     frontalCrash: rating.frontalCrash,
-    sideCrash: omitUndefined({
-      overall: rating.sideCrash.overall,
-      driverSide: rating.sideCrash.driverSide,
-      passengerSide: rating.sideCrash.passengerSide,
-      combinedBarrierPoleFront: rating.sideCrash.combinedBarrierPoleFront,
-      combinedBarrierPoleRear: rating.sideCrash.combinedBarrierPoleRear,
-      barrierOverall: rating.sideCrash.barrierOverall,
-      pole: rating.sideCrash.pole,
-    }),
+    sideCrash: rating.sideCrash,
     rollover: rating.rollover,
     adasFeatures: rating.adasFeatures,
   }));
@@ -259,10 +243,10 @@ function formatSafetyRatingsSection(result: VehicleSafetyOutput): string[] {
       `**Side Crash:** ${formatStars(rating.sideCrash.overall)} | Driver: ${formatStars(rating.sideCrash.driverSide)} | Passenger: ${formatStars(rating.sideCrash.passengerSide)} | Barrier: ${formatStars(rating.sideCrash.barrierOverall)} | Pole: ${formatStars(rating.sideCrash.pole)} | Combined Front: ${formatStars(rating.sideCrash.combinedBarrierPoleFront)} | Combined Rear: ${formatStars(rating.sideCrash.combinedBarrierPoleRear)}`,
     );
     lines.push(
-      `**Rollover:** ${formatStars(rating.rollover.rating)} | Probability: ${formatRolloverProbability(rating.rollover.probability)} | Tip test: ${formatValue(rating.rollover.dynamicTipResult)}`,
+      `**Rollover:** ${formatStars(rating.rollover.rating)} | Probability: ${formatRolloverProbability(rating.rollover.probability)} | Tip test: ${formatText(rating.rollover.dynamicTipResult)}`,
     );
     lines.push(
-      `**ADAS:** ESC: ${formatValue(rating.adasFeatures.electronicStabilityControl)} | Forward Collision Warning: ${formatValue(rating.adasFeatures.forwardCollisionWarning)} | Lane Departure Warning: ${formatValue(rating.adasFeatures.laneDepartureWarning)}`,
+      `**ADAS:** ESC: ${formatText(rating.adasFeatures.electronicStabilityControl)} | Forward Collision Warning: ${formatText(rating.adasFeatures.forwardCollisionWarning)} | Lane Departure Warning: ${formatText(rating.adasFeatures.laneDepartureWarning)}`,
     );
     lines.push('');
   }
@@ -295,9 +279,9 @@ function formatRecallsSection(result: VehicleSafetyOutput): string[] {
 
     lines.push(`**${recall.campaignNumber}** — ${recall.component}${alert}`);
     lines.push(`*Manufacturer:* ${recall.manufacturer}`);
-    lines.push(recall.summary);
-    lines.push(`*Consequence:* ${recall.consequence}`);
-    lines.push(`*Remedy:* ${recall.remedy}`);
+    lines.push(recall.summary ?? 'Summary: Not available');
+    lines.push(`*Consequence:* ${formatText(recall.consequence)}`);
+    lines.push(`*Remedy:* ${formatText(recall.remedy)}`);
     lines.push(`*Date:* ${recall.reportReceivedDate}`);
     lines.push(`*Advisories:* ${formatRecallAdvisories(recall)}\n`);
   }
@@ -335,6 +319,34 @@ function formatComplaintsSection(result: VehicleSafetyOutput): string[] {
   return lines;
 }
 
+/** Sections in reading order, as the notices name them. */
+const SECTION_LABELS: Record<VehicleSafetySection, string> = {
+  safetyRatings: 'NCAP ratings',
+  recalls: 'recalls',
+  complaints: 'complaints',
+};
+
+/**
+ * The notice routing empty sections to the model names NHTSA files the vehicle under, composed
+ * from section results alone, never from caller text. `counts` holds each section's record
+ * count, undefined where the section failed to load: a failed section is neither empty nor
+ * populated. Every section empty gets the all-empty notice. Recalls or complaints empty while
+ * another section has records gets one naming the empty sections; empty NCAP ratings alone never
+ * fire it, since NCAP rates only some vehicles.
+ */
+function modelNameNotice(counts: Record<VehicleSafetySection, number | undefined>) {
+  const sections = Object.keys(SECTION_LABELS) as VehicleSafetySection[];
+  const empty = sections.filter((section) => counts[section] === 0);
+  const populated = sections.filter((section) => (counts[section] ?? 0) > 0);
+  if (empty.length === sections.length) {
+    return 'No NCAP ratings, recalls, or complaints matched this vehicle. It may have a clean record, or NHTSA may list its records under another model name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search under each.';
+  }
+  if (populated.length === 0 || empty.every((section) => section === 'safetyRatings')) return;
+  const name = (list: VehicleSafetySection[], conjunction: 'and' | 'or') =>
+    list.map((section) => SECTION_LABELS[section]).join(` ${conjunction} `);
+  return `No ${name(empty, 'or')} matched, though ${name(populated, 'and')} did. NHTSA's datasets can file one vehicle under different model names. List them with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search the empty sections under those names.`;
+}
+
 export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
   description:
     'Get a comprehensive safety profile for a vehicle. Combines NCAP crash test ratings, recalls, and complaint summary into a single response. Use as the default when asked about vehicle safety, reliability, or purchase decisions.',
@@ -359,7 +371,7 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
       .string()
       .optional()
       .describe(
-        'Guidance when no NHTSA records matched the vehicle — e.g. how to verify make/model/year spelling.',
+        'Guidance when no section matched the vehicle, or when recalls or complaints matched nothing while another section had records. NHTSA can file one vehicle under different model names in each dataset, so the notice names the lookup that lists them.',
       ),
   },
 
@@ -403,8 +415,7 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
         sectionStatus,
         warnings,
         logMessage: 'Failed to fetch complaints',
-        warning:
-          'Complaint data could not be retrieved — the make/model/year combination may not match NHTSA records.',
+        warning: 'Complaint data could not be retrieved.',
         details: requestContext,
       }),
     ]);
@@ -417,8 +428,7 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
       sectionStatus,
       ctx.signal,
     );
-    const recallResults =
-      sectionStatus.recalls === 'available' && recalls ? mapRecalls(recalls) : undefined;
+    const recallResults = sectionStatus.recalls === 'available' && recalls ? recalls : undefined;
     const complaintSummary =
       sectionStatus.complaints === 'available' && complaints
         ? summarizeComplaints(complaints)
@@ -437,24 +447,12 @@ export const getVehicleSafety = tool('nhtsa_get_vehicle_safety', {
     });
 
     ctx.enrich({ effectiveQuery: `${make} ${model} ${modelYear}` });
-
-    /**
-     * Only when all three sections loaded and every one came back empty — a partial outage
-     * cannot distinguish "nothing on file" from "we could not look".
-     */
-    const allSectionsLoadedEmpty =
-      sectionStatus.safetyRatings === 'available' &&
-      !safetyRatings?.length &&
-      sectionStatus.recalls === 'available' &&
-      !recallResults?.length &&
-      sectionStatus.complaints === 'available' &&
-      complaintSummary?.totalCount === 0;
-
-    if (allSectionsLoadedEmpty) {
-      ctx.enrich.notice(
-        'No NCAP ratings, recalls, or complaints matched this vehicle. It may have a clean record, or the make/model/year may not match NHTSA records. Use nhtsa_lookup_vehicles to verify.',
-      );
-    }
+    const notice = modelNameNotice({
+      safetyRatings: safetyRatings?.length,
+      recalls: recallResults?.length,
+      complaints: complaintSummary?.totalCount,
+    });
+    if (notice) ctx.enrich.notice(notice);
 
     return {
       ...(safetyRatings && { safetyRatings }),

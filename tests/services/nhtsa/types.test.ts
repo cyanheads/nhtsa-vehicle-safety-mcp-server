@@ -1,10 +1,53 @@
 /**
- * @fileoverview Tests for NHTSA types module — buildComponentBreakdown.
+ * @fileoverview Tests for NHTSA types module — splitComponentNames, buildComponentBreakdown.
  * @module tests/services/nhtsa/types
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildComponentBreakdown } from '@/services/nhtsa/types.js';
+import { buildComponentBreakdown, splitComponentNames } from '@/services/nhtsa/types.js';
+
+describe('splitComponentNames (#46)', () => {
+  it.each([
+    ['SERVICE BRAKES, HYDRAULIC,SERVICE BRAKES', ['SERVICE BRAKES, HYDRAULIC', 'SERVICE BRAKES']],
+    [
+      'Carry Handle, Shell, Base,Chest Clip, Buckle, Harness,Tether, Lower Anchor (on car seat or vehicle)',
+      [
+        'Carry Handle, Shell, Base',
+        'Chest Clip, Buckle, Harness',
+        'Tether, Lower Anchor (on car seat or vehicle)',
+      ],
+    ],
+    ['AIR BAGS,SEAT BELTS', ['AIR BAGS', 'SEAT BELTS']],
+  ])('splits %j into its names', (components, names) => {
+    expect(splitComponentNames(components)).toEqual(names);
+  });
+
+  it('keeps every name NHTSA spells with ", " whole', () => {
+    const names = [
+      'SERVICE BRAKES, HYDRAULIC',
+      'SERVICE BRAKES, AIR',
+      'SERVICE BRAKES, ELECTRIC',
+      'FUEL SYSTEM, GASOLINE',
+      'FUEL SYSTEM, DIESEL',
+      'FUEL SYSTEM, OTHER',
+      'SERVICE BRAKES, HYDRAULIC; AUTOHOLD BRAKE SYSTEM/BRAKE HOLD',
+      'Chest Clip, Buckle, Harness',
+      'Carry Handle, Shell, Base',
+      'Insert, Padding',
+      'Tether, Lower Anchor (on car seat or vehicle)',
+    ];
+
+    expect(splitComponentNames(names.join(','))).toEqual(names);
+  });
+
+  it('returns each name once, trimmed, with blanks dropped', () => {
+    expect(splitComponentNames(' ENGINE ,,ENGINE,SEATS,')).toEqual(['ENGINE', 'SEATS']);
+  });
+
+  it.each([undefined, '', ' '])('returns no names for %j', (components) => {
+    expect(splitComponentNames(components)).toEqual([]);
+  });
+});
 
 describe('buildComponentBreakdown', () => {
   it('returns empty array for no complaints', () => {
@@ -89,11 +132,55 @@ describe('buildComponentBreakdown', () => {
   });
 
   it('trims whitespace around component names', () => {
-    const result = buildComponentBreakdown([{ components: ' ENGINE , BRAKES ' }]);
+    const result = buildComponentBreakdown([{ components: ' ENGINE ,BRAKES ' }]);
 
     expect(result).toHaveLength(2);
     expect(result.map((b) => b.component)).toContain('ENGINE');
     expect(result.map((b) => b.component)).toContain('BRAKES');
+  });
+
+  it('keeps a name containing ", " whole and counts it apart from its prefix (#46)', () => {
+    const result = buildComponentBreakdown([
+      { components: 'SERVICE BRAKES, HYDRAULIC' },
+      { components: 'SERVICE BRAKES, HYDRAULIC,SERVICE BRAKES' },
+      { components: 'SERVICE BRAKES, AIR,FUEL SYSTEM, GASOLINE' },
+    ]);
+
+    expect(result.map((b) => [b.component, b.count])).toEqual([
+      ['SERVICE BRAKES, HYDRAULIC', 2],
+      ['SERVICE BRAKES', 1],
+      ['SERVICE BRAKES, AIR', 1],
+      ['FUEL SYSTEM, GASOLINE', 1],
+    ]);
+  });
+
+  it('counts a name once per complaint, so no row exceeds the complaint count (#46)', () => {
+    const complaints = [
+      { components: 'SERVICE BRAKES, HYDRAULIC,SERVICE BRAKES, AIR', crash: true },
+      { components: 'ENGINE,ENGINE', numberOfInjuries: 1 },
+    ];
+    const result = buildComponentBreakdown(complaints);
+
+    for (const row of result) expect(row.count).toBeLessThanOrEqual(complaints.length);
+    expect(result).toEqual([
+      {
+        component: 'SERVICE BRAKES, HYDRAULIC',
+        count: 1,
+        crashCount: 1,
+        fireCount: 0,
+        injuryCount: 0,
+        deathCount: 0,
+      },
+      {
+        component: 'SERVICE BRAKES, AIR',
+        count: 1,
+        crashCount: 1,
+        fireCount: 0,
+        injuryCount: 0,
+        deathCount: 0,
+      },
+      { component: 'ENGINE', count: 1, crashCount: 0, fireCount: 0, injuryCount: 1, deathCount: 0 },
+    ]);
   });
 
   it('handles missing crash/fire/injury/death as zero', () => {

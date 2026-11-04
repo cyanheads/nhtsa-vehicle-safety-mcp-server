@@ -1,18 +1,15 @@
 /**
  * @fileoverview NHTSA API client service. Wraps four public JSON APIs (Recalls, Complaints,
- * Safety Ratings, VPIC) with retry logic and field normalization, plus a streaming parser
- * for the ODI investigations bulk file with a 24-hour cache.
+ * Safety Ratings, VPIC) with retry logic and field normalization, plus the ODI investigations
+ * and recall bulk files, read through the flat-file loader and cached for 24 hours.
  * @module services/nhtsa/nhtsa-service
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
-import {
-  fetchWithTimeout,
-  httpErrorFromResponse,
-  requestContextService,
-} from '@cyanheads/mcp-ts-core/utils';
-import { Unzip, UnzipInflate } from 'fflate';
+import { httpErrorFromResponse } from '@cyanheads/mcp-ts-core/utils';
 
+import { FlatFileCache, type FlatFileRow, type ReadFlatFile } from './flat-file.js';
+import { loadRecallIndex, type RecallSearch, type RecallSearchPage } from './recall-index.js';
 import type {
   AffectedVehicle,
   Complaint,
@@ -20,9 +17,11 @@ import type {
   Investigation,
   NhtsaResponse,
   RawComplaint,
+  RawProductModel,
   RawRecallByVehicle,
   RawRecallCampaignDirect,
   RawSafetyRating,
+  RawSafetyRatingModel,
   RawSafetyRatingVariant,
   RawVpicDecodedVin,
   Recall,
@@ -39,13 +38,19 @@ import type {
 const NHTSA_API = 'https://api.nhtsa.gov';
 const VPIC_API = 'https://vpic.nhtsa.dot.gov/api';
 const ODI_FLAT_INV_URL = 'https://static.nhtsa.gov/odi/ffdd/inv/FLAT_INV.zip';
+const FLAT_RCL_POST_2010_URL = 'https://static.nhtsa.gov/odi/ffdd/rcl/FLAT_RCL_POST_2010.zip';
+const FLAT_RCL_PRE_2010_URL = 'https://static.nhtsa.gov/odi/ffdd/rcl/FLAT_RCL_PRE_2010.zip';
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 const REQUEST_TIMEOUT_MS = 30_000;
-const INVESTIGATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours (matches daily file cadence)
-/** Shared bulk downloads can outlive callers, but cannot hold the pending slot indefinitely. */
-const INVESTIGATION_LOAD_TIMEOUT_MS = 120_000;
+/** The flat files refresh daily. */
+const FLAT_FILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * A shared load can outlive its callers but not this deadline, which spans the wait for the
+ * flat-file load slot, the download, and the parse together. The two recall files share one.
+ */
+const FLAT_FILE_LOAD_TIMEOUT_MS = 120_000;
 
 /** VPIC serves GetManufacturerDetails 100 records per page. */
 const VPIC_MANUFACTURER_PAGE_SIZE = 100;
@@ -59,11 +64,23 @@ const MANUFACTURER_PAGE_LIMIT = 5;
  */
 export const MANUFACTURER_RESULT_CAP = VPIC_MANUFACTURER_PAGE_SIZE * MANUFACTURER_PAGE_LIMIT;
 
+/**
+ * Rows requested from the products route. Without `max` it returns a short default page, and
+ * its `offset` paging skips and repeats rows, so one request asks for far more rows than a
+ * make and model year holds.
+ */
+const PRODUCT_MODELS_MAX = 5000;
+
 /** Normalize sparse upstream strings by trimming and omitting blank values. */
 function normalizeOptionalString(value?: string | null): string | undefined {
   if (typeof value !== 'string') return;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** The distinct non-blank names in `values`, trimmed, in first-seen order. */
+function distinctNames(values: Array<string | undefined>): string[] {
+  return [...new Set(values.flatMap((value) => normalizeOptionalString(value) ?? []))];
 }
 
 /** Preserve numeric values only when the upstream actually provided them. */
@@ -212,8 +229,18 @@ function isEmptyResultEnvelope(body: unknown): boolean {
 type FetchInit = Omit<RequestInit, 'signal'> & { signal?: AbortSignal | undefined };
 
 export class NhtsaService {
-  private investigationCache: { data: Investigation[]; fetchedAt: number } | null = null;
-  private pendingInvestigations: Promise<Investigation[]> | undefined;
+  private readonly investigations = new FlatFileCache({
+    label: 'NHTSA investigations data',
+    load: loadInvestigations,
+    timeoutMs: FLAT_FILE_LOAD_TIMEOUT_MS,
+    ttlMs: FLAT_FILE_CACHE_TTL_MS,
+  });
+  private readonly recallFiles = new FlatFileCache({
+    label: 'NHTSA recall data',
+    load: (read) => loadRecallIndex(read, [FLAT_RCL_POST_2010_URL, FLAT_RCL_PRE_2010_URL]),
+    timeoutMs: FLAT_FILE_LOAD_TIMEOUT_MS,
+    ttlMs: FLAT_FILE_CACHE_TTL_MS,
+  });
 
   // ── HTTP ─────────────────────────────────────────────────────────
 
@@ -288,21 +315,30 @@ export class NhtsaService {
   }
 
   /**
-   * Look up a recall campaign by campaign number via the direct NHTSA endpoint. The endpoint
-   * returns one row per affected make/model/model-year in a single response, so the whole row
-   * set collapses into one campaign record carrying the vehicle list. Returns null if the
-   * campaign is not found.
+   * Look up the recall campaigns a campaign number names via the direct NHTSA endpoint, in
+   * campaign-number order. A full number names one campaign; a 6-character number returns the
+   * rows of every campaign it prefixes. The endpoint sends one row per affected
+   * make/model/model-year, so each campaign's rows collapse into one record carrying its vehicle
+   * list. Empty when no campaign matches.
    */
-  async getRecallCampaign(
-    campaignId: string,
+  async getRecallCampaigns(
+    campaignNumber: string,
     signal?: AbortSignal,
-  ): Promise<RecallCampaign | null> {
-    const params = new URLSearchParams({ campaignNumber: campaignId });
+  ): Promise<RecallCampaign[]> {
+    const params = new URLSearchParams({ campaignNumber });
     const data = await this.fetchJson<NhtsaResponse<RawRecallCampaignDirect>>(
       `${NHTSA_API}/recalls/campaignNumber?${params}`,
       { signal },
     );
-    return normalizeRecallCampaignDirect(data.results ?? data.Results ?? []);
+    return normalizeRecallCampaigns(data.results ?? data.Results ?? []);
+  }
+
+  /**
+   * Search every campaign in the recall flat files, cached for 24 hours. Concurrent cold calls
+   * share one load of both files; aborting `signal` rejects only this caller.
+   */
+  async searchRecallFiles(query: RecallSearch, signal?: AbortSignal): Promise<RecallSearchPage> {
+    return (await this.recallFiles.get(signal)).search(query);
   }
 
   // ── Complaints ───────────────────────────────────────────────────
@@ -322,7 +358,38 @@ export class NhtsaService {
     return (data.results ?? []).map((raw) => normalizeComplaint(raw, modelYear));
   }
 
+  /**
+   * Distinct model names on NHTSA's products list for a make and model year — the names
+   * complaint searches match. The route returns the same rows for every issue type.
+   */
+  async getProductModels(make: string, modelYear: number, signal?: AbortSignal): Promise<string[]> {
+    const params = new URLSearchParams({
+      modelYear: String(modelYear),
+      make,
+      issueType: 'c',
+      max: String(PRODUCT_MODELS_MAX),
+    });
+    const data = await this.fetchJson<NhtsaResponse<RawProductModel>>(
+      `${NHTSA_API}/products/vehicle/models?${params}`,
+      { signal },
+    );
+    return distinctNames((data.results ?? []).map((r) => r.model));
+  }
+
   // ── Safety Ratings ───────────────────────────────────────────────
+
+  /** Distinct model names NCAP lists for a make and model year — the names its rating search matches. */
+  async getSafetyRatingModels(
+    modelYear: number,
+    make: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> {
+    const data = await this.fetchJson<NhtsaResponse<RawSafetyRatingModel>>(
+      `${NHTSA_API}/SafetyRatings/modelyear/${modelYear}/make/${encodeURIComponent(make)}`,
+      { signal },
+    );
+    return distinctNames((data.Results ?? []).map((r) => r.Model));
+  }
 
   /** Get NCAP vehicle variants for a make/model/year. */
   async getSafetyRatingVariants(
@@ -373,13 +440,18 @@ export class NhtsaService {
     return normalizeDecodedVin(raw, vin);
   }
 
-  /** Batch decode up to 50 VINs via VPIC POST endpoint. */
+  /**
+   * Batch decode up to 50 VINs via VPIC POST endpoint. VPIC reads `VIN,year` entries joined by
+   * `;` from one `DATA` field; the body is form-encoded so that syntax stays inside the field.
+   */
   async decodeVinBatch(
     entries: Array<{ vin: string; modelYear?: number }>,
     signal?: AbortSignal,
   ): Promise<DecodedVin[]> {
-    const dataStr = entries.map((e) => (e.modelYear ? `${e.vin},${e.modelYear}` : e.vin)).join(';');
-    const body = `DATA=${dataStr}&format=json`;
+    const body = new URLSearchParams({
+      DATA: entries.map((e) => (e.modelYear ? `${e.vin},${e.modelYear}` : e.vin)).join(';'),
+      format: 'json',
+    }).toString();
     const data = await this.fetchJson<VpicResponse<RawVpicDecodedVin>>(
       `${VPIC_API}/vehicles/DecodeVINValuesBatch/`,
       {
@@ -394,125 +466,12 @@ export class NhtsaService {
 
   // ── Investigations ───────────────────────────────────────────────
 
-  /** Get all investigations from cache, refreshing if stale (24 h TTL). */
-  async getInvestigations(signal?: AbortSignal): Promise<Investigation[]> {
-    signal?.throwIfAborted();
-    if (
-      this.investigationCache &&
-      Date.now() - this.investigationCache.fetchedAt < INVESTIGATION_CACHE_TTL_MS
-    ) {
-      return this.investigationCache.data;
-    }
-    this.pendingInvestigations ??= this.fetchFlatInvestigations()
-      .then((data) => {
-        this.investigationCache = { data, fetchedAt: Date.now() };
-        return data;
-      })
-      .finally(() => {
-        this.pendingInvestigations = undefined;
-      });
-    const pending = this.pendingInvestigations;
-    if (!signal) return await pending;
-
-    return new Promise<Investigation[]>((resolve, reject) => {
-      const cleanup = () => signal.removeEventListener('abort', onAbort);
-      const onAbort = () => {
-        cleanup();
-        reject(signal.reason);
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
-      pending.then(
-        (data) => {
-          cleanup();
-          resolve(data);
-        },
-        (error) => {
-          cleanup();
-          reject(error);
-        },
-      );
-    });
-  }
-
   /**
-   * Download FLAT_INV.zip from the ODI bulk file server, decompress via fflate's
-   * synchronous streaming inflate, and parse each TAB-delimited line into the grouped
-   * investigations map as it arrives. The 371 MB raw file is never held whole in memory —
-   * lines are parsed and discarded on the fly; only the ~5K deduped records are retained.
-   * Synchronous `UnzipInflate` fires `ondata` synchronously during each `push`, so the
-   * terminal `resolve()` is reached only after every line has been parsed (no async race).
+   * Get all investigations from cache, refreshing if stale (24 h TTL). Concurrent cold calls
+   * share one load of FLAT_INV.zip; aborting `signal` rejects only this caller.
    */
-  private async fetchFlatInvestigations(): Promise<Investigation[]> {
-    const res = await fetchWithTimeout(
-      ODI_FLAT_INV_URL,
-      INVESTIGATION_LOAD_TIMEOUT_MS,
-      requestContextService.createRequestContext({
-        operation: 'NhtsaService.fetchFlatInvestigations',
-      }),
-    );
-    /** Bound to a const so the null check narrows inside the reader closure below. */
-    const stream = res.body;
-    if (!res.ok || !stream) {
-      throw await httpErrorFromResponse(res, {
-        service: 'NHTSA ODI',
-        data: { url: ODI_FLAT_INV_URL },
-      });
-    }
-
-    const grouped = new Map<string, Investigation>();
-
-    await new Promise<void>((resolve, reject) => {
-      const decoder = new TextDecoder('utf-8');
-      let partial = '';
-
-      const unzip = new Unzip();
-      unzip.register(UnzipInflate);
-
-      unzip.onfile = (file) => {
-        // FLAT_INV.zip contains exactly one TAB-delimited file.
-        file.ondata = (err, chunk, final) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          partial += decoder.decode(chunk, { stream: !final });
-          const parts = partial.split('\n');
-          partial = parts.pop() ?? '';
-          for (const line of parts) mergeFlatInvLine(line, grouped);
-          if (final && partial.length > 0) {
-            mergeFlatInvLine(partial, grouped);
-            partial = '';
-          }
-        };
-        file.start();
-      };
-
-      const reader = stream.getReader();
-      const pump = (): void => {
-        reader.read().then(({ done, value }) => {
-          if (done) {
-            try {
-              unzip.push(new Uint8Array(0), true);
-            } catch (e) {
-              reject(e);
-              return;
-            }
-            resolve();
-            return;
-          }
-          try {
-            unzip.push(value);
-          } catch (e) {
-            reject(e);
-            return;
-          }
-          pump();
-        }, reject);
-      };
-      pump();
-    });
-
-    return Array.from(grouped.values());
+  getInvestigations(signal?: AbortSignal): Promise<Investigation[]> {
+    return this.investigations.get(signal);
   }
 
   // ── VPIC Lookups ─────────────────────────────────────────────────
@@ -611,14 +570,17 @@ function normalizeDate(raw?: string): string {
   return raw;
 }
 
+/** Older campaigns send their summary, consequence, and remedy as null; those are omitted. */
 function normalizeRecallByVehicle(r: RawRecallByVehicle): Recall {
   return {
     campaignNumber: r.NHTSACampaignNumber,
     manufacturer: r.Manufacturer,
     component: r.Component,
-    summary: r.Summary,
-    consequence: r.Consequence,
-    remedy: r.Remedy,
+    ...omitUndefined({
+      summary: normalizeOptionalString(r.Summary),
+      consequence: normalizeOptionalString(r.Consequence),
+      remedy: normalizeOptionalString(r.Remedy),
+    }),
     reportReceivedDate: normalizeDate(r.ReportReceivedDate),
     ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
     ...(r.parkOutSide !== undefined ? { parkOutSide: r.parkOutSide } : {}),
@@ -658,24 +620,45 @@ function collapseAffectedVehicles(rows: RawRecallCampaignDirect[]): AffectedVehi
 }
 
 /**
- * Collapse a campaign row set into one record. The campaignNumber endpoint returns one row
- * per affected make/model/model-year and repeats identical campaign detail on every row, so
- * the first row supplies the campaign fields and the whole set supplies `affectedVehicles`.
- * Returns null for an empty row set (campaign not found).
+ * Group the campaignNumber endpoint's rows by `NHTSACampaignNumber` — a 6-character number
+ * returns the rows of several campaigns, interleaved — and collapse each group into one record,
+ * ordered by campaign number.
  */
-function normalizeRecallCampaignDirect(rows: RawRecallCampaignDirect[]): RecallCampaign | null {
-  const r = rows[0];
-  if (!r) return null;
+function normalizeRecallCampaigns(rows: RawRecallCampaignDirect[]): RecallCampaign[] {
+  const groups = new Map<string, [RawRecallCampaignDirect, ...RawRecallCampaignDirect[]]>();
+  for (const row of rows) {
+    const group = groups.get(row.NHTSACampaignNumber);
+    if (group) group.push(row);
+    else groups.set(row.NHTSACampaignNumber, [row]);
+  }
+  // Grouping leaves every campaign number distinct, so no two records compare equal.
+  return Array.from(groups.values(), normalizeRecallCampaign).sort((a, b) =>
+    a.campaignNumber < b.campaignNumber ? -1 : 1,
+  );
+}
+
+/**
+ * Collapse one campaign's rows into one record. The endpoint repeats identical campaign detail
+ * on every row of a campaign, so the first row supplies the campaign fields and the whole set
+ * supplies `affectedVehicles`. Older campaigns send their summary, consequence, and remedy as
+ * null; those are omitted.
+ */
+function normalizeRecallCampaign(
+  rows: [RawRecallCampaignDirect, ...RawRecallCampaignDirect[]],
+): RecallCampaign {
+  const [r] = rows;
   const component = normalizeOptionalString(r.Component);
   const investigationId = normalizeOptionalString(r.NHTSAActionNumber);
   return {
     campaignNumber: r.NHTSACampaignNumber,
     manufacturer: r.Manufacturer,
-    summary: r.Summary,
-    consequence: r.Consequence,
-    remedy: r.Remedy,
+    ...omitUndefined({
+      summary: normalizeOptionalString(r.Summary),
+      consequence: normalizeOptionalString(r.Consequence),
+      remedy: normalizeOptionalString(r.Remedy),
+      potentialUnitsAffected: normalizeOptionalNumber(r.PotentialNumberofUnitsAffected),
+    }),
     receivedDate: normalizeDate(r.ReportReceivedDate),
-    potentialUnitsAffected: r.PotentialNumberofUnitsAffected ?? 0,
     affectedVehicles: collapseAffectedVehicles(rows),
     ...(component !== undefined ? { component } : {}),
     ...(investigationId !== undefined ? { investigationId } : {}),
@@ -847,18 +830,36 @@ function normalizeDecodedVin(r: RawVpicDecodedVin, fallbackVin?: string): Decode
       airBagLocSide,
       airBagLocCurtain,
       airBagLocKnee,
+      airBagLocSeatCushion: normalizeOptionalString(r.AirBagLocSeatCushion),
       electronicStabilityControl,
       abs,
       tractionControl,
+      tpmsType: normalizeOptionalString(r.TPMS),
+      crashImminentBraking: normalizeOptionalString(r.CIB),
+      dynamicBrakeSupport: normalizeOptionalString(r.DynamicBrakeSupport),
+      pedestrianAutomaticEmergencyBraking: normalizeOptionalString(
+        r.PedestrianAutomaticEmergencyBraking,
+      ),
+      forwardCollisionWarning: normalizeOptionalString(r.ForwardCollisionWarning),
+      laneDepartureWarning: normalizeOptionalString(r.LaneDepartureWarning),
+      laneKeepingAssistance: normalizeOptionalString(r.LaneKeepSystem),
+      laneCenteringAssistance: normalizeOptionalString(r.LaneCenteringAssistance),
+      blindSpotWarning: normalizeOptionalString(r.BlindSpotMon),
+      blindSpotIntervention: normalizeOptionalString(r.BlindSpotIntervention),
+      rearCrossTrafficAlert: normalizeOptionalString(r.RearCrossTrafficAlert),
+      backupCamera: normalizeOptionalString(r.RearVisibilitySystem),
+      rearAutomaticEmergencyBraking: normalizeOptionalString(r.RearAutomaticEmergencyBraking),
+      parkingAssist: normalizeOptionalString(r.ParkAssist),
+      adaptiveCruiseControl: normalizeOptionalString(r.AdaptiveCruiseControl),
       errorCode,
       errorText,
     }),
   };
 }
 
-/** Format a YYYYMMDD date string from the flat file to YYYY-MM-DD. */
+/** Format a YYYYMMDD date string from the flat file to YYYY-MM-DD; anything else is absent. */
 function formatFlatDate(raw: string): string | undefined {
-  if (raw?.length !== 8) return;
+  if (!/^\d{8}$/.test(raw)) return;
   const y = raw.slice(0, 4);
   const m = raw.slice(4, 6);
   const d = raw.slice(6, 8);
@@ -866,59 +867,130 @@ function formatFlatDate(raw: string): string | undefined {
 }
 
 /**
- * Parse one TAB-delimited FLAT_INV line and merge it into the grouped investigations map.
+ * An investigation while its rows load: the record, whose four association arrays the loader
+ * always creates, and the keys of the vehicle associations it already holds.
+ */
+interface InvestigationDraft {
+  readonly record: Investigation &
+    Required<Pick<Investigation, 'components' | 'makes' | 'models' | 'years'>>;
+  readonly vehicleKeys: Set<string>;
+}
+
+/**
+ * Group every FLAT_INV.zip row by NHTSA action number, then order the records once, so the
+ * cache holds them newest-opened first: `openDate` descending, `nhtsaId` descending within a
+ * day, records with no open date last. Each record's `years` is ascending.
+ */
+async function loadInvestigations(read: ReadFlatFile): Promise<Investigation[]> {
+  const grouped = new Map<string, InvestigationDraft>();
+  await read(ODI_FLAT_INV_URL, (row) => mergeFlatInvRow(row, grouped));
+  const investigations = Array.from(grouped.values(), ({ record }) => {
+    record.years.sort((a, b) => a - b);
+    return record;
+  });
+  return investigations.sort(
+    (a, b) =>
+      descendingAbsentLast(a.openDate, b.openDate) || descendingAbsentLast(a.nhtsaId, b.nhtsaId),
+  );
+}
+
+/** Descending string order, with an absent value after every present one. */
+function descendingAbsentLast(a: string | undefined, b: string | undefined): number {
+  if (a === b) return 0;
+  if (a === undefined) return 1;
+  if (b === undefined) return -1;
+  return a < b ? 1 : -1;
+}
+
+/**
+ * Merge one TAB-delimited FLAT_INV row into the grouped investigations map.
  * Multiple rows share an NHTSA action number (one row per make/model/year/component
  * association) — they collapse into a single record with distinct value arrays.
- * Layout (0-indexed): 0 NHTSA ID, 1 MAKE, 2 MODEL, 3 YEAR (9999 = unknown), 4 COMPONENT,
- * 5 MFR_NAME, 6 OPEN DATE (YYYYMMDD), 7 CLOSE DATE, 8 CAMPNO, 9 SUBJECT, 10 SUMMARY.
+ * Layout (0-indexed): 0 NHTSA ID, 1 MAKE, 2 MODEL, 3 YEAR (9999 or not four digits =
+ * unknown), 4 COMPONENT, 5 MFR_NAME, 6 OPEN DATE (YYYYMMDD; anything else = absent),
+ * 7 CLOSE DATE (likewise), 8 CAMPNO, 9 SUBJECT, 10 SUMMARY.
+ * Every row adds its association fields, manufacturer, and campaign, each kept once in
+ * first-seen order, and its make/model/year as one vehicle association. The dates, subject,
+ * and summary come from an action number's first row; later rows never decode the summary
+ * they repeat.
  */
-function mergeFlatInvLine(line: string, grouped: Map<string, Investigation>): void {
-  const parts = line.split('\t');
-  if (parts.length < 6) return;
-  const nhtsaId = parts[0]?.trim();
+function mergeFlatInvRow(row: FlatFileRow, grouped: Map<string, InvestigationDraft>): void {
+  if (row.fieldCount < 6) return;
+  const nhtsaId = row.field(0);
   if (!nhtsaId) return;
 
-  const make = parts[1]?.trim() || undefined;
-  const model = parts[2]?.trim() || undefined;
-  const yearStr = parts[3]?.trim();
-  const component = parts[4]?.trim() || undefined;
-  const year = yearStr && yearStr !== '9999' ? Number(yearStr) : undefined;
+  let draft = grouped.get(nhtsaId);
+  if (draft === undefined) {
+    draft = { record: openFlatInvRecord(nhtsaId, row), vehicleKeys: new Set() };
+    grouped.set(nhtsaId, draft);
+  }
+  const { record, vehicleKeys } = draft;
 
-  const existing = grouped.get(nhtsaId);
-  if (existing) {
-    // Merge association rows — accumulate unique makes/models/years/components.
-    if (make && existing.makes && !existing.makes.includes(make)) existing.makes.push(make);
-    if (model && existing.models && !existing.models.includes(model)) existing.models.push(model);
-    if (year != null && existing.years && !existing.years.includes(year)) existing.years.push(year);
-    if (component && existing.components && !existing.components.includes(component))
-      existing.components.push(component);
-    return;
+  const make = addDistinct(record.makes, row.field(1));
+  const model = addDistinct(record.models, row.field(2));
+  const yearStr = row.field(3);
+  const year = /^\d{4}$/.test(yearStr) && yearStr !== '9999' ? Number(yearStr) : undefined;
+  if (year !== undefined && !record.years.includes(year)) record.years.push(year);
+  addDistinct(record.components, row.field(4));
+  const manufacturer = row.field(5);
+  if (manufacturer) {
+    record.manufacturers ??= [];
+    addDistinct(record.manufacturers, manufacturer);
+  }
+  const campaign = row.field(8);
+  if (campaign) {
+    record.recallCampaigns ??= [];
+    addDistinct(record.recallCampaigns, campaign);
   }
 
-  const mfrName = parts[5]?.trim() || undefined;
-  const openDate = parts[6]?.trim() ? formatFlatDate(parts[6].trim()) : undefined;
-  const closeDate = parts[7]?.trim() ? formatFlatDate(parts[7].trim()) : undefined;
-  const campno = parts[8]?.trim() || undefined;
-  const subject = parts[9]?.trim() || undefined;
-  const summary = parts[10]?.trim() || undefined;
-  const status = closeDate ? 'C' : 'O';
-  const investigationType = nhtsaId.match(/^([A-Z]+)/)?.[1] ?? undefined;
+  if (!make && !model && year === undefined) return;
+  const key = `${make}\t${model}\t${year ?? ''}`;
+  if (vehicleKeys.has(key)) return;
+  vehicleKeys.add(key);
+  record.vehicles.push({
+    ...(make ? { make } : {}),
+    ...(model ? { model } : {}),
+    ...(year !== undefined ? { year } : {}),
+  });
+}
 
-  grouped.set(nhtsaId, {
+/** The record an action number's first row opens: its type, status, dates, subject, and summary. */
+function openFlatInvRecord(nhtsaId: string, row: FlatFileRow): InvestigationDraft['record'] {
+  const openRaw = row.field(6);
+  const openDate = openRaw ? formatFlatDate(openRaw) : undefined;
+  const closeRaw = row.field(7);
+  const closeDate = closeRaw ? formatFlatDate(closeRaw) : undefined;
+  const subject = row.field(9) || undefined;
+  const summary = row.field(10) || undefined;
+  const investigationType = nhtsaId.match(/^([A-Z]+)/)?.[1];
+
+  return {
     nhtsaId,
-    status,
-    makes: make ? [make] : [],
-    models: model ? [model] : [],
-    years: year != null ? [year] : [],
-    components: component ? [component] : [],
+    status: closeDate ? 'C' : 'O',
+    makes: [],
+    models: [],
+    years: [],
+    components: [],
+    vehicles: [],
     ...(investigationType !== undefined ? { investigationType } : {}),
-    ...(mfrName !== undefined ? { manufacturer: mfrName } : {}),
     ...(openDate !== undefined ? { openDate } : {}),
     ...(closeDate !== undefined ? { closeDate } : {}),
-    ...(campno !== undefined ? { recallCampaign: campno } : {}),
     ...(subject !== undefined ? { subject } : {}),
     ...(summary !== undefined ? { summary } : {}),
-  });
+  };
+}
+
+/**
+ * Add a nonblank `value` to `list` unless the list already holds an equal string, and return the
+ * string the list holds, so a value repeated across rows is retained as one string wherever it
+ * is kept. A blank `value` is returned as is and never added.
+ */
+function addDistinct(list: string[], value: string): string {
+  if (!value) return value;
+  const held = list.find((item) => item === value);
+  if (held !== undefined) return held;
+  list.push(value);
+  return value;
 }
 
 // ── Init / Accessor ──────────────────────────────────────────────────

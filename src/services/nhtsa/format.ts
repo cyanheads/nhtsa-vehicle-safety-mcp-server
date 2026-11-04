@@ -13,6 +13,10 @@ export interface RecallAdvisoryFlags {
   parkOutSide?: boolean | undefined;
 }
 
+export function formatText(value?: string): string {
+  return value || 'Not available';
+}
+
 export function formatStars(rating?: string): string {
   if (!rating) return 'Not available';
   const n = Number.parseInt(rating, 10);
@@ -58,4 +62,20 @@ export function outOfBoundsMessage({
   totalCount: number;
 }): string {
   return `No results for this page (offset ${offset}, limit ${limit}). ${totalCount} total — try a smaller offset.`;
+}
+
+/** The line pointing at the next page while matches remain past this one; undefined on the last. */
+export function nextPageHint({
+  offset,
+  returned,
+  totalCount,
+}: {
+  offset: number;
+  returned: number;
+  totalCount: number;
+}): string | undefined {
+  const next = offset + returned;
+  return returned > 0 && next < totalCount
+    ? `*Use offset=${next} to retrieve the next page.*\n`
+    : undefined;
 }

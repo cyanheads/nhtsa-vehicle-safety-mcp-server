@@ -16,7 +16,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', async (importOriginal) => ({
 
 import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.tool.js';
 import { getNhtsaService, MANUFACTURER_RESULT_CAP } from '@/services/nhtsa/nhtsa-service.js';
-import { firstText } from '../../../helpers/content.js';
+import { firstText, readerText } from '../../../helpers/content.js';
 
 const mockService = {
   getAllMakes: vi.fn(),
@@ -54,7 +54,7 @@ describe('lookupVehicles — vehicle_types operation', () => {
         offset: 99,
         limit: 1,
       });
-      const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+      const text = readerText(result.content);
       expect(text.split('try a smaller offset').length - 1).toBe(1);
       expect(text).not.toMatch(/spelling/i);
       expect(result.structuredContent).toMatchObject({
@@ -78,7 +78,7 @@ describe('lookupVehicles — vehicle_types operation', () => {
       manufacturer: 'a',
       offset: MANUFACTURER_RESULT_CAP,
     });
-    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    const text = readerText(result.content);
     expect(text.split('try a smaller offset').length - 1).toBe(1);
     expect(text.split('Retrieval stopped at').length - 1).toBe(1);
     expect(result.structuredContent).toMatchObject({

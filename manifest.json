@@ -22,6 +22,7 @@
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_AUTH_MODE": "none",
         "NODE_ENV": "production",
+        "NHTSA_CLAMP_LIMITS": "${user_config.NHTSA_CLAMP_LIMITS}",
         "MCP_LOG_LEVEL": "${user_config.MCP_LOG_LEVEL}"
       }
     }
@@ -34,6 +35,13 @@
   "tools_generated": true,
   "prompts_generated": true,
   "user_config": {
+    "NHTSA_CLAMP_LIMITS": {
+      "title": "Clamp over-cap requests",
+      "description": "Clamp an over-cap page size (limit) or VIN batch to its cap and disclose it with a notice. Set false to reject it instead.",
+      "type": "string",
+      "default": "true",
+      "required": false
+    },
     "MCP_LOG_LEVEL": {
       "title": "Log Level",
       "description": "Minimum log level for output (debug, info, warn, error).",

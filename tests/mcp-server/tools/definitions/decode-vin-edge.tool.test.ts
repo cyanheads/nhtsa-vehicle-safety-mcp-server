@@ -210,3 +210,61 @@ describe('decodeVin — input schema validation', () => {
     expect(decodeVin.input.parse({ vin: 'VIN1', modelYear: 1968 }).modelYear).toBe(1968);
   });
 });
+
+describe('decodeVin — VIN parsing timing', () => {
+  /** Sizes double from 1,000 to 64,000 characters: a 64× span, below Bun's regex tier switch. */
+  const SIZES = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
+  /** Thread CPU time one call may spend at any size, in microseconds. */
+  const MAX_CPU_US_PER_CALL = 50_000;
+
+  /** Least thread CPU time per call, in microseconds, over five batches of `calls` calls. */
+  async function cpuPerCallUs(vin: string, calls: number): Promise<number> {
+    const input = decodeVin.input.parse({ vin });
+    const ctx = createMockContext({ errors: decodeVin.errors });
+    let least = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 5; round++) {
+      const start = process.threadCpuUsage();
+      for (let call = 0; call < calls; call++) {
+        await Promise.resolve(decodeVin.handler(input, ctx)).then(
+          () => {
+            throw new Error('Expected the timing input to be rejected');
+          },
+          (error: { data?: { reason?: string } }) => {
+            if (error.data?.reason !== 'invalid_vin' && error.data?.reason !== 'empty_vin_list') {
+              throw error;
+            }
+          },
+        );
+      }
+      const used = process.threadCpuUsage(start);
+      least = Math.min(least, (used.user + used.system) / calls);
+    }
+    return least;
+  }
+
+  it.each<[string, (size: number) => string]>([
+    ['one long line ending in a break', (n) => `${'§1 x'.repeat(n / 4)}\ny`],
+    ['breaks throughout', (n) => '  \r\n'.repeat(n / 4)],
+    [
+      'joined full VINs with a bad last character',
+      (n) => `${'1HGCM82633A004352;'.repeat(n / 18)}-`,
+    ],
+    [
+      'joined VIN,YYYY chunks with a bad last character',
+      (n) => `${'1HGCM82633A004352,2003 '.repeat(n / 23)}-`,
+    ],
+    ['a comma run that overlaps the VIN,YYYY form', (n) => '1,'.repeat(n / 2)],
+    ['one long token with a bad last character', (n) => `${'A'.repeat(n)}-`],
+  ])('parses %s in linear time', async (_shape, build) => {
+    expect(mockService.decodeVin).not.toHaveBeenCalled();
+    const perCall: number[] = [];
+    for (const size of SIZES) {
+      const cpuUs = await cpuPerCallUs(build(size), SIZES.at(-1)! / size);
+      expect(cpuUs).toBeLessThan(MAX_CPU_US_PER_CALL);
+      perCall.push(cpuUs);
+    }
+    expect(perCall.at(-1)! / perCall[0]!).toBeLessThan(256);
+    expect(mockService.decodeVin).not.toHaveBeenCalled();
+    expect(mockService.decodeVinBatch).not.toHaveBeenCalled();
+  });
+});

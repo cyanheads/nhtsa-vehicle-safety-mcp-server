@@ -13,6 +13,10 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', async (importOriginal) => ({
   initNhtsaService: vi.fn(),
 }));
 
+/** The server's clamp mode, flipped per test; the environment parsing has its own suite. */
+const serverConfig = vi.hoisted(() => ({ clampLimits: true }));
+vi.mock('@/config/server-config.js', () => ({ getServerConfig: () => serverConfig }));
+
 import { decodeVin } from '@/mcp-server/tools/definitions/decode-vin.tool.js';
 import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.tool.js';
 import { searchComplaints } from '@/mcp-server/tools/definitions/search-complaints.tool.js';
@@ -29,7 +33,7 @@ const mockService = {
   getVehicleTypes: vi.fn(),
   getManufacturer: vi.fn(),
   getRecallsByVehicle: vi.fn(),
-  getRecallCampaign: vi.fn(),
+  getRecallCampaigns: vi.fn(),
   decodeVin: vi.fn(),
   decodeVinBatch: vi.fn(),
 };
@@ -37,6 +41,7 @@ const mockService = {
 beforeEach(() => {
   vi.mocked(getNhtsaService).mockReturnValue(mockService as any);
   for (const fn of Object.values(mockService)) fn.mockReset();
+  serverConfig.clampLimits = true;
 });
 
 /** Collect all env var names — none should appear verbatim in tool output. */
@@ -72,13 +77,15 @@ describe('injection safety — searchRecalls', () => {
   });
 
   it('passes XSS payload in campaignNumber as opaque input', async () => {
-    mockService.getRecallCampaign.mockResolvedValue(null);
+    mockService.getRecallCampaigns.mockResolvedValue([]);
 
     const ctx = createMockContext({ errors: searchRecalls.errors });
     const input = searchRecalls.input.parse({ campaignNumber: '<script>alert(1)</script>' });
-    await expect(searchRecalls.handler(input, ctx)).rejects.toThrow();
+    await expect(searchRecalls.handler(input, ctx)).rejects.toMatchObject({
+      data: { reason: 'campaign_not_found' },
+    });
     // Handler threw because campaign not found — not because XSS was evaluated
-    expect(mockService.getRecallCampaign).toHaveBeenCalledWith(
+    expect(mockService.getRecallCampaigns).toHaveBeenCalledWith(
       '<script>alert(1)</script>',
       expect.anything(),
     );
@@ -109,7 +116,7 @@ describe('injection safety — searchComplaints', () => {
   it('passes path-traversal-like model string to service as opaque input', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({
       make: 'Toyota',
       model: '../../../etc/passwd',
@@ -130,7 +137,7 @@ describe('injection safety — searchComplaints', () => {
       { odiNumber: 1, components: 'ENGINE', crash: false, fire: false },
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -189,7 +196,7 @@ describe('oversized input handling', () => {
   it('searchComplaints with limit at max (50) does not crash', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -200,15 +207,35 @@ describe('oversized input handling', () => {
     expect(result.limit).toBe(50);
   });
 
-  it('searchComplaints rejects limit above max via Zod', () => {
-    expect(() =>
-      searchComplaints.input.parse({
-        make: 'Toyota',
-        model: 'Camry',
-        modelYear: 2020,
-        limit: 51,
-      }),
-    ).toThrow();
+  it.each([51, 1e21])('searchComplaints clamps limit %s to the 50-row page', async (limit) => {
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const input = searchComplaints.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      limit,
+    });
+    const result = await searchComplaints.handler(
+      input,
+      createMockContext({ errors: searchComplaints.errors }),
+    );
+    expect(result.limit).toBe(50);
+  });
+
+  it('searchComplaints rejects limit 51 in the handler when clamping is off', async () => {
+    serverConfig.clampLimits = false;
+
+    const input = searchComplaints.input.parse({
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+      limit: 51,
+    });
+    await expect(
+      searchComplaints.handler(input, createMockContext({ errors: searchComplaints.errors })),
+    ).rejects.toMatchObject({ data: { reason: 'limit_too_large' } });
+    expect(mockService.getComplaintsByVehicle).not.toHaveBeenCalled();
   });
 
   it('searchComplaints rejects limit < 1 via Zod', () => {
@@ -222,22 +249,87 @@ describe('oversized input handling', () => {
     ).toThrow();
   });
 
-  it('decodeVin throws when vin array has 51 elements (exceeds batch limit)', async () => {
-    const ctx = createMockContext({ errors: decodeVin.errors });
+  it('decodeVin decodes the first 50 of 51 VINs and defers the last', async () => {
+    mockService.decodeVinBatch.mockResolvedValue([]);
+
     const input = decodeVin.input.parse({ vin: Array.from({ length: 51 }, (_, i) => `VIN${i}`) });
-    await expect(decodeVin.handler(input, ctx)).rejects.toThrow(/50/);
+    const result = await decodeVin.handler(input, createMockContext({ errors: decodeVin.errors }));
+
+    expect(mockService.decodeVinBatch.mock.calls[0]![0]).toHaveLength(50);
+    expect(result.deferredVins).toEqual(['VIN50']);
   });
 
-  it('lookupVehicles rejects limit > 200 via Zod', () => {
-    expect(() => lookupVehicles.input.parse({ operation: 'makes', limit: 201 })).toThrow();
+  it('decodeVin rejects 51 VINs with batch_too_large when clamping is off', async () => {
+    serverConfig.clampLimits = false;
+
+    const input = decodeVin.input.parse({ vin: Array.from({ length: 51 }, (_, i) => `VIN${i}`) });
+    await expect(
+      decodeVin.handler(input, createMockContext({ errors: decodeVin.errors })),
+    ).rejects.toMatchObject({ data: { reason: 'batch_too_large' } });
+    expect(mockService.decodeVinBatch).not.toHaveBeenCalled();
+  });
+
+  it('decodeVin rejects form syntax in a VIN before any upstream call', async () => {
+    const input = decodeVin.input.parse({
+      vin: ['1HGCM82633A004352&format=xml', '2T3P1RFV5MW145243'],
+    });
+    await expect(
+      decodeVin.handler(input, createMockContext({ errors: decodeVin.errors })),
+    ).rejects.toMatchObject({ data: { reason: 'invalid_vin' } });
+    expect(mockService.decodeVin).not.toHaveBeenCalled();
+    expect(mockService.decodeVinBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([201, 1e21])('lookupVehicles clamps limit %s to the 200-row page', async (limit) => {
+    mockService.getAllMakes.mockResolvedValue([]);
+
+    const input = lookupVehicles.input.parse({ operation: 'makes', limit });
+    const result = await lookupVehicles.handler(
+      input,
+      createMockContext({ errors: lookupVehicles.errors }),
+    );
+    expect(result.limit).toBe(200);
+  });
+
+  it('lookupVehicles rejects limit 201 in the handler when clamping is off', async () => {
+    serverConfig.clampLimits = false;
+
+    const input = lookupVehicles.input.parse({ operation: 'makes', limit: 201 });
+    await expect(
+      lookupVehicles.handler(input, createMockContext({ errors: lookupVehicles.errors })),
+    ).rejects.toMatchObject({ data: { reason: 'limit_too_large' } });
+    expect(mockService.getAllMakes).not.toHaveBeenCalled();
   });
 
   it('lookupVehicles rejects offset < 0 via Zod', () => {
     expect(() => lookupVehicles.input.parse({ operation: 'makes', offset: -1 })).toThrow();
   });
 
-  it('searchInvestigations rejects an unbounded limit via Zod', () => {
-    expect(() => searchInvestigations.input.parse({ limit: 100_000 })).toThrow();
+  it.each([51, 100_000, 1e21])(
+    'searchInvestigations clamps limit %s to the 50-row page',
+    async (limit) => {
+      mockService.getInvestigations.mockResolvedValue([]);
+
+      const input = searchInvestigations.input.parse({ limit });
+      const result = await searchInvestigations.handler(
+        input,
+        createMockContext({ errors: searchInvestigations.errors }),
+      );
+      expect(result.limit).toBe(50);
+    },
+  );
+
+  it('searchInvestigations rejects limit 51 in the handler when clamping is off', async () => {
+    serverConfig.clampLimits = false;
+
+    const input = searchInvestigations.input.parse({ limit: 51 });
+    await expect(
+      searchInvestigations.handler(
+        input,
+        createMockContext({ errors: searchInvestigations.errors }),
+      ),
+    ).rejects.toMatchObject({ data: { reason: 'limit_too_large' } });
+    expect(mockService.getInvestigations).not.toHaveBeenCalled();
   });
 
   it('searchInvestigations rejects negative limit/offset via Zod', () => {
@@ -249,13 +341,13 @@ describe('oversized input handling', () => {
     expect(() => searchInvestigations.input.parse({ status: 'open' })).toThrow();
   });
 
-  it('searchInvestigations with limit at max does not crash', async () => {
+  it('searchInvestigations with limit at max (50) does not crash', async () => {
     mockService.getInvestigations.mockResolvedValue([]);
 
     const ctx = createMockContext({ errors: searchInvestigations.errors });
-    const input = searchInvestigations.input.parse({ limit: 25 });
+    const input = searchInvestigations.input.parse({ limit: 50 });
     const result = await searchInvestigations.handler(input, ctx);
-    expect(result.limit).toBe(25);
+    expect(result.limit).toBe(50);
   });
 });
 

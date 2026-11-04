@@ -10,7 +10,7 @@
   "homepage": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server#readme",
   "repository": "https://github.com/cyanheads/nhtsa-vehicle-safety-mcp-server",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "mcp-server", "model-context-protocol", "nhtsa", "vehicle-safety", "recalls", "vin-decoder"],
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "nhtsa", "vehicle-safety", "recalls", "vin-decoder", "crash-ratings", "ncap", "stdio", "streamable-http", "typescript"],
   "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "nhtsa-vehicle-safety-mcp-server",

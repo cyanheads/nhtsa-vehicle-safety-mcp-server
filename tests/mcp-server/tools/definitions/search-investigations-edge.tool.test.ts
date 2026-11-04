@@ -35,6 +35,7 @@ const baseInvestigations = [
     subject: 'Toyota Camry brake failure',
     summary: 'Reports of brake failure.',
     openDate: '2023-01-15',
+    vehicles: [{ make: 'TOYOTA', model: 'CAMRY', year: 2020 }],
   },
   {
     nhtsaId: 'EA21002',
@@ -48,6 +49,7 @@ const baseInvestigations = [
     summary: 'Engine stalling.',
     openDate: '2022-05-01',
     closeDate: '2023-01-01',
+    vehicles: [{ make: 'HONDA', model: 'CIVIC', year: 2021 }],
   },
   {
     nhtsaId: 'DP22003',
@@ -60,6 +62,7 @@ const baseInvestigations = [
     subject: 'Ford steering defect petition',
     summary: 'Steering defect.',
     openDate: '2024-01-01',
+    vehicles: [{ make: 'FORD', model: 'F-150', year: 2022 }],
   },
   {
     nhtsaId: 'RQ23004',
@@ -73,6 +76,7 @@ const baseInvestigations = [
     summary: 'Fuel system issue.',
     openDate: '2024-06-01',
     closeDate: '2025-01-01',
+    vehicles: [{ make: 'BMW', model: '3 SERIES', year: 2023 }],
   },
 ];
 
@@ -197,6 +201,7 @@ describe('searchInvestigations — DP and RQ type codes', () => {
         models: [],
         years: [],
         components: [],
+        vehicles: [],
       },
     ]);
 

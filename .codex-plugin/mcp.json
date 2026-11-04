@@ -4,6 +4,7 @@
     "args": ["-y", "@cyanheads/nhtsa-vehicle-safety-mcp-server"],
     "env": {
       "MCP_TRANSPORT_TYPE": "stdio"
-    }
+    },
+    "env_vars": ["NHTSA_CLAMP_LIMITS"]
   }
 }

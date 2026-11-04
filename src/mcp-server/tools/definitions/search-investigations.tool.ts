@@ -1,29 +1,39 @@
 /**
  * @fileoverview Search NHTSA defect investigations. Sourced from the ODI FLAT_INV.zip
- * bulk file (~5K deduplicated records), cached for 24 hours. Supports structured
- * make/model/component filters and links investigations to recall campaigns via CAMPNO.
+ * bulk file (~5K deduplicated records), cached for 24 hours and ordered newest-opened first.
+ * Make, model, and model year match on one vehicle association; every linked manufacturer and
+ * recall campaign is listed; search rows carry full summaries only on request.
  * @module mcp-server/tools/definitions/search-investigations.tool
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import {
+  limitClampNotice,
+  limitSchema,
+  limitTooLargeMessage,
+  type PageLimit,
+  resolveLimit,
+} from '@/mcp-server/tools/request-cap.js';
+import {
   dateRangeSchema,
   describeDateRange,
   matchesDateRange,
   normalizeDateRange,
 } from '@/services/nhtsa/date-range.js';
-import { outOfBoundsMessage } from '@/services/nhtsa/format.js';
+import { nextPageHint, outOfBoundsMessage } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { Investigation } from '@/services/nhtsa/types.js';
 
-const DEFAULT_LIMIT = 20;
-/**
- * Lower than the 50 used by the other paginated tools: an investigation summary is an
- * order of magnitude larger than a complaint narrative (p95 ≈ 3,000 characters, longest
- * ≈ 5,900), and format() renders each one in full.
- */
-const MAX_LIMIT = 25;
+const PAGE = {
+  tool: 'nhtsa_search_investigations',
+  defaultLimit: 20,
+  maxLimit: 50,
+} as const satisfies PageLimit;
+
+/** The way back to the summaries a search page leaves out of its rows. */
+const SUMMARIES_OMITTED =
+  'Search rows omit summaries: fetch one investigation by nhtsaId for its full summary, or repeat this search with includeSummary: true.';
 
 const INVESTIGATION_TYPE_MAP: Record<string, string> = {
   PE: 'Preliminary Evaluation',
@@ -47,14 +57,22 @@ function matchesText(investigation: Investigation, text: string): boolean {
   );
 }
 
-function matchesMake(investigation: Investigation, make: string): boolean {
-  const lower = make.toLowerCase();
-  return (investigation.makes ?? []).some((m) => m.toLowerCase().includes(lower));
-}
-
-function matchesModel(investigation: Investigation, model: string): boolean {
-  const lower = model.toLowerCase();
-  return (investigation.models ?? []).some((m) => m.toLowerCase().includes(lower));
+/**
+ * Whether one vehicle association of the investigation carries every supplied value: `make` and
+ * `model`, already lowercased, within its make and model case-insensitively, and `modelYear` as
+ * its exact year.
+ */
+function matchesVehicle(
+  investigation: Investigation,
+  filter: { make: string | undefined; model: string | undefined; modelYear: number | undefined },
+): boolean {
+  const { make, model, modelYear } = filter;
+  return investigation.vehicles.some(
+    (vehicle) =>
+      (make === undefined || (vehicle.make?.toLowerCase().includes(make) ?? false)) &&
+      (model === undefined || (vehicle.model?.toLowerCase().includes(model) ?? false)) &&
+      (modelYear === undefined || vehicle.year === modelYear),
+  );
 }
 
 function matchesComponent(investigation: Investigation, component: string): boolean {
@@ -64,14 +82,14 @@ function matchesComponent(investigation: Investigation, component: string): bool
 
 export const searchInvestigations = tool('nhtsa_search_investigations', {
   description:
-    "Search NHTSA defect investigations from the ODI flat file — covering Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI types. make, model, and component are structured filters against the investigation record's vehicle associations. All filters are ANDed. Use nhtsaId to fetch one investigation by its exact ID — including the investigationId nhtsa_search_recalls returns for a campaign. Investigations may link to a resulting recall campaign via recallCampaign.",
+    "Search NHTSA defect investigations — Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI types — newest-opened first. make, model, and modelYear match the investigation's vehicle associations, all on the same association; component matches its affected components. All filters are ANDed. Search rows leave out the full summary unless includeSummary is true. Use nhtsaId to fetch one investigation by its exact ID with its full summary — including the investigationId nhtsa_search_recalls returns for a campaign. recallCampaigns lists the recall campaigns NHTSA links to an investigation; pass any to nhtsa_search_recalls as campaignNumber.",
   annotations: { readOnlyHint: true },
   input: z.object({
     nhtsaId: z
       .string()
       .optional()
       .describe(
-        'Exact NHTSA investigation ID (e.g. "EA23003"), case-insensitive. Fetches that one record — mutually exclusive with every other filter.',
+        'Exact NHTSA investigation ID (e.g. "EA23003"), case-insensitive. Fetches that one record with its full summary — mutually exclusive with every other filter.',
       ),
     query: z
       .string()
@@ -81,13 +99,20 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .string()
       .optional()
       .describe(
-        'Structured filter — matches against the investigation\'s associated vehicle makes (e.g., "TOYOTA"). ANDed with other filters.',
+        'Vehicle make on one of the investigation\'s vehicle associations (e.g., "TOYOTA"), matched case-insensitively within the name. With model or modelYear, all must match the same association.',
       ),
     model: z
       .string()
       .optional()
       .describe(
-        "Structured filter — matches against the investigation's associated vehicle models. ANDed with other filters.",
+        "Vehicle model on one of the investigation's vehicle associations, matched case-insensitively within the name. With make or modelYear, all must match the same association.",
+      ),
+    modelYear: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        'Model year, a whole number. Matches when one vehicle association carries this year together with every supplied make and model; an investigation with no model year on any association never matches.',
       ),
     component: z
       .string()
@@ -115,21 +140,25 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .describe(
         'Inclusive closed-date bounds in calendar-valid YYYY-MM-DD. Active bounds exclude investigations without a usable close date, including open investigations.',
       ),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(MAX_LIMIT)
+    includeSummary: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Include each investigation's full summary in search rows. Off by default: rows carry the subject, dates, vehicle associations, and campaign links, and nhtsaId mode always returns the summary. A summary can run several thousand characters, so pair this with a small limit.",
+      ),
+    limit: limitSchema()
       .optional()
       .describe(
-        `Max investigations to return. Defaults to ${DEFAULT_LIMIT}; max ${MAX_LIMIT}. The cap is lower than the other paginated tools because a single investigation summary can run several thousand characters and is rendered in full.`,
+        `Investigations per page. Defaults to ${PAGE.defaultLimit}; at most ${PAGE.maxLimit} per page.`,
       ),
     offset: z
       .number()
       .int()
       .min(0)
       .optional()
-      .describe('Pagination offset into the matching investigations. Defaults to 0.'),
+      .describe(
+        'Pagination offset into the matching investigations, ordered newest-opened first: open date descending, then ID descending, undated last. Defaults to 0.',
+      ),
   }),
   output: z.object({
     totalCount: z.number().describe('Total matching investigations'),
@@ -147,20 +176,35 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
             statusName: z.string().optional().describe('Status name'),
             makes: z.array(z.string()).optional().describe('Associated vehicle makes'),
             models: z.array(z.string()).optional().describe('Associated vehicle models'),
-            years: z.array(z.number()).optional().describe('Associated model years'),
+            years: z
+              .array(z.number())
+              .optional()
+              .describe(
+                "Model years across all of the investigation's vehicle associations, every make and model, ascending",
+              ),
             components: z.array(z.string()).optional().describe('Affected components'),
-            manufacturer: z.string().optional().describe('Manufacturer name'),
+            manufacturers: z
+              .array(z.string())
+              .optional()
+              .describe("Manufacturers named on the investigation's vehicle associations"),
             subject: z.string().optional().describe('Investigation subject'),
-            summary: z.string().optional().describe('Investigation summary'),
+            summary: z
+              .string()
+              .optional()
+              .describe(
+                'Investigation summary. Present in nhtsaId mode, and in search rows only with includeSummary: true.',
+              ),
             openDate: z.string().optional().describe('Date investigation opened (YYYY-MM-DD)'),
             closeDate: z
               .string()
               .optional()
               .describe('Date investigation closed (YYYY-MM-DD), if closed'),
-            recallCampaign: z
-              .string()
+            recallCampaigns: z
+              .array(z.string())
               .optional()
-              .describe('Linked recall campaign number (if any) — use with nhtsa_search_recalls'),
+              .describe(
+                'Recall campaigns linked to the investigation, as NHTSA lists them — pass any to nhtsa_search_recalls as campaignNumber',
+              ),
           })
           .describe('A single NHTSA investigation'),
       )
@@ -169,12 +213,12 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
   enrichment: {
     effectiveQuery: z
       .string()
-      .describe('Applied filters as a readable string, e.g. make="Ford" status="O".'),
+      .describe('Applied filters as a readable string, e.g. make="Ford", status="O".'),
     notice: z
       .string()
       .optional()
       .describe(
-        'Guidance when no investigations match the filters, or when the requested page overshoots the result set.',
+        'Guidance when no investigations match the filters, when the requested page overshoots the result set, when limit was lowered to the page maximum, or when search rows omit summaries.',
       ),
   },
   errors: [
@@ -183,7 +227,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       code: JsonRpcErrorCode.ValidationError,
       when: 'nhtsaId was combined with another filter.',
       recovery:
-        'Use nhtsaId alone, or search filters including openDateRange/closeDateRange. limit and offset work with either.',
+        'Use nhtsaId alone, or search filters including modelYear and openDateRange/closeDateRange. limit, offset, and includeSummary work with either.',
     },
     {
       reason: 'invalid_date',
@@ -199,11 +243,16 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       recovery: 'Set after on or before before, or omit a bound.',
       thrownBy: 'service',
     },
+    {
+      reason: 'limit_too_large',
+      code: JsonRpcErrorCode.ValidationError,
+      when: `limit exceeds the ${PAGE.maxLimit}-row page maximum on a server set to reject an over-maximum limit rather than lower it.`,
+      recovery: `Request a limit of ${PAGE.maxLimit} or less and page through the rest with offset.`,
+    },
   ],
 
   async handler(input, ctx) {
     const svc = getNhtsaService();
-    const limit = input.limit ?? DEFAULT_LIMIT;
     const offset = input.offset ?? 0;
     input = {
       ...input,
@@ -222,6 +271,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       (input.query ||
         input.make ||
         input.model ||
+        input.modelYear !== undefined ||
         input.component ||
         input.investigationType ||
         input.status ||
@@ -234,14 +284,20 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       );
     }
 
+    const pageLimit = resolveLimit(ctx, PAGE, input.limit);
+    if (pageLimit.kind === 'rejected') {
+      throw ctx.fail('limit_too_large', limitTooLargeMessage(pageLimit));
+    }
+    const limit = pageLimit.applied;
+
+    // The service hands the records over newest-opened first; every filter below keeps that order.
     let investigations = await svc.getInvestigations(ctx.signal);
 
     if (input.nhtsaId) {
-      const nhtsaId = input.nhtsaId.trim().toUpperCase();
+      const nhtsaId = input.nhtsaId.toUpperCase();
       investigations = investigations.filter((i) => i.nhtsaId?.toUpperCase() === nhtsaId);
     }
 
-    // Apply filters
     if (input.investigationType) {
       const type = input.investigationType.toUpperCase();
       investigations = investigations.filter((i) => i.investigationType === type);
@@ -250,13 +306,13 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       const status = input.status;
       investigations = investigations.filter((i) => i.status === status);
     }
-    if (input.make) {
-      const make = input.make;
-      investigations = investigations.filter((i) => matchesMake(i, make));
-    }
-    if (input.model) {
-      const model = input.model;
-      investigations = investigations.filter((i) => matchesModel(i, model));
+    if (input.make || input.model || input.modelYear !== undefined) {
+      const vehicle = {
+        make: input.make?.toLowerCase(),
+        model: input.model?.toLowerCase(),
+        modelYear: input.modelYear,
+      };
+      investigations = investigations.filter((i) => matchesVehicle(i, vehicle));
     }
     if (input.component) {
       const component = input.component;
@@ -274,13 +330,17 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     );
     const totalCount = investigations.length;
     const page = investigations.slice(offset, offset + limit);
+    // nhtsaId mode always carries the summary; search rows carry it only on request.
+    const omitSummaries = !input.nhtsaId && !input.includeSummary;
 
     ctx.log.info('Investigation search', {
       nhtsaId: input.nhtsaId,
       query: input.query,
       make: input.make,
       model: input.model,
+      modelYear: input.modelYear,
       component: input.component,
+      includeSummary: input.includeSummary,
       totalCount,
       returned: page.length,
       offset,
@@ -292,6 +352,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       input.query ? `query="${input.query}"` : null,
       input.make ? `make="${input.make}"` : null,
       input.model ? `model="${input.model}"` : null,
+      input.modelYear !== undefined ? `modelYear=${input.modelYear}` : null,
       input.component ? `component="${input.component}"` : null,
       input.investigationType ? `investigationType="${input.investigationType}"` : null,
       input.status ? `status="${input.status}"` : null,
@@ -302,20 +363,29 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const effectiveQuery = appliedFilters.length > 0 ? appliedFilters.join(', ') : '(all)';
     ctx.enrich({ effectiveQuery });
 
+    const notices: string[] = [];
+    const clamped = limitClampNotice(pageLimit, { offset, returned: page.length, totalCount });
+    if (clamped) notices.push(clamped);
     if (totalCount === 0) {
-      let notice: string;
       if (input.nhtsaId) {
-        notice = `No investigation has the ID "${input.nhtsaId}". IDs are a type prefix plus digits, e.g. "EA23003" or "PE24010"; nhtsa_search_recalls returns one as investigationId for campaigns NHTSA links to an investigation.`;
+        notices.push(
+          `No investigation has the ID "${input.nhtsaId}". IDs are a type prefix plus a number, e.g. "EA23003" or "PE24010" (some older IDs hold a letter, as in "EA78N34"); nhtsa_search_recalls returns one as investigationId for campaigns NHTSA links to an investigation.`,
+        );
       } else if (appliedFilters.length === 0) {
-        notice =
-          'No investigations found. This is unexpected — the investigations dataset should contain thousands of records.';
+        notices.push(
+          'No investigations found. This is unexpected — the investigations dataset should contain thousands of records.',
+        );
       } else {
-        notice = `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter. make/model/component match against structured vehicle associations.`;
+        notices.push(
+          `No investigations matched the applied filters (${appliedFilters.join(', ')}). Filters are ANDed; try broadening by removing a filter. make, model, and modelYear must all match on the same vehicle association; component matches any of the investigation's components.`,
+        );
       }
-      ctx.enrich.notice(notice);
     } else if (page.length === 0) {
-      ctx.enrich.notice(outOfBoundsMessage({ offset, limit, totalCount }));
+      notices.push(outOfBoundsMessage({ offset, limit, totalCount }));
+    } else if (omitSummaries && page.some((i) => i.summary !== undefined)) {
+      notices.push(SUMMARIES_OMITTED);
     }
+    if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
 
     return {
       totalCount,
@@ -334,12 +404,12 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
         models: i.models && i.models.length > 0 ? i.models : undefined,
         years: i.years && i.years.length > 0 ? i.years : undefined,
         components: i.components && i.components.length > 0 ? i.components : undefined,
-        manufacturer: i.manufacturer,
+        manufacturers: i.manufacturers,
         subject: i.subject,
-        summary: i.summary,
+        ...(omitSummaries || i.summary === undefined ? {} : { summary: i.summary }),
         openDate: i.openDate,
         closeDate: i.closeDate,
-        recallCampaign: i.recallCampaign,
+        recallCampaigns: i.recallCampaigns,
       })),
     };
   },
@@ -357,27 +427,32 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const lines = [
       `**${result.totalCount} investigation(s) found** (showing ${result.returned}, offset ${result.offset}, limit ${result.limit})\n`,
     ];
-    if (result.returned > 0 && result.offset + result.returned < result.totalCount) {
-      lines.push(`*Use offset=${result.offset + result.returned} to retrieve the next page.*\n`);
-    }
+    const nextPage = nextPageHint(result);
+    if (nextPage) lines.push(nextPage);
 
+    /**
+     * Names join on "; " because some makes, models, components, and manufacturer names contain
+     * commas and none contains a semicolon; years and campaign numbers contain neither.
+     */
     for (const i of result.investigations) {
       const statusLabel = i.statusName || 'Unknown';
       lines.push(`### ${i.nhtsaId || 'Unknown ID'} [${i.status ?? 'N/A'}: ${statusLabel}]`);
       lines.push(
         `**Type:** ${i.investigationType ?? 'N/A'} — ${i.investigationTypeName || 'Not available'}`,
       );
-      if (i.makes && i.makes.length > 0) lines.push(`**Makes:** ${i.makes.join(', ')}`);
-      if (i.models && i.models.length > 0) lines.push(`**Models:** ${i.models.join(', ')}`);
+      if (i.makes && i.makes.length > 0) lines.push(`**Makes:** ${i.makes.join('; ')}`);
+      if (i.models && i.models.length > 0) lines.push(`**Models:** ${i.models.join('; ')}`);
       if (i.years && i.years.length > 0) lines.push(`**Years:** ${i.years.join(', ')}`);
       if (i.components && i.components.length > 0)
-        lines.push(`**Components:** ${i.components.join(', ')}`);
-      if (i.manufacturer) lines.push(`**Manufacturer:** ${i.manufacturer}`);
+        lines.push(`**Components:** ${i.components.join('; ')}`);
+      if (i.manufacturers && i.manufacturers.length > 0)
+        lines.push(`**Manufacturers:** ${i.manufacturers.join('; ')}`);
       if (i.subject) lines.push(`**Subject:** ${i.subject}`);
       lines.push(
         `**Opened:** ${i.openDate || 'Not available'}${i.closeDate ? ` | **Closed:** ${i.closeDate}` : ''}`,
       );
-      if (i.recallCampaign) lines.push(`**Recall Campaign:** ${i.recallCampaign}`);
+      if (i.recallCampaigns && i.recallCampaigns.length > 0)
+        lines.push(`**Recall Campaigns:** ${i.recallCampaigns.join(', ')}`);
       if (i.summary) lines.push(`\n${i.summary}`);
       lines.push('');
     }

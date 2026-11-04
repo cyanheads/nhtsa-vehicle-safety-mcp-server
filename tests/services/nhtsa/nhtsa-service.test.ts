@@ -3,6 +3,8 @@
  * @module tests/services/nhtsa/nhtsa-service
  */
 
+import v8 from 'node:v8';
+import vm from 'node:vm';
 import { zipSync } from 'fflate';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -11,6 +13,9 @@ import {
   MANUFACTURER_RESULT_CAP,
   NhtsaService,
 } from '@/services/nhtsa/nhtsa-service.js';
+
+/** The smallest FLAT_INV a load accepts: one row, one investigation. */
+const ONE_INV_ROW = ['PE25001', 'TOYOTA', 'CAMRY', '2020', 'BRAKES', 'Toyota'];
 
 /** Build a minimal FLAT_INV.zip Response for testing. */
 function makeFlatInvZipResponse(rows: string[][]): Response {
@@ -22,6 +27,19 @@ function makeFlatInvZipResponse(rows: string[][]): Response {
     status: 200,
     headers: { 'Content-Type': 'application/octet-stream' },
   });
+}
+
+/** Run a full, synchronous garbage collection under Bun or Node. */
+function forceGc(): void {
+  const bun = (globalThis as { Bun?: { gc(force: boolean): void } }).Bun;
+  if (bun) {
+    bun.gc(true);
+    return;
+  }
+  v8.setFlagsFromString('--expose-gc');
+  const gc = vm.runInNewContext('gc') as () => void;
+  gc();
+  gc();
 }
 
 const mockFetch = vi.fn();
@@ -234,6 +252,48 @@ describe('getRecallsByVehicle', () => {
     expect(recalls[0]!.parkIt).toBeUndefined();
     expect(recalls[0]!.parkOutSide).toBeUndefined();
     expect(recalls[0]!.overTheAirUpdate).toBeUndefined();
+  });
+
+  it('omits the summary, consequence, and remedy an older campaign sends as null', async () => {
+    // A 1967 Dodge Dart row as the endpoint returns it: the campaign text is null, not blank.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 1,
+        Message: 'Results returned successfully',
+        results: [
+          {
+            Manufacturer: 'CHRYSLER CORPORATION',
+            NHTSACampaignNumber: '66V008001',
+            parkIt: false,
+            parkOutSide: false,
+            overTheAirUpdate: false,
+            ReportReceivedDate: '12/10/1966',
+            Component: 'WHEELS',
+            Summary: null,
+            Consequence: null,
+            Remedy: null,
+            Notes: 'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.',
+            ModelYear: '1967',
+            Make: 'DODGE',
+            Model: 'DART',
+          },
+        ],
+      }),
+    );
+
+    const recalls = await getNhtsaService().getRecallsByVehicle('Dodge', 'Dart', 1967);
+
+    expect(recalls).toStrictEqual([
+      {
+        campaignNumber: '66V008001',
+        manufacturer: 'CHRYSLER CORPORATION',
+        component: 'WHEELS',
+        reportReceivedDate: '1966-10-12',
+        parkIt: false,
+        parkOutSide: false,
+        overTheAirUpdate: false,
+      },
+    ]);
   });
 });
 
@@ -537,6 +597,47 @@ describe('getComplaintsByVehicle', () => {
     expect(complaints[0]!.components).toBeUndefined();
     expect(complaints[0]!.summary).toBeUndefined();
   });
+
+  it('omits an incident date the endpoint sends as null, and reports nothing contradicted', async () => {
+    // A 1985 Ford Mustang complaint as the endpoint returns it: no incident date, sent as null.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        count: 1,
+        message: 'Results returned successfully',
+        results: [
+          {
+            odiNumber: 780503,
+            manufacturer: 'Ford Motor Company',
+            crash: false,
+            fire: false,
+            numberOfInjuries: 0,
+            numberOfDeaths: 0,
+            dateOfIncident: null,
+            dateComplaintFiled: '09/24/1998',
+            vin: '',
+            components: 'ENGINE AND ENGINE COOLING,POWER TRAIN',
+            summary: 'MULTIPLE CLUTCH FAILURES.',
+          },
+        ],
+      }),
+    );
+
+    const complaints = await getNhtsaService().getComplaintsByVehicle('Ford', 'Mustang', 1985);
+
+    expect(complaints).toStrictEqual([
+      {
+        odiNumber: 780503,
+        manufacturer: 'Ford Motor Company',
+        crash: false,
+        fire: false,
+        numberOfInjuries: 0,
+        numberOfDeaths: 0,
+        dateComplaintFiled: '1998-09-24',
+        components: 'ENGINE AND ENGINE COOLING,POWER TRAIN',
+        summary: 'MULTIPLE CLUTCH FAILURES.',
+      },
+    ]);
+  });
 });
 
 describe('getSafetyRatingVariants', () => {
@@ -777,9 +878,115 @@ describe('decodeVin', () => {
     expect(vin!.errorCode).toBe('0');
     expect(vin!).not.toHaveProperty('errorText');
   });
+
+  it('maps the driver-assistance equipment VPIC decodes, verbatim (#50)', async () => {
+    respondFromVpic([RAV4_DECODE]);
+
+    const vin = await getNhtsaService().decodeVin('2T3P1RFV5MW145243');
+
+    expect(vin).toEqual(RAV4_DECODED);
+  });
+
+  it('omits every driver-assistance field VPIC leaves blank (#50)', async () => {
+    respondFromVpic([
+      {
+        VIN: '1HGCM82633A004352',
+        Make: 'HONDA',
+        ErrorCode: '0',
+        ...Object.fromEntries(Object.keys(RAV4_EQUIPMENT).map((key) => [key, ''])),
+      },
+    ]);
+
+    const vin = await getNhtsaService().decodeVin('1HGCM82633A004352');
+
+    expect(vin).toEqual({ vin: '1HGCM82633A004352', make: 'HONDA', errorCode: '0' });
+  });
 });
 
+/** VPIC's driver-assistance keys for 2T3P1RFV5MW145243 (2021 RAV4), as VPIC returns them. */
+const RAV4_EQUIPMENT = {
+  CIB: 'Standard',
+  DynamicBrakeSupport: 'Standard',
+  PedestrianAutomaticEmergencyBraking: 'Standard',
+  ForwardCollisionWarning: 'Standard',
+  LaneDepartureWarning: 'Standard',
+  LaneKeepSystem: 'Standard',
+  LaneCenteringAssistance: 'Standard',
+  BlindSpotMon: 'Standard',
+  BlindSpotIntervention: '',
+  RearCrossTrafficAlert: 'Standard',
+  RearVisibilitySystem: 'Standard',
+  RearAutomaticEmergencyBraking: '',
+  ParkAssist: '',
+  AdaptiveCruiseControl: 'Standard',
+  TPMS: 'Direct',
+  AirBagLocSeatCushion: 'Passenger Seat Only',
+};
+const RAV4_DECODE = {
+  VIN: '2T3P1RFV5MW145243',
+  Make: 'TOYOTA',
+  Model: 'RAV4',
+  ModelYear: '2021',
+  ErrorCode: '1',
+  ...RAV4_EQUIPMENT,
+};
+const RAV4_DECODED = {
+  vin: '2T3P1RFV5MW145243',
+  make: 'TOYOTA',
+  model: 'RAV4',
+  modelYear: '2021',
+  errorCode: '1',
+  crashImminentBraking: 'Standard',
+  dynamicBrakeSupport: 'Standard',
+  pedestrianAutomaticEmergencyBraking: 'Standard',
+  forwardCollisionWarning: 'Standard',
+  laneDepartureWarning: 'Standard',
+  laneKeepingAssistance: 'Standard',
+  laneCenteringAssistance: 'Standard',
+  blindSpotWarning: 'Standard',
+  rearCrossTrafficAlert: 'Standard',
+  backupCamera: 'Standard',
+  adaptiveCruiseControl: 'Standard',
+  tpmsType: 'Direct',
+  airBagLocSeatCushion: 'Passenger Seat Only',
+};
+
+/** Answer VPIC requests with `results`; any other host is an unmocked call. */
+function respondFromVpic(results: Record<string, string>[]): void {
+  mockFetch.mockImplementation(async (url: string) => {
+    if (new URL(url).hostname !== 'vpic.nhtsa.dot.gov') throw new Error('unmocked fetch');
+    return jsonResponse({
+      Count: results.length,
+      Message: 'OK',
+      SearchCriteria: '',
+      Results: results,
+    });
+  });
+}
+
 describe('decodeVinBatch', () => {
+  it('maps the same driver-assistance equipment on the batch path (#50)', async () => {
+    respondFromVpic([RAV4_DECODE]);
+
+    const vins = await getNhtsaService().decodeVinBatch([{ vin: '2T3P1RFV5MW145243' }]);
+
+    expect(vins).toEqual([RAV4_DECODED]);
+  });
+
+  it('form-encodes the batch body, so VPIC reads one DATA field (#49)', async () => {
+    respondFromVpic([]);
+
+    await getNhtsaService().decodeVinBatch([
+      { vin: 'AAA', modelYear: 2020 },
+      { vin: '5YJ3E1EA*KF' },
+      { vin: 'BBB' },
+    ]);
+
+    const [, init] = mockFetch.mock.calls[0]!;
+    expect(init.body).toBe('DATA=AAA%2C2020%3B5YJ3E1EA*KF%3BBBB&format=json');
+    expect(new URLSearchParams(init.body).get('DATA')).toBe('AAA,2020;5YJ3E1EA*KF;BBB');
+  });
+
   it('sends POST with correct body format', async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
@@ -799,7 +1006,7 @@ describe('decodeVinBatch', () => {
     const [url, init] = mockFetch.mock.calls[0]!;
     expect(url).toContain('DecodeVINValuesBatch');
     expect(init.method).toBe('POST');
-    expect(init.body).toBe('DATA=AAA,2020;BBB&format=json');
+    expect(init.body).toBe('DATA=AAA%2C2020%3BBBB&format=json');
   });
 });
 
@@ -853,8 +1060,8 @@ describe('getInvestigations caching (flat-file source)', () => {
         await rejection;
         await vi.advanceTimersByTimeAsync(120_000);
         if (phase === 'body') expect(abortedBody).toHaveBeenCalledTimes(1);
-        mockFetch.mockResolvedValueOnce(makeFlatInvZipResponse([]));
-        expect(await svc.getInvestigations()).toEqual([]);
+        mockFetch.mockResolvedValueOnce(makeFlatInvZipResponse([ONE_INV_ROW]));
+        expect(await svc.getInvestigations()).toHaveLength(1);
         expect(mockFetch).toHaveBeenCalledTimes(2);
         expect(vi.getTimerCount()).toBe(0);
       } finally {
@@ -986,8 +1193,8 @@ describe('getInvestigations caching (flat-file source)', () => {
     ]);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(removal).toHaveBeenCalledWith('abort', expect.any(Function));
-    mockFetch.mockResolvedValueOnce(makeFlatInvZipResponse([]));
-    expect(await svc.getInvestigations()).toEqual([]);
+    mockFetch.mockResolvedValueOnce(makeFlatInvZipResponse([ONE_INV_ROW]));
+    expect(await svc.getInvestigations()).toHaveLength(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
   it('characterizes completion-based expiry and retry after failure', async () => {
@@ -1133,7 +1340,7 @@ describe('getInvestigations caching (flat-file source)', () => {
 
     expect(investigations[0]!.status).toBe('C');
     expect(investigations[0]!.closeDate).toBe('2022-01-01');
-    expect(investigations[0]!.recallCampaign).toBe('21V407000');
+    expect(investigations[0]!.recallCampaigns).toEqual(['21V407000']);
     expect(investigations[0]!.investigationType).toBe('EA');
   });
 
@@ -1151,6 +1358,76 @@ describe('getInvestigations caching (flat-file source)', () => {
     expect(investigations[0]!.openDate).toBeUndefined();
     expect(investigations[0]!.years).toEqual([]); // 9999 excluded
     expect(investigations[0]!.makes).toEqual([]);
+  });
+
+  it('treats a YEAR that is not four digits like a blank year', async () => {
+    const row = (make: string, model: string, year: string) => [
+      'PE30001',
+      make,
+      model,
+      year,
+      'BRAKES',
+      'MFR',
+      '20230115',
+      '',
+      '',
+      'Subject',
+      'Summary',
+    ];
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        row('FORD', 'F-150', '20X1'),
+        row('FORD', 'F-150', '2020'),
+        row('FORD', 'RANGER', '199'),
+        row('', '', '20200'),
+        row('FORD', 'BRONCO', ''),
+      ]),
+    );
+
+    const [investigation] = await new NhtsaService().getInvestigations();
+
+    expect(investigation!.years).toStrictEqual([2020]);
+    expect(investigation!.vehicles).toStrictEqual([
+      { make: 'FORD', model: 'F-150' },
+      { make: 'FORD', model: 'F-150', year: 2020 },
+      { make: 'FORD', model: 'RANGER' },
+      { make: 'FORD', model: 'BRONCO' },
+    ]);
+  });
+
+  it('treats an open or close date that is not eight digits as absent', async () => {
+    const row = (nhtsaId: string, openDate: string, closeDate: string) => [
+      nhtsaId,
+      'HONDA',
+      'CIVIC',
+      '2019',
+      'ENGINE',
+      'HONDA',
+      openDate,
+      closeDate,
+      '',
+      'Subject',
+      'Summary',
+    ];
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        row('PE30002', '2023O115', '2022-1-1'),
+        row('PE30003', '20230115', '20240131'),
+      ]),
+    );
+
+    const investigations = await new NhtsaService().getInvestigations();
+    const malformed = investigations.find((inv) => inv.nhtsaId === 'PE30002');
+    const wellFormed = investigations.find((inv) => inv.nhtsaId === 'PE30003');
+
+    expect(malformed).not.toHaveProperty('openDate');
+    expect(malformed).not.toHaveProperty('closeDate');
+    expect(malformed!.status).toBe('O');
+    expect(wellFormed).toMatchObject({
+      openDate: '2023-01-15',
+      closeDate: '2024-01-31',
+      status: 'C',
+    });
   });
 
   it('decodes multi-byte UTF-8 characters correctly (not mojibake)', async () => {
@@ -1216,6 +1493,261 @@ describe('getInvestigations caching (flat-file source)', () => {
     expect(investigations).toHaveLength(1);
     expect(investigations[0]!.nhtsaId).toBe('C85001');
     expect(investigations[0]!.investigationType).toBe('C');
+  });
+
+  it('skips short and unnamed rows, trims fields, and takes dates and text from the first row of each action number', async () => {
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        ['SHORT1', 'MAKE', 'MODEL', '2020', 'PART'],
+        ['', 'TOYOTA', 'CAMRY', '2020', 'BRAKES', 'TOYOTA'],
+        ['  '],
+        ['  PE20001 ', ' FORD ', ' F-150 ', ' 2019 ', ' ENGINE ', ' FORD MOTOR '],
+        [
+          'PE20001',
+          'FORD',
+          'F-250',
+          '2019',
+          'ENGINE',
+          'OTHER MFR',
+          '20200101',
+          '',
+          '',
+          'Later subject',
+          'Later summary',
+        ],
+        ['PE20001', '', '', '9999', 'STEERING', ''],
+        ['12345', 'X', 'Y', '2001', 'Z', 'M', '20010101', '20020202', 'CAMP', 'S', 'Sum'],
+      ]),
+    );
+
+    expect(await new NhtsaService().getInvestigations()).toStrictEqual([
+      {
+        nhtsaId: '12345',
+        status: 'C',
+        makes: ['X'],
+        models: ['Y'],
+        years: [2001],
+        components: ['Z'],
+        manufacturers: ['M'],
+        openDate: '2001-01-01',
+        closeDate: '2002-02-02',
+        recallCampaigns: ['CAMP'],
+        subject: 'S',
+        summary: 'Sum',
+        vehicles: [{ make: 'X', model: 'Y', year: 2001 }],
+      },
+      {
+        nhtsaId: 'PE20001',
+        status: 'O',
+        makes: ['FORD'],
+        models: ['F-150', 'F-250'],
+        years: [2019],
+        components: ['ENGINE', 'STEERING'],
+        investigationType: 'PE',
+        manufacturers: ['FORD MOTOR', 'OTHER MFR'],
+        vehicles: [
+          { make: 'FORD', model: 'F-150', year: 2019 },
+          { make: 'FORD', model: 'F-250', year: 2019 },
+        ],
+      },
+    ]);
+  });
+
+  it('accumulates every distinct manufacturer and recall campaign in first-seen row order (#48)', async () => {
+    const row = (mfr: string, campno: string) => [
+      'EA22002',
+      'HONDA',
+      'CIVIC',
+      '2017',
+      'AIR BAGS',
+      mfr,
+      '20220101',
+      '',
+      campno,
+      'Subject',
+      'Summary',
+    ];
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        row('Honda (American Honda Motor Co.)', '23V085'),
+        row('Takata (TK Global, LLC)', '23V838'),
+        row('Honda (American Honda Motor Co.)', '23V085'),
+        row('', ''),
+        row('Nissan North America, Inc.', '14V668'),
+        ['PE20001', 'FORD', 'F-150', '2019', 'ENGINE', '', '20200101', '', '', 'S', 'Sum'],
+      ]),
+    );
+
+    const [ea, pe] = await new NhtsaService().getInvestigations();
+
+    expect(ea!.nhtsaId).toBe('EA22002');
+    expect(ea!.manufacturers).toStrictEqual([
+      'Honda (American Honda Motor Co.)',
+      'Takata (TK Global, LLC)',
+      'Nissan North America, Inc.',
+    ]);
+    // Unpadded, as NHTSA lists them: a 6-character campaign keeps its form.
+    expect(ea!.recallCampaigns).toStrictEqual(['23V085', '23V838', '14V668']);
+    expect(pe!.nhtsaId).toBe('PE20001');
+    expect(pe).not.toHaveProperty('manufacturers');
+    expect(pe).not.toHaveProperty('recallCampaigns');
+    expect(ea).not.toHaveProperty('manufacturer');
+    expect(ea).not.toHaveProperty('recallCampaign');
+  });
+
+  it('keeps each distinct make/model/year association row and lists years ascending (#51)', async () => {
+    const row = (make: string, model: string, year: string, component: string) => [
+      'EA22002',
+      make,
+      model,
+      year,
+      component,
+      'MFR',
+      '20220101',
+      '',
+      '',
+      'Subject',
+      'Summary',
+    ];
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        row('HONDA', 'ACCORD', '2017', 'AIR BAGS'),
+        row('HONDA', 'CIVIC', '2015', 'AIR BAGS'),
+        row('HONDA', 'CIVIC', '2015', 'STEERING'),
+        row('HONDA', 'CIVIC', '2012', 'AIR BAGS'),
+        row('HONDA', '', '9999', 'AIR BAGS'),
+        row('', '', '9999', 'ELECTRICAL SYSTEM'),
+        row('', '', '2016', 'AIR BAGS'),
+      ]),
+    );
+
+    const [investigation] = await new NhtsaService().getInvestigations();
+
+    expect(investigation!.years).toStrictEqual([2012, 2015, 2016, 2017]);
+    expect(investigation!.vehicles).toStrictEqual([
+      { make: 'HONDA', model: 'ACCORD', year: 2017 },
+      { make: 'HONDA', model: 'CIVIC', year: 2015 },
+      { make: 'HONDA', model: 'CIVIC', year: 2012 },
+      { make: 'HONDA' },
+      { year: 2016 },
+    ]);
+    expect(investigation!.components).toStrictEqual(['AIR BAGS', 'STEERING', 'ELECTRICAL SYSTEM']);
+  });
+
+  it('orders records newest-opened first, same-day IDs descending, undated last (#51)', async () => {
+    const row = (nhtsaId: string, openDate: string) => [
+      nhtsaId,
+      'MAKE',
+      'MODEL',
+      '2020',
+      'PART',
+      'MFR',
+      openDate,
+      '',
+      '',
+      'Subject',
+      'Summary',
+    ];
+    mockFetch.mockResolvedValue(
+      makeFlatInvZipResponse([
+        row('AQ98002', ''),
+        row('PE20001', '20200101'),
+        row('DP79007', '19781201'),
+        row('PE20003', '20200101'),
+        row('PE98001', ''),
+        row('DP26006', '20260820'),
+        row('RQ20002', '20200101'),
+      ]),
+    );
+
+    const investigations = await new NhtsaService().getInvestigations();
+
+    expect(investigations.map((i) => i.nhtsaId)).toStrictEqual([
+      'DP26006',
+      'RQ20002',
+      'PE20003',
+      'PE20001',
+      'DP79007',
+      'PE98001',
+      'AQ98002',
+    ]);
+  });
+
+  it('retains memory in proportion to the kept fields, not the decompressed file (#54)', async () => {
+    const ids = 256;
+    const rowsPerId = 32;
+    const summaryChars = 4000;
+    /**
+     * Every row names a new model, so every stretch of decoded text holds a field the records
+     * keep. A field sliced out of that text pins the whole stretch, which puts the retained heap
+     * near `textBytes`; a field decoded on its own keeps only itself (~1.5 MB here). Model names
+     * run past 12 characters: V8 copies a shorter substring rather than slicing it.
+     */
+    let seed = 1;
+    const letters = (count: number) =>
+      Array.from({ length: count }, () => {
+        seed = (seed * 48_271) % 2_147_483_647;
+        return String.fromCharCode(97 + (seed % 26));
+      }).join('');
+    const lines: string[] = [];
+    for (let id = 0; id < ids; id++) {
+      const summary = letters(summaryChars);
+      for (let row = 0; row < rowsPerId; row++) {
+        lines.push(
+          [
+            `PE${id}`,
+            'MAKE',
+            `MODEL NUMBER ${id}-${row}`,
+            '2020',
+            'PART',
+            'MFR',
+            '20200101',
+            '',
+            '',
+            `Subject ${id}`,
+            summary,
+          ].join('\t'),
+        );
+      }
+    }
+    const text = new TextEncoder().encode(lines.join('\n'));
+    const textBytes = text.length;
+    const zipped = zipSync({ 'FLAT_INV.txt': [text, { level: 1 }] });
+    lines.length = 0;
+
+    /** Network-sized body chunks: delivered as one chunk, V8 shows no retention to measure. */
+    const chunkBytes = 16 * 1024;
+    mockFetch.mockImplementation(async (url: string) => {
+      expect(new URL(url).hostname).toBe('static.nhtsa.gov');
+      let offset = 0;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (offset >= zipped.length) {
+              controller.close();
+              return;
+            }
+            controller.enqueue(zipped.slice(offset, offset + chunkBytes));
+            offset += chunkBytes;
+          },
+        }),
+      );
+    });
+    // A small load first, so state the loader creates once per process stays out of the measure.
+    mockFetch.mockResolvedValueOnce(
+      makeFlatInvZipResponse([['PE1', 'MAKE', 'MODEL', '2020', 'PART', 'MFR']]),
+    );
+    await new NhtsaService().getInvestigations();
+    forceGc();
+    const before = process.memoryUsage().heapUsed;
+
+    const investigations = await new NhtsaService().getInvestigations();
+    forceGc();
+    const retained = process.memoryUsage().heapUsed - before;
+
+    expect(investigations).toHaveLength(ids);
+    expect(investigations[ids - 1]!.models).toHaveLength(rowsPerId);
+    expect(retained).toBeLessThan(textBytes / 4);
   });
 });
 
@@ -1463,7 +1995,106 @@ describe('VPIC lookups', () => {
   });
 });
 
-describe('getRecallCampaign (direct endpoint)', () => {
+describe('dataset model lists (#47)', () => {
+  /** Responses this block serves, keyed by api.nhtsa.gov path; any other request is rejected. */
+  let routes: Map<string, () => Response>;
+
+  beforeEach(() => {
+    routes = new Map();
+    mockFetch.mockImplementation(async (input: string) => {
+      const url = new URL(input);
+      const route = url.origin === 'https://api.nhtsa.gov' ? routes.get(url.pathname) : undefined;
+      if (!route) throw new Error(`unmocked fetch: ${url.origin}${url.pathname}`);
+      return route();
+    });
+  });
+
+  function requestedUrl(): URL {
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    return new URL(mockFetch.mock.calls[0]![0] as string);
+  }
+
+  it('getProductModels asks the products route for every row and returns distinct names', async () => {
+    routes.set('/products/vehicle/models', () =>
+      jsonResponse({
+        count: 6,
+        message: 'Results returned successfully',
+        results: [
+          { modelYear: '2014', make: 'CHEVROLET', model: 'SILVERADO 1500' },
+          { modelYear: '2014', make: 'CHEVROLET', model: 'CAPTIVA' },
+          { modelYear: '2014', make: 'CHEVROLET', model: 'SILVERADO 1500' },
+          { modelYear: '2014', make: 'CHEVROLET', model: ' EXPRESS PASSENGER 1500 ' },
+          { modelYear: '2014', make: 'CHEVROLET', model: '' },
+          { modelYear: '2014', make: 'CHEVROLET' },
+        ],
+      }),
+    );
+
+    const names = await getNhtsaService().getProductModels('Chevrolet', 2014);
+
+    expect(names).toEqual(['SILVERADO 1500', 'CAPTIVA', 'EXPRESS PASSENGER 1500']);
+    expect(Object.fromEntries(requestedUrl().searchParams)).toEqual({
+      modelYear: '2014',
+      make: 'Chevrolet',
+      issueType: 'c',
+      max: '5000',
+    });
+  });
+
+  it("getSafetyRatingModels reads NCAP's per-make list and returns distinct names", async () => {
+    routes.set('/SafetyRatings/modelyear/2014/make/Mercedes-Benz%20AMG', () =>
+      jsonResponse({
+        Count: 4,
+        Message: 'Results returned successfully',
+        Results: [
+          { ModelYear: 2014, Make: 'MERCEDES-BENZ', Model: 'C-CLASS', VehicleId: 0 },
+          { ModelYear: 2014, Make: 'MERCEDES-BENZ', Model: 'C-CLASS', VehicleId: 0 },
+          { ModelYear: 2014, Make: 'MERCEDES-BENZ', Model: 'E-CLASS', VehicleId: 0 },
+          { ModelYear: 2014, Make: 'MERCEDES-BENZ', VehicleId: 0 },
+        ],
+      }),
+    );
+
+    const names = await getNhtsaService().getSafetyRatingModels(2014, 'Mercedes-Benz AMG');
+
+    expect(names).toEqual(['C-CLASS', 'E-CLASS']);
+    expect(requestedUrl().pathname).toBe('/SafetyRatings/modelyear/2014/make/Mercedes-Benz%20AMG');
+  });
+
+  it('getProductModels returns no names for a make with no rows', async () => {
+    routes.set('/products/vehicle/models', () =>
+      jsonResponse({ count: 0, message: 'Results returned successfully', results: [] }),
+    );
+
+    await expect(getNhtsaService().getProductModels('Zzzzq', 2014)).resolves.toEqual([]);
+  });
+
+  it('getSafetyRatingModels returns no names for a make with no rows', async () => {
+    routes.set('/SafetyRatings/modelyear/2014/make/Zzzzq', () =>
+      jsonResponse({ Count: 0, Message: 'Results returned successfully', Results: [] }),
+    );
+
+    await expect(getNhtsaService().getSafetyRatingModels(2014, 'Zzzzq')).resolves.toEqual([]);
+  });
+
+  it('getProductModels throws when the list fails to load', async () => {
+    routes.set('/products/vehicle/models', () => jsonResponse({ message: 'Not Found' }, 404));
+
+    await expect(getNhtsaService().getProductModels('Chevrolet', 2014)).rejects.toThrow('404');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('getSafetyRatingModels throws when the list fails to load', async () => {
+    routes.set('/SafetyRatings/modelyear/2014/make/Chevrolet', () =>
+      jsonResponse({ message: 'Not Found' }, 404),
+    );
+
+    await expect(getNhtsaService().getSafetyRatingModels(2014, 'Chevrolet')).rejects.toThrow('404');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getRecallCampaigns (direct endpoint)', () => {
   it('finds a campaign by number via direct endpoint', async () => {
     const target = '20V682000';
     mockFetch.mockResolvedValue(
@@ -1486,9 +2117,10 @@ describe('getRecallCampaign (direct endpoint)', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign(target);
+    const campaigns = await svc.getRecallCampaigns(target);
 
-    expect(result).not.toBeNull();
+    expect(campaigns).toHaveLength(1);
+    const [result] = campaigns;
     expect(result!.campaignNumber).toBe(target);
     expect(result!.manufacturer).toBe('Toyota');
     expect(result!.component).toBe('FUEL/PROPULSION SYSTEM');
@@ -1527,9 +2159,10 @@ describe('getRecallCampaign (direct endpoint)', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('24V744000');
+    const campaigns = await svc.getRecallCampaigns('24V744000');
 
-    expect(result).not.toBeNull();
+    expect(campaigns).toHaveLength(1);
+    const [result] = campaigns;
     expect(result!.campaignNumber).toBe('24V744000');
     expect(result!.investigationId).toBe('EA23003');
     expect(result!.affectedVehicles).toEqual([
@@ -1564,8 +2197,9 @@ describe('getRecallCampaign (direct endpoint)', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('20V682000');
+    const [result, ...rest] = await svc.getRecallCampaigns('20V682000');
 
+    expect(rest).toEqual([]);
     expect(result!.affectedVehicles).toEqual([
       { make: 'TOYOTA', model: 'CAMRY', modelYear: 2020 },
       { make: 'TOYOTA', model: 'CAMRY', modelYear: 2021 },
@@ -1594,7 +2228,7 @@ describe('getRecallCampaign (direct endpoint)', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('20E123000');
+    const [result] = await svc.getRecallCampaigns('20E123000');
 
     expect(result!.affectedVehicles).toEqual([]);
     expect(result!.investigationId).toBeUndefined();
@@ -1636,15 +2270,16 @@ describe('getRecallCampaign (direct endpoint)', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('25V200000');
+    const [result, ...rest] = await svc.getRecallCampaigns('25V200000');
 
+    expect(rest).toEqual([]);
     expect(result!.affectedVehicles).toEqual([
       { make: 'BRIDGESTONE', model: 'R123 ECOPIA' },
       { make: 'GREAT DANE', model: 'CHAMPION', modelYear: 2025 },
     ]);
   });
 
-  it('returns null when campaign is not found (empty results)', async () => {
+  it('returns no campaigns when the campaign is not found (empty results)', async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
         Count: 0,
@@ -1654,8 +2289,8 @@ describe('getRecallCampaign (direct endpoint)', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign('ZZZ999999');
-    expect(result).toBeNull();
+    const result = await svc.getRecallCampaigns('ZZZ999999');
+    expect(result).toStrictEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -1681,11 +2316,141 @@ describe('getRecallCampaign (direct endpoint)', () => {
     );
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallCampaign(target);
+    const campaigns = await svc.getRecallCampaigns(target);
 
-    expect(result).not.toBeNull();
+    expect(campaigns).toHaveLength(1);
+    const [result] = campaigns;
     expect(result!.parkIt).toBeUndefined();
     expect(result!.parkOutSide).toBeUndefined();
     expect(result!.overTheAirUpdate).toBeUndefined();
+  });
+
+  it('omits the summary, consequence, and remedy an older campaign sends as null', async () => {
+    // 66V008001 as the endpoint returns it: four vehicle rows, each with null campaign text.
+    const campaignDetail = {
+      Manufacturer: 'CHRYSLER CORPORATION',
+      NHTSACampaignNumber: '66V008001',
+      parkIt: false,
+      parkOutSide: false,
+      overTheAirUpdate: false,
+      ReportReceivedDate: '12/10/1966',
+      Component: 'WHEELS',
+      PotentialNumberofUnitsAffected: 1101,
+      Summary: null,
+      Consequence: null,
+      Remedy: null,
+      Notes: 'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.',
+    };
+    const vehicles = [
+      { ModelYear: '1967', Make: 'DODGE', Model: 'DART' },
+      { ModelYear: '1966', Make: 'PLYMOUTH', Model: 'VALIANT' },
+      { ModelYear: '1966', Make: 'DODGE', Model: 'DART' },
+      { ModelYear: '1967', Make: 'PLYMOUTH', Model: 'VALIANT' },
+    ];
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: vehicles.length,
+        Message: 'Results returned successfully',
+        results: vehicles.map((v) => ({ ...campaignDetail, ...v })),
+      }),
+    );
+
+    const result = await getNhtsaService().getRecallCampaigns('66V008001');
+
+    expect(result).toStrictEqual([
+      {
+        campaignNumber: '66V008001',
+        manufacturer: 'CHRYSLER CORPORATION',
+        component: 'WHEELS',
+        receivedDate: '1966-10-12',
+        potentialUnitsAffected: 1101,
+        affectedVehicles: [
+          { make: 'DODGE', model: 'DART', modelYear: 1967 },
+          { make: 'PLYMOUTH', model: 'VALIANT', modelYear: 1966 },
+          { make: 'DODGE', model: 'DART', modelYear: 1966 },
+          { make: 'PLYMOUTH', model: 'VALIANT', modelYear: 1967 },
+        ],
+        parkIt: false,
+        parkOutSide: false,
+        overTheAirUpdate: false,
+      },
+    ]);
+  });
+
+  it('builds one record per campaign a 6-character number covers, each from its own rows (#57)', async () => {
+    // 00V419 prefixes two campaigns; the endpoint interleaves their rows. The older one sends its
+    // campaign text as null, and the two cover different vehicles.
+    const nissan = {
+      Manufacturer: 'NISSAN NORTH AMERICA, INC.',
+      NHTSACampaignNumber: '00V419001',
+      NHTSAActionNumber: 'EA00015',
+      ReportReceivedDate: '15/12/2000',
+      Component: 'FUEL SYSTEM, GASOLINE:STORAGE:TANK ASSEMBLY',
+      PotentialNumberofUnitsAffected: 268_229,
+      Summary: null,
+      Consequence: null,
+      Remedy: null,
+      parkIt: false,
+      Make: 'NISSAN',
+      Model: 'QUEST',
+    };
+    const ford = {
+      Manufacturer: 'FORD MOTOR COMPANY',
+      NHTSACampaignNumber: '00V419002',
+      ReportReceivedDate: '02/01/2001',
+      Component: 'FUEL SYSTEM, GASOLINE',
+      Summary: 'Cracks have developed in the fuel tank vent hose.',
+      Consequence: 'Fuel leakage can result in a fire.',
+      Remedy: 'Dealers will replace the vent hose.',
+      overTheAirUpdate: false,
+      Make: 'MERCURY',
+      Model: 'VILLAGER',
+    };
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 5,
+        Message: 'Results returned successfully',
+        results: [
+          { ...ford, ModelYear: '1993' },
+          { ...nissan, ModelYear: '1993' },
+          { ...ford, ModelYear: '1994' },
+          { ...nissan, ModelYear: '1994' },
+          { ...ford, ModelYear: '1993' },
+        ],
+      }),
+    );
+
+    const campaigns = await getNhtsaService().getRecallCampaigns('00V419');
+
+    expect(campaigns).toStrictEqual([
+      {
+        campaignNumber: '00V419001',
+        manufacturer: 'NISSAN NORTH AMERICA, INC.',
+        component: 'FUEL SYSTEM, GASOLINE:STORAGE:TANK ASSEMBLY',
+        receivedDate: '2000-12-15',
+        potentialUnitsAffected: 268_229,
+        investigationId: 'EA00015',
+        affectedVehicles: [
+          { make: 'NISSAN', model: 'QUEST', modelYear: 1993 },
+          { make: 'NISSAN', model: 'QUEST', modelYear: 1994 },
+        ],
+        parkIt: false,
+      },
+      {
+        campaignNumber: '00V419002',
+        manufacturer: 'FORD MOTOR COMPANY',
+        component: 'FUEL SYSTEM, GASOLINE',
+        summary: 'Cracks have developed in the fuel tank vent hose.',
+        consequence: 'Fuel leakage can result in a fire.',
+        remedy: 'Dealers will replace the vent hose.',
+        receivedDate: '2001-01-02',
+        affectedVehicles: [
+          { make: 'MERCURY', model: 'VILLAGER', modelYear: 1993 },
+          { make: 'MERCURY', model: 'VILLAGER', modelYear: 1994 },
+        ],
+        overTheAirUpdate: false,
+      },
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,7 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { formatRolloverProbability, formatStars } from '@/services/nhtsa/format.js';
+import { formatRolloverProbability, formatStars, formatText } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { SafetyRating } from '@/services/nhtsa/types.js';
 
@@ -90,15 +90,15 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
                 electronicStabilityControl: z
                   .string()
                   .optional()
-                  .describe('"Standard", "Optional", or "Not Available"'),
+                  .describe('Electronic stability control: "Standard", "Optional", or "No"'),
                 forwardCollisionWarning: z
                   .string()
                   .optional()
-                  .describe('Forward collision warning availability'),
+                  .describe('Forward collision warning: "Standard", "Optional", or "No"'),
                 laneDepartureWarning: z
                   .string()
                   .optional()
-                  .describe('Lane departure warning availability'),
+                  .describe('Lane departure warning: "Standard", "Optional", or "No"'),
               })
               .describe('Advanced driver assistance features'),
             complaintsCount: z
@@ -129,7 +129,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       .string()
       .optional()
       .describe(
-        'Guidance when no NCAP ratings are found — e.g. coverage notes or adjacent year suggestion.',
+        'Guidance when no NCAP ratings are found — coverage notes, adjacent years, and the lookup listing the model names NCAP files the vehicle under.',
       ),
   },
   errors: [
@@ -183,7 +183,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       );
       if (variants.length === 0) {
         ctx.enrich.notice(
-          `No NCAP crash test data for ${input.make} ${input.model} ${input.modelYear}. NCAP coverage starts from 1990, with best coverage for 2011+. Adjacent model years or a different trim/drivetrain may have ratings.`,
+          `No NCAP crash test data for ${input.make} ${input.model} ${input.modelYear}. NCAP coverage starts from 1990, with best coverage for 2011+. Adjacent model years or a different trim or drivetrain may have ratings, or NHTSA may list them under another model name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search ratings under each.`,
         );
       } else {
         ratings = (
@@ -241,17 +241,15 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
       lines.push('### Rollover');
       lines.push(`Rating: ${formatStars(r.rollover.rating)}`);
       lines.push(
-        `Probability: ${formatRolloverProbability(r.rollover.probability)} | Tip test: ${r.rollover.dynamicTipResult || 'Not available'}\n`,
+        `Probability: ${formatRolloverProbability(r.rollover.probability)} | Tip test: ${formatText(r.rollover.dynamicTipResult)}\n`,
       );
 
       lines.push('### ADAS Features');
-      lines.push(`ESC: ${r.adasFeatures.electronicStabilityControl || 'Not available'}`);
+      lines.push(`ESC: ${formatText(r.adasFeatures.electronicStabilityControl)}`);
       lines.push(
-        `Forward Collision Warning: ${r.adasFeatures.forwardCollisionWarning || 'Not available'}`,
+        `Forward Collision Warning: ${formatText(r.adasFeatures.forwardCollisionWarning)}`,
       );
-      lines.push(
-        `Lane Departure Warning: ${r.adasFeatures.laneDepartureWarning || 'Not available'}\n`,
-      );
+      lines.push(`Lane Departure Warning: ${formatText(r.adasFeatures.laneDepartureWarning)}\n`);
 
       lines.push(
         `*Linked to this NCAP record only — Complaints: ${formatCount(r.complaintsCount)} | Recalls: ${formatCount(r.recallsCount)} | Investigations: ${formatCount(r.investigationCount)}. Use nhtsa_search_complaints / nhtsa_search_recalls / nhtsa_search_investigations for vehicle-level totals.*\n`,

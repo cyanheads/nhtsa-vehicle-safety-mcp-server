@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/get-safety-ratings.tool
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -13,7 +13,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { getSafetyRatings } from '@/mcp-server/tools/definitions/get-safety-ratings.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import { firstText } from '../../../helpers/content.js';
+import { firstText, readerText } from '../../../helpers/content.js';
 
 const mockService = {
   getSafetyRatingVariants: vi.fn(),
@@ -166,6 +166,31 @@ describe('getSafetyRatings', () => {
     const notice = getEnrichment(ctx).notice as string;
     expect(notice).toMatch(/no ncap crash test data/i);
     expect(notice).toContain('Fake Car 1990');
+  });
+
+  it('routes a zero-variant result to the model names NHTSA files the vehicle under (#47)', async () => {
+    mockService.getSafetyRatingVariants.mockResolvedValue([]);
+
+    const result = await runToolContract(getSafetyRatings, {
+      make: 'Chevrolet',
+      model: 'Silverado',
+      modelYear: 2014,
+    });
+
+    const notice =
+      'No NCAP crash test data for Chevrolet Silverado 2014. NCAP coverage starts from 1990, with best coverage for 2011+. Adjacent model years or a different trim or drivetrain may have ratings, or NHTSA may list them under another model name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search ratings under each.';
+    expect(result.structuredContent).toMatchObject({ ratings: [], notice });
+    expect(readerText(result.content)).toContain(notice);
+  });
+
+  it('describes the ADAS values NCAP sends, "No" included', () => {
+    const adas = getSafetyRatings.output.shape.ratings.element.shape.adasFeatures.shape;
+
+    expect(Object.keys(adas)).toHaveLength(3);
+    for (const field of Object.values(adas)) {
+      expect(field.description).toContain('"Standard", "Optional", or "No"');
+      expect(field.description).not.toContain('Not Available');
+    }
   });
 
   it('populates enrichment notice when vehicleId not found', async () => {

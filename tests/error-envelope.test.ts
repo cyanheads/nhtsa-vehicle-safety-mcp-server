@@ -17,6 +17,7 @@ import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.t
 import { searchComplaints } from '@/mcp-server/tools/definitions/search-complaints.tool.js';
 import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
 import { initNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import { readerText } from './helpers/content.js';
 
 /**
  * Both cases below reject before any upstream call, so the real service is safe here and
@@ -39,7 +40,9 @@ describe('normalized argument contracts (#36)', () => {
     [getSafetyRatings, { vehicleId: 14855, modelYear: 2020 }, 'mode_conflict'],
     [decodeVin, { vin: ['1HGCM82633A004352', ' '] }, 'empty_vin_list'],
     [decodeVin, { vin: [' ', '\t'] }, 'empty_vin_list'],
+    [decodeVin, { vin: '1HGCM-82633A004352' }, 'invalid_vin'],
     [lookupVehicles, { operation: 'models', make: ' ' }, 'missing_operation_arg'],
+    [lookupVehicles, { operation: 'dataset_models', make: 'Chevrolet' }, 'missing_operation_arg'],
     [lookupVehicles, { operation: 'vehicle_types', make: ' ' }, 'missing_operation_arg'],
     [lookupVehicles, { operation: 'manufacturer', manufacturer: ' ' }, 'missing_operation_arg'],
   ] as const)('rejects before fetching: %s %j', async (definition, args, reason) => {
@@ -89,11 +92,14 @@ function envelopeOf(result: { structuredContent?: unknown }): ErrorEnvelope {
   return (result.structuredContent as { error?: ErrorEnvelope } | undefined)?.error ?? {};
 }
 
-/** The rendered `content[0].text` a `content[]`-reading client sees. */
+/**
+ * What a `content[]`-reading client sees in `content[0]`, read through a CommonMark parse: the
+ * error message, hint, and reason render with Markdown escapes, so the raw text is not the value.
+ */
 function textOf(result: { content?: unknown }): string {
-  const first = (result.content as { text?: string }[] | undefined)?.[0];
+  const first = (result.content as { type: string; text?: string }[] | undefined)?.[0];
   expect(typeof first?.text).toBe('string');
-  return first?.text ?? '';
+  return first ? readerText([first]) : '';
 }
 
 describe('argument rejection', () => {
@@ -164,10 +170,16 @@ describe('declared contract reason', () => {
   });
 
   it('applies the same shape to a second tool and reason', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('Unexpected upstream work'));
+    vi.stubGlobal('fetch', fetch);
+    /** 501 full VINs in one joined string: past the per-call ceiling, which no mode clamps. */
     const result = await runToolContract(decodeVin, {
-      vin: Array.from({ length: 51 }, (_, i) => `VIN${i}`),
+      vin: Array.from({ length: 501 }, (_, i) => `1HGCM82633A${String(i).padStart(6, '0')}`).join(
+        ' ',
+      ),
     });
 
+    expect(fetch).not.toHaveBeenCalled();
     expect(result.isError).toBe(true);
     expect(envelopeOf(result).data?.reason).toBe('batch_too_large');
     expect(textOf(result)).toContain('(reason batch_too_large');

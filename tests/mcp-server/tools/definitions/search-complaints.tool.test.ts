@@ -3,6 +3,8 @@
  * @module tests/mcp-server/tools/definitions/search-complaints.tool
  */
 
+import { z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,15 +13,20 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
   initNhtsaService: vi.fn(),
 }));
 
+/** The server's clamp mode, flipped per test; the environment parsing has its own suite. */
+const serverConfig = vi.hoisted(() => ({ clampLimits: true }));
+vi.mock('@/config/server-config.js', () => ({ getServerConfig: () => serverConfig }));
+
 import { searchComplaints } from '@/mcp-server/tools/definitions/search-complaints.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import { firstText } from '../../../helpers/content.js';
+import { firstText, readerText } from '../../../helpers/content.js';
 
 const mockService = { getComplaintsByVehicle: vi.fn() };
 
 beforeEach(() => {
   vi.mocked(getNhtsaService).mockReturnValue(mockService as any);
   mockService.getComplaintsByVehicle.mockReset();
+  serverConfig.clampLimits = true;
 });
 
 function complaint(overrides: Record<string, unknown> = {}) {
@@ -89,7 +96,7 @@ describe('searchComplaints', () => {
       complaint({ odiNumber: 3, components: 'BRAKES', fire: true }),
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await searchComplaints.handler(input, ctx);
 
@@ -108,7 +115,7 @@ describe('searchComplaints', () => {
       complaint({ odiNumber: 3, components: 'ENGINE AND ENGINE COOLING,FUEL SYSTEM' }),
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -123,7 +130,7 @@ describe('searchComplaints', () => {
   it('returns empty when no complaints and populates enrichment notice', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({ make: 'Fake', model: 'Car', modelYear: 2020 });
     const result = await searchComplaints.handler(input, ctx);
 
@@ -149,7 +156,7 @@ describe('searchComplaints', () => {
       }),
     ]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await searchComplaints.handler(input, ctx);
     const parsed = searchComplaints.output.parse(result);
@@ -272,7 +279,7 @@ describe('searchComplaints', () => {
     );
     mockService.getComplaintsByVehicle.mockResolvedValue(many);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 });
     const result = await searchComplaints.handler(input, ctx);
 
@@ -292,7 +299,7 @@ describe('searchComplaints', () => {
     );
     mockService.getComplaintsByVehicle.mockResolvedValue(many);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -315,7 +322,7 @@ describe('searchComplaints', () => {
       Array.from({ length: 3 }, (_, i) => complaint({ odiNumber: i })),
     );
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -339,7 +346,7 @@ describe('searchComplaints', () => {
   it('keeps the no-matches notice when nothing matched at all', async () => {
     mockService.getComplaintsByVehicle.mockResolvedValue([]);
 
-    const ctx = createMockContext();
+    const ctx = createMockContext({ errors: searchComplaints.errors });
     const input = searchComplaints.input.parse({
       make: 'Toyota',
       model: 'Camry',
@@ -423,5 +430,227 @@ describe('searchComplaints', () => {
     expect(
       searchComplaints.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 }).modelYear,
     ).toBe(2020);
+  });
+});
+
+const ACCORD = { make: 'Honda', model: 'Accord', modelYear: 2003 } as const;
+
+/** NHTSA joins a complaint's components with a bare comma; four of these names contain ", ". */
+const ACCORD_COMPLAINTS = [
+  complaint({ odiNumber: 1, components: 'SERVICE BRAKES, HYDRAULIC' }),
+  complaint({ odiNumber: 2, components: 'SERVICE BRAKES, HYDRAULIC,SERVICE BRAKES' }),
+  complaint({ odiNumber: 3, components: 'SERVICE BRAKES, AIR,FUEL SYSTEM, GASOLINE' }),
+  complaint({ odiNumber: 4, components: 'AIR BAGS,SEAT BELTS' }),
+];
+
+type BreakdownOut = {
+  totalCount: number;
+  componentBreakdown: { component: string; count: number }[];
+};
+
+const FILTERED_ZERO_NOTICE =
+  'The vehicle has complaints, but none match the component filter. Omit component to see every component on file for this vehicle.';
+
+const NO_COMPLAINTS_NOTICE =
+  'No complaints found. This vehicle may have no complaints on file, or NHTSA may list them under another model name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search complaints under each.';
+
+describe('searchComplaints — component names containing ", " (#46)', () => {
+  it('keeps every name whole in the breakdown, and no row exceeds totalCount', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(ACCORD_COMPLAINTS);
+
+    const result = await runToolContract(searchComplaints, ACCORD);
+
+    const out = result.structuredContent as BreakdownOut;
+    expect(out.totalCount).toBe(4);
+    expect(out.componentBreakdown.map((b) => [b.component, b.count])).toEqual([
+      ['SERVICE BRAKES, HYDRAULIC', 2],
+      ['SERVICE BRAKES', 1],
+      ['SERVICE BRAKES, AIR', 1],
+      ['FUEL SYSTEM, GASOLINE', 1],
+      ['AIR BAGS', 1],
+      ['SEAT BELTS', 1],
+    ]);
+    for (const row of out.componentBreakdown) expect(row.count).toBeLessThanOrEqual(4);
+    const text = readerText(result.content);
+    expect(text).toContain('SERVICE BRAKES, HYDRAULIC: 2 complaints');
+    expect(text).not.toMatch(/^HYDRAULIC:/m);
+  });
+
+  it.each([
+    ['SERVICE BRAKES, HYDRAULIC', [2, 1]],
+    ['hydraulic', [2, 1]],
+    ['SERVICE BRAKES', [3, 2, 1]],
+    ['FUEL SYSTEM, GASOLINE', [3]],
+  ] as const)('matches %j within each name, case-insensitively', async (component, odiNumbers) => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(ACCORD_COMPLAINTS);
+
+    const result = await runToolContract(searchComplaints, { ...ACCORD, component });
+
+    const out = result.structuredContent as BreakdownOut & { complaints: { odiNumber: number }[] };
+    expect(out.complaints.map((c) => c.odiNumber).sort((a, b) => b - a)).toEqual([...odiNumbers]);
+    expect(out.totalCount).toBe(odiNumbers.length);
+    for (const row of out.componentBreakdown) {
+      expect(row.count).toBeLessThanOrEqual(out.totalCount);
+    }
+    expect(result.structuredContent).not.toHaveProperty('notice');
+  });
+
+  it('matches within one name, never across the bare comma that joins two', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(ACCORD_COMPLAINTS);
+
+    const result = await runToolContract(searchComplaints, {
+      ...ACCORD,
+      component: 'HYDRAULIC,SERVICE BRAKES',
+    });
+
+    expect(result.structuredContent).toMatchObject({ totalCount: 0, notice: FILTERED_ZERO_NOTICE });
+  });
+
+  it('gives a filter that excludes every complaint its own notice and a neutral empty line', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(ACCORD_COMPLAINTS);
+
+    const result = await runToolContract(searchComplaints, { ...ACCORD, component: 'STEERING' });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 0,
+      returned: 0,
+      componentBreakdown: [],
+      complaints: [],
+      notice: FILTERED_ZERO_NOTICE,
+    });
+    const text = readerText(result.content);
+    expect(text).toContain('No complaints found matching the search criteria.');
+    expect(text).toContain(FILTERED_ZERO_NOTICE);
+    expect(text).not.toContain('nhtsa_lookup_vehicles');
+  });
+
+  it('keeps the model-name notice for a vehicle with no complaints, filter or not', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue([]);
+
+    const result = await runToolContract(searchComplaints, { ...ACCORD, component: 'STEERING' });
+
+    expect(result.structuredContent).toMatchObject({ totalCount: 0, notice: NO_COMPLAINTS_NOTICE });
+    const text = readerText(result.content);
+    expect(text).toContain('No complaints found matching the search criteria.');
+    expect(text).toContain(NO_COMPLAINTS_NOTICE);
+    expect(text).not.toContain(FILTERED_ZERO_NOTICE);
+  });
+
+  it('composes the clamp ahead of the filtered-zero notice', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(ACCORD_COMPLAINTS);
+
+    const result = await runToolContract(searchComplaints, {
+      ...ACCORD,
+      component: 'STEERING',
+      limit: 51,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      notice: `limit 51 exceeds the maximum of 50; returned 0. ${FILTERED_ZERO_NOTICE}`,
+    });
+  });
+});
+
+const CAMRY = { make: 'Toyota', model: 'Camry', modelYear: 2020 } as const;
+
+/** `count` complaints filed a day apart, so the date-descending page runs odiNumber count-1 → 0. */
+function filedDaily(count: number) {
+  return Array.from({ length: count }, (_, i) =>
+    complaint({
+      odiNumber: i,
+      dateComplaintFiled: new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10),
+    }),
+  );
+}
+
+describe('searchComplaints — over-cap limit (#53)', () => {
+  it('advertises a whole-number limit with no maximum', () => {
+    expect(z.toJSONSchema(searchComplaints.input, { io: 'input' }).properties?.limit).toEqual({
+      type: 'number',
+      minimum: 1,
+      multipleOf: 1,
+      description: expect.stringContaining('at most 50'),
+    });
+  });
+
+  it('clamps limit 51 to a 50-row page and names the next offset', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(filedDaily(60));
+
+    const result = await runToolContract(searchComplaints, { ...CAMRY, limit: 51 });
+
+    expect(result.isError).not.toBe(true);
+    const out = result.structuredContent as { complaints: { odiNumber: number }[] };
+    expect(out).toMatchObject({
+      totalCount: 60,
+      returned: 50,
+      offset: 0,
+      limit: 50,
+      notice: 'limit 51 exceeds the maximum of 50; returned 50 — continue at offset=50.',
+    });
+    expect(out.complaints.map((c) => c.odiNumber)).toEqual(
+      Array.from({ length: 50 }, (_, i) => 59 - i),
+    );
+    expect(readerText(result.content)).toContain(
+      'limit 51 exceeds the maximum of 50; returned 50 — continue at offset=50.',
+    );
+  });
+
+  it('names no next offset when the clamped page reaches the end', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(filedDaily(30));
+
+    const result = await runToolContract(searchComplaints, { ...CAMRY, limit: 51 });
+
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 30,
+      returned: 30,
+      limit: 50,
+      notice: 'limit 51 exceeds the maximum of 50; returned 30.',
+    });
+    expect(readerText(result.content)).not.toContain('offset=');
+  });
+
+  it('composes the clamp and an out-of-range offset into one notice', async () => {
+    mockService.getComplaintsByVehicle.mockResolvedValue(filedDaily(3));
+
+    const result = await runToolContract(searchComplaints, { ...CAMRY, limit: 51, offset: 9000 });
+
+    expect(result.structuredContent).toMatchObject({
+      returned: 0,
+      limit: 50,
+      notice: expect.stringMatching(
+        /^limit 51 exceeds the maximum of 50; returned 0\. .*offset 9000, limit 50.*try a smaller offset/,
+      ),
+    });
+    const text = readerText(result.content);
+    expect(text.split('exceeds the maximum of 50').length - 1).toBe(1);
+    expect(text.split('try a smaller offset').length - 1).toBe(1);
+  });
+
+  it('rejects limit 51 with limit_too_large naming the cap when clamping is off', async () => {
+    serverConfig.clampLimits = false;
+
+    const result = await runToolContract(searchComplaints, { ...CAMRY, limit: 51 });
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        code: JsonRpcErrorCode.ValidationError,
+        message: 'limit 51 exceeds the maximum of 50.',
+        data: { reason: 'limit_too_large', recovery: { hint: expect.stringContaining('50') } },
+      },
+    });
+    expect(readerText(result.content)).toContain('limit 51 exceeds the maximum of 50.');
+    expect(mockService.getComplaintsByVehicle).not.toHaveBeenCalled();
+  });
+
+  it('serves a limit at the cap unchanged when clamping is off', async () => {
+    serverConfig.clampLimits = false;
+    mockService.getComplaintsByVehicle.mockResolvedValue(filedDaily(60));
+
+    const result = await runToolContract(searchComplaints, { ...CAMRY, limit: 50 });
+
+    expect(result.structuredContent).toMatchObject({ returned: 50, limit: 50 });
+    expect(result.structuredContent).not.toHaveProperty('notice');
   });
 });
