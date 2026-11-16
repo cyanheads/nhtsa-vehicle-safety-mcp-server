@@ -29,7 +29,7 @@ const increments: { name: string; value: number; attributes: Attributes | undefi
 
 /**
  * Registered after the module under test is imported, as the OTel SDK registers its provider
- * after a server's modules load: a counter created at import would miss it and stay a no-op.
+ * after a server's modules load: the counter, created at import, must still record through it.
  */
 beforeAll(() => {
   const meter = Object.assign(createNoopMeter(), {
@@ -137,7 +137,7 @@ describe('holdToCap', () => {
     ]);
   });
 
-  it('creates its counter once, on the first clamp', () => {
+  it('binds its counter once, on the first clamp', () => {
     holdToCap({ log }, request(51));
     holdToCap({ log }, request(52));
 

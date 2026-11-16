@@ -27,7 +27,12 @@ export interface PageLimit {
   readonly tool: string;
 }
 
-let clamps: ReturnType<typeof createCounter> | undefined;
+/** Binds to the global meter provider on each increment, so it records once the OTel SDK starts. */
+const clamps = createCounter(
+  'nhtsa.request_cap.clamps',
+  'Over-cap requests clamped to their cap',
+  '{clamp}',
+);
 
 /**
  * The `limit` input every paginated tool advertises: a positive whole number with no maximum,
@@ -63,12 +68,6 @@ export function holdToCap(
   if (!getServerConfig().clampLimits) return { kind: 'rejected', requested, cap };
 
   ctx.log.info('Clamped an over-cap request', { tool, input, requested, applied: cap });
-  /** Created on first use: one made before the OTel SDK registers its meter provider stays a no-op. */
-  clamps ??= createCounter(
-    'nhtsa.request_cap.clamps',
-    'Over-cap requests clamped to their cap',
-    '{clamp}',
-  );
   clamps.add(1, { [ATTR_MCP_TOOL_NAME]: tool, 'nhtsa.request_cap.input': input });
   return { kind: 'clamped', applied: cap, requested };
 }
