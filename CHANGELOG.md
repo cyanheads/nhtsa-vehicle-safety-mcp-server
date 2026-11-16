@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.12.0](changelog/0.12.x/0.12.0.md) — 2026-11-15 · ⚠️ Breaking
+
+Breaking: broad nhtsa_search_recalls rows omit summary, consequence, remedy, and notes unless includeSummary is true. nhtsa_get_vehicle_safety adds investigations, recalls gain notes, dataset_models lists recall names, makes takes a make filter, and content[] escapes upstream text.
+
 ## [0.11.0](changelog/0.11.x/0.11.0.md) — 2026-11-03 · ⚠️ Breaking
 
 Breaking: nhtsa_search_investigations rows carry manufacturers[] and recallCampaigns[] and omit summary unless includeSummary is true. Broad recall search, driver-assistance VIN fields, dataset model names, and a published skill.
