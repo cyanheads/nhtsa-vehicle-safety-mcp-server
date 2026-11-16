@@ -5,7 +5,7 @@
  * @module services/nhtsa/nhtsa-service
  */
 
-import { serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
+import { serviceUnavailable, timeout } from '@cyanheads/mcp-ts-core/errors';
 import { httpErrorFromResponse } from '@cyanheads/mcp-ts-core/utils';
 
 import {
@@ -288,13 +288,14 @@ export class NhtsaService {
       } catch (error) {
         signal?.throwIfAborted();
         /** No response at all: the runtime's message ("fetch failed") names neither upstream nor endpoint. */
-        lastError = serviceUnavailable(
+        lastError =
           error instanceof DOMException && error.name === 'TimeoutError'
-            ? `NHTSA did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`
-            : 'NHTSA could not be reached.',
-          { endpoint },
-          { cause: error },
-        );
+            ? timeout(
+                `NHTSA did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+                { endpoint },
+                { cause: error },
+              )
+            : serviceUnavailable('NHTSA could not be reached.', { endpoint }, { cause: error });
         continue;
       }
       if (res.ok) {

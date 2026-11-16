@@ -216,18 +216,21 @@ describe('fetchJson retry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
-  it('reports a request that outlives its 30 s timeout as the upstream not responding', async () => {
-    mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'));
+  it('fails a request that outlives its 30 s timeout as a timeout, naming the endpoint', async () => {
+    const timedOut = new DOMException('The operation timed out.', 'TimeoutError');
+    mockFetch.mockRejectedValue(timedOut);
 
     const error = await throughBackoff(
       getNhtsaService().getRecallsByVehicle('Toyota', 'Camry', 2020),
     );
 
+    expect(error).toBeInstanceOf(McpError);
     expect(error).toMatchObject({
-      code: JsonRpcErrorCode.ServiceUnavailable,
+      code: JsonRpcErrorCode.Timeout,
       message: 'NHTSA did not respond within 30 seconds.',
       data: { endpoint: '/recalls/recallsByVehicle' },
     });
+    expect((error as McpError).cause).toBe(timedOut);
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
