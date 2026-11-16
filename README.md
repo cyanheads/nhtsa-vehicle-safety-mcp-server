@@ -35,7 +35,7 @@ Vehicle safety data from NHTSA: recalls, consumer complaints, NCAP crash ratings
 
 | Tool | Description |
 |:---|:---|
-| `nhtsa_get_vehicle_safety` | Comprehensive safety profile combining crash test ratings, recalls, and complaint summary with per-section availability status. |
+| `nhtsa_get_vehicle_safety` | Comprehensive safety profile combining crash test ratings, recalls, complaint summary, and defect investigations with per-section availability status. |
 | `nhtsa_search_recalls` | Search recall campaigns by campaign number, by vehicle, or across all campaigns by make, model, model year, and received date. |
 | `nhtsa_search_complaints` | Consumer safety complaints with component breakdown and severity stats. |
 | `nhtsa_get_safety_ratings` | NCAP crash test ratings and ADAS feature availability. |
@@ -47,12 +47,13 @@ Vehicle safety data from NHTSA: recalls, consumer complaints, NCAP crash ratings
 
 ### `nhtsa_get_vehicle_safety` <sub>tool</sub>
 
-- Combines NCAP crash test ratings, recall history, and complaint summary in a single response
+- Combines NCAP crash test ratings, recall history, complaint summary, and the defect investigations covering the vehicle in a single response
 - Frontal crash, side crash, and rollover ratings per vehicle variant
-- Recall consequence text plus the do-not-drive, park-outside, and over-the-air-update advisories; `summary`, `consequence`, and `remedy` are omitted for older campaigns whose record leaves them blank
+- Recall consequence text plus the do-not-drive, park-outside, and over-the-air-update advisories; `summary`, `consequence`, `remedy`, and `notes` are omitted when the record leaves them blank
 - Complaint breakdown by component with crash, fire, injury, and death counts
-- Returns `sectionStatus` (available/partial/unavailable per section) plus `warnings` so a partial NHTSA outage is not mistaken for a clean record
-- When recalls or complaints come back empty, a `notice` points at `nhtsa_lookup_vehicles` with `operation="dataset_models"`, because NHTSA can file one vehicle under different model names in each dataset
+- Investigations list every match newest-opened first, each with `matchedModels` (the model names that matched) and no summary; read one with `nhtsa_search_investigations` by `nhtsaId`
+- Returns `sectionStatus` (available/partial/unavailable per section; investigations are available/unavailable) plus `warnings` so a partial NHTSA outage or a still-loading investigation file is not mistaken for a clean record
+- When recalls or complaints come back empty, a `notice` points at `nhtsa_lookup_vehicles` with `operation="dataset_models"` and the tags to search each dataset under (`recalls`, `products`, `ncap`), because NHTSA can file one vehicle under different model names in each dataset
 
 ---
 
@@ -61,9 +62,10 @@ Vehicle safety data from NHTSA: recalls, consumer complaints, NCAP crash ratings
 - Three modes: `campaignNumber`; `make` + `model` + `modelYear` together; or a broad search with any other combination of `make`, `model`, `modelYear`, and `dateRange`. `campaignNumber` is mutually exclusive with the vehicle fields
 - Campaign lookups return every make/model the campaign covers, plus the ODI investigation that preceded it; a 6-character number (e.g., `00V419`) returns every campaign it covers
 - Broad search returns campaigns newest received date first with an exact `totalCount`, up to 50 per page (default 20) with `limit` and `offset`, and a larger `limit` is lowered to 50 with a `notice`; both are rejected with the other two modes. A campaign matches when one of its vehicle records carries every vehicle filter, compared against whole make and model names, ignoring case
-- NHTSA may file a vehicle's recalls under a series name or a base name; search both. A broad search's received date can fall one day before the date the other modes report for the same campaign
+- Broad rows leave out `summary`, `consequence`, `remedy`, and `notes` unless `includeSummary: true` (pair with a small `limit`); campaign and vehicle lookups always return them and accept `includeSummary` without effect. A broad page whose rows lost text carries a `notice` naming a `campaignNumber` lookup and `includeSummary`
+- NHTSA may file a vehicle's recalls under several model names: list them with `nhtsa_lookup_vehicles` `operation="dataset_models"` and search under the names tagged `recalls`. A broad search's received date can fall one day before the date the other modes report for the same campaign
 - Optional inclusive `dateRange` bounds (`after`/`before`, calendar-valid `YYYY-MM-DD`) apply in every mode; blank bounds are unset
-- Includes do-not-drive advisories, park-outside warnings, and OTA update availability (never set by a broad search)
+- Includes do-not-drive advisories, park-outside warnings, and OTA update availability (never set by a broad search), and NHTSA's `notes` on the campaign
 
 ---
 
@@ -97,7 +99,7 @@ Vehicle safety data from NHTSA: recalls, consumer complaints, NCAP crash ratings
 
 ### `nhtsa_search_investigations` <sub>tool</sub>
 
-- Investigation types: Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI codes (SQ, EQ, RP, and others)
+- Investigation types: Preliminary Evaluations (PE), Engineering Analyses (EA), Defect Petitions (DP), Recall Queries (RQ), Audit Queries (AQ), and additional ODI codes (SQ, EQ, RP, and others). `investigationType` accepts a code or a type name matched whole, ignoring case (`Preliminary Evaluation`); an unrecognized value returns no rows with a `notice` listing the accepted codes and names
 - Free-text search across investigation IDs, subjects, and summaries, plus structured `make`, `model`, `modelYear`, and `component` filters — all ANDed. `make`, `model`, and `modelYear` must all match the same vehicle association; an investigation with no model year never matches a `modelYear`
 - Results are ordered newest-opened first. Rows list every linked `manufacturers` and `recallCampaigns` entry
 - Search rows omit `summary`; set `includeSummary: true` to include it, or fetch one record with `nhtsaId`, which always returns it
@@ -110,10 +112,11 @@ Vehicle safety data from NHTSA: recalls, consumer complaints, NCAP crash ratings
 
 ### `nhtsa_lookup_vehicles` <sub>tool</sub>
 
-- Five operations: `makes`, `models`, `vehicle_types`, `manufacturer`, `dataset_models` — `models`, `vehicle_types`, and `manufacturer` match partial names
-- `dataset_models` (requires `make` and `modelYear`) lists the model names NHTSA's complaint, NCAP, and VPIC lists carry, each tagged `listedBy` `products`, `ncap`, or `vpic`. It takes the full make name (e.g., "Chevrolet"). Use it when a recall, complaint, or rating search comes back empty, then search under each name
+- Five operations: `makes`, `models`, `vehicle_types`, `manufacturer`, `dataset_models` — `makes` (through `make`), `models`, `vehicle_types`, and `manufacturer` match partial names
+- `dataset_models` (requires `make` and `modelYear`) lists the model names NHTSA's complaint, NCAP, VPIC, and recall lists carry, each tagged `listedBy` `products`, `ncap`, `vpic`, or `recalls`. It takes the full make name (e.g., "Chevrolet"). Use it when a recall, complaint, or rating search comes back empty, then search under each name: recalls under the names tagged `recalls`, complaints under `products`, ratings under `ncap`
+- `dataset_models` loads the recall list from the recall bulk files within a 30 s wait; while they are still loading or if they failed, `unavailableLists` is `["recalls"]` with a `notice`, and the other lists answer
 - `models` can be filtered by year; `models` and `vehicle_types` both require `make`
-- Each operation rejects inactive filters: `makes` accepts none, `models` and `dataset_models` accept `make`/`modelYear`, `vehicle_types` accepts `make`, and `manufacturer` accepts `manufacturer`. Optional blank strings are unset; operation-required make/manufacturer names must be nonblank
+- Each operation rejects inactive filters: `makes` and `vehicle_types` accept `make`, `models` and `dataset_models` accept `make`/`modelYear`, and `manufacturer` accepts `manufacturer`. Optional blank strings are unset; operation-required make/manufacturer names must be nonblank
 - Up to 200 results per page (default 100), offset pagination; a larger `limit` is lowered to 200 with a `notice`
 - `manufacturer` lookups stop at a 500-record ceiling and disclose `truncated` when more may exist — VPIC publishes no match total
 
@@ -212,7 +215,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
 
 ### Prerequisites
 
-- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js >= 24.0.0)
+- [Bun v1.4.4](https://bun.sh/) or higher (or Node.js >= 24.0.0)
 
 ### Installation
 
@@ -321,8 +324,8 @@ All data comes from NHTSA's public APIs and bulk files:
 - **Recalls API** — `api.nhtsa.gov/recalls`
 - **Complaints API** — `api.nhtsa.gov/complaints`; `dataset_models` also reads its model-name list at `api.nhtsa.gov/products/vehicle/models`
 - **Safety Ratings API** — `api.nhtsa.gov/SafetyRatings`
-- **Investigations bulk file** — `static.nhtsa.gov/odi/ffdd/inv/FLAT_INV.zip`
-- **Recall bulk files** — `static.nhtsa.gov/odi/ffdd/rcl/FLAT_RCL_POST_2010.zip` and `FLAT_RCL_PRE_2010.zip`, used by broad `nhtsa_search_recalls` searches
+- **Investigations bulk file** — `static.nhtsa.gov/odi/ffdd/inv/FLAT_INV.zip`, used by `nhtsa_search_investigations` and `nhtsa_get_vehicle_safety`
+- **Recall bulk files** — `static.nhtsa.gov/odi/ffdd/rcl/FLAT_RCL_POST_2010.zip` and `FLAT_RCL_PRE_2010.zip`, used by broad `nhtsa_search_recalls` searches and the `recalls` list of `dataset_models`
 - **VPIC API** — `vpic.nhtsa.dot.gov/api/vehicles`
 
 ## Contributing

@@ -1,6 +1,6 @@
 # nhtsa-vehicle-safety-mcp-server - Directory Structure
 
-Generated on: 2026-11-04 02:57:33
+Generated on: 2026-11-16 04:27:53
 
 ```text
 nhtsa-vehicle-safety-mcp-server/
@@ -170,6 +170,7 @@ nhtsa-vehicle-safety-mcp-server/
 │   │       ├── date-range.ts
 │   │       ├── flat-file.ts
 │   │       ├── format.ts
+│   │       ├── investigation-match.ts
 │   │       ├── nhtsa-service.ts
 │   │       ├── recall-index.ts
 │   │       └── types.ts
@@ -178,7 +179,8 @@ nhtsa-vehicle-safety-mcp-server/
 │   ├── config/
 │   │   └── server-config.test.ts
 │   ├── helpers/
-│   │   └── content.ts
+│   │   ├── content.ts
+│   │   └── hostile.ts
 │   ├── mcp-server/
 │   │   └── tools/
 │   │       ├── definitions/
@@ -202,6 +204,7 @@ nhtsa-vehicle-safety-mcp-server/
 │   │       ├── date-range.test.ts
 │   │       ├── flat-file.test.ts
 │   │       ├── format.test.ts
+│   │       ├── investigation-match.test.ts
 │   │       ├── nhtsa-service-edge.test.ts
 │   │       ├── nhtsa-service.test.ts
 │   │       ├── recall-index.test.ts

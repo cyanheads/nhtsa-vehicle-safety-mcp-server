@@ -4,7 +4,7 @@ description: Gates and identifier chains for the nhtsa_* tools (recalls, owner c
 license: Apache-2.0
 metadata:
   author: "cyanheads"
-  version: "1.0"
+  version: "1.1"
 ---
 
 ## Scope
@@ -23,7 +23,7 @@ U.S. NHTSA data, keyless: recall campaigns for vehicles, equipment, tires, and c
 | Investigation ID | type prefix plus a number, `EA23003`; some older IDs hold a letter, `EA78N34` | investigation rows; the `investigationId` of a campaign lookup | nhtsa_search_investigations, ID lookup |
 | NCAP `vehicleId` | a number per tested variant | nhtsa_get_vehicle_safety, nhtsa_get_safety_ratings | nhtsa_get_safety_ratings |
 | ODI number | complaint `odiNumber` | complaint rows | the key for merging complaints |
-| Dataset model name | uppercase, tagged `products`, `ncap`, or `vpic` | nhtsa_lookup_vehicles `dataset_models` | complaint, rating, and recall searches |
+| Dataset model name | uppercase, tagged `products`, `ncap`, `vpic`, or `recalls`; `unavailableLists` names a list that did not load | nhtsa_lookup_vehicles `dataset_models` | complaint, rating, and recall searches |
 
 Campaign numbers come in two forms:
 
@@ -32,7 +32,7 @@ Campaign numbers come in two forms:
 
 ## Gates
 
-- **Run `dataset_models` whenever the answer must be complete, notice or not.** NHTSA files one vehicle under several names, and the notices that point to this lookup fire only when a search comes back empty. For a 2014 Chevrolet, `SILVERADO 1500` returns recalls, NCAP variants, and complaints with no notice, while a separate set of recalls sits only under the base name `SILVERADO`.
+- **Run `dataset_models` whenever the answer must be complete, notice or not.** NHTSA files one vehicle under several names, and the notices that point to this lookup fire only when a search comes back empty. For a 2014 Chevrolet, `SILVERADO 1500` returns recalls, NCAP variants, and complaints with no notice, while a separate set of recalls sits only under the name `SILVERADO`, tagged `vpic` and `recalls`. Search recalls under the names tagged `recalls`, complaints under `products`, ratings under `ncap`. The model-name notice of nhtsa_get_vehicle_safety names all three tags; that of nhtsa_search_recalls names `recalls`. A list in `unavailableLists` is missing from the result, so its tag marks nothing: call again before treating the names as complete. A name tagged `recalls` can still return nothing on a vehicle lookup (2014 `CHEVEROLET SS`, which the lookup files under `SS`); search it by make and model without the year, then read each campaign's model years from a campaign lookup (`affectedVehicles`), since broad rows carry none.
 - **Pin the series before searching under it.** A base name covers several series (`SILVERADO` → `SILVERADO 1500`, `2500`, `3500`). A decoded VIN reports the VPIC name, which can lack the series: `3GCUKRECXEG100001` decodes as `Silverado`, trim `LT`. Ask which series the user has.
 - **Never add complaint totals across names.** Names can return the same complaints: 2016 Tesla `MODEL S 85D` and `MODEL S P90D` each return the same 604 complaints. Merge complaints by ODI number and recalls by campaign number.
 - **A recall names a model year, not a VIN.** Campaigns cover "certain" vehicles by build date (`14V246000`: 2014 Silverados manufactured May 23, 2013, through March 25, 2014). Say the model year was recalled. Never say the user's vehicle is affected or still unrepaired; that takes a VIN-level recall check, which no tool here does.
@@ -51,8 +51,8 @@ Campaign numbers come in two forms:
 
 1. nhtsa_get_vehicle_safety with the user's make, model, and model year.
 2. nhtsa_lookup_vehicles `dataset_models` for the make and model year. Pick the series that matches the user's vehicle; ask when several fit.
-3. Cover both names, skipping whichever step 1 already searched: nhtsa_get_vehicle_safety under the series name (listed by `products` and `ncap`), and nhtsa_search_recalls for the vehicle under the `vpic` base name. Merge the recall lists by campaign number.
-4. Report the matching NCAP variant, the merged recalls as model-year recalls, and complaint patterns by component.
+3. Cover every name, skipping whichever step 1 already searched: nhtsa_get_vehicle_safety under the series name (tagged `products` and `ncap`), and nhtsa_search_recalls for the vehicle under each name tagged `recalls`. Merge the recall lists by campaign number.
+4. Report the matching NCAP variant, the merged recalls as model-year recalls, the investigations step 1 lists, and complaint patterns by component.
 
 ## Workflows
 
@@ -60,6 +60,6 @@ Campaign numbers come in two forms:
 
 **A manufacturer's recalls since a date.** Run a broad recall search per make with the date range, page with offset until `totalCount` is reached, keep the rows whose `manufacturer` matches, and apply the date-bound gate.
 
-**Investigations of a vehicle.** Search investigations by make, model, and model year. The year must sit on one of the investigation's vehicle associations, so an empty result means no investigation lists that year for that make and model. Before saying a model was never investigated, drop the year to see which investigations list the model, then try neighboring model years: an investigation's `years` span every vehicle it covers, so a year listed there need not belong to this model.
+**Investigations of a vehicle.** nhtsa_get_vehicle_safety lists the investigations covering a vehicle, each with the `matchedModels` it matched and no summary; read one with nhtsa_search_investigations by `nhtsaId`. A `sectionStatus.investigations` of `unavailable` means the investigation data is still loading or failed, so retry before saying none exist. To search directly, use nhtsa_search_investigations by make, model, and model year. The year must sit on one of the investigation's vehicle associations, so an empty result means no investigation lists that year for that make and model. Before saying a model was never investigated, drop the year to see which investigations list the model, then try neighboring model years: an investigation's `years` span every vehicle it covers, so a year listed there need not belong to this model.
 
 **Investigation to recall and back.** A vehicle recall list carries no `investigationId`; look the campaign up by number to get it, then fetch the investigation by ID. Its `recallCampaigns` go back to campaign lookups as listed.
