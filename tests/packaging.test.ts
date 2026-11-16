@@ -4,21 +4,15 @@
  * silently, so every check that reads the parsed manifest — `lint:packaging` included —
  * passes over it, and the file can sit for releases carrying a stale line nobody reads.
  * Also pins the bundle cleaner and the post-bundle check to the same agent-doc rule: a
- * `skills/` tree at a dependency's package root is stripped, a deeper one is runtime code.
+ * `skills/` tree, `AGENTS.md`, or `CLAUDE.md` at a dependency's package root is stripped,
+ * while a `skills/` tree deeper in a package is runtime code and ships.
  * @module tests/packaging
  */
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { filterAgentDocEntries } from '../scripts/clean-mcpb.js';
-
-/**
- * Loaded by URL so `tsc` never follows it: the framework-copied script ends with an import of
- * a path that exists only in the framework's own repository (mcp-ts-core#797).
- */
-const { checkBundleEntries } = (await import(
-  new URL('../scripts/lint-packaging.ts', import.meta.url).href
-)) as { checkBundleEntries: (entries: string[], bundleLabel: string) => string[] };
+import { checkBundleEntries } from '../scripts/lint-packaging.js';
 
 /**
  * The `mcp_config.env` block as `manifest.json` carried it before the duplicate was
@@ -169,13 +163,17 @@ describe('manifest.json', () => {
   });
 });
 
-/** Entries a cleaned bundle must keep: SDK runtime modules and the server's own root `skills/`. */
+/**
+ * Entries a cleaned bundle must keep: SDK runtime modules, a doc below a package root, and the
+ * server's own root `skills/`.
+ */
 const RUNTIME_ENTRIES = [
   'node_modules/@modelcontextprotocol/server/dist/ext/skills/index.mjs',
   'node_modules/@modelcontextprotocol/core/dist/ext/skills/index.mjs',
   'node_modules/@cyanheads/mcp-ts-core/node_modules/@modelcontextprotocol/server/dist/ext/skills/index.mjs',
   'node_modules/@example/skills/index.js',
-  'skills/nhtsa-guide/SKILL.md',
+  'node_modules/example/docs/AGENTS.md',
+  'skills/nhtsa-vehicle-safety-guide/SKILL.md',
 ];
 
 /** Agent docs a dependency ships at its package root, at any `node_modules` depth. */
@@ -183,9 +181,12 @@ const AGENT_DOC_ENTRIES = [
   'node_modules/dotenv/skills/dotenv/SKILL.md',
   'node_modules/dotenv/skills/dotenv/references/usage.md',
   'node_modules/@cyanheads/mcp-ts-core/framework-skills/add-tool/SKILL.md',
+  'node_modules/@cyanheads/mcp-ts-core/CLAUDE.md',
   'node_modules/example/.claude/settings.json',
   'node_modules/example/.agents/guide.md',
+  'node_modules/example/AGENTS.md',
   'node_modules/outer/node_modules/@scope/inner/skills/guide/reference.md',
+  'node_modules/outer/node_modules/@scope/inner/CLAUDE.md',
   'node_modules/example/docs/SKILL.md',
 ];
 

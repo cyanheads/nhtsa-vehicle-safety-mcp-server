@@ -2,8 +2,8 @@
 
 **Server:** nhtsa-vehicle-safety-mcp-server
 **Version:** 0.11.0
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.18`
-**Engines:** Bun ≥1.4.0, Node ≥24.0.0
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.22`
+**Engines:** Bun ≥1.4.4, Node ≥24.0.0
 **MCP SDK:** `@modelcontextprotocol/server` 2.4.0
 **Zod:** 4.6.7
 
@@ -177,6 +177,7 @@ src/
       nhtsa-service.ts                  # NHTSA API client (init/accessor pattern)
       flat-file.ts                      # Bulk-file loader: streaming ZIP parse, one-at-a-time load slot, TTL cache
       recall-index.ts                   # Recall flat-file index behind broad recall searches
+      investigation-match.ts            # Vehicle-association matcher and type/status names shared by the investigation tools
       date-range.ts                     # Shared date-range contract
       format.ts                         # Shared formatting helpers
       types.ts                          # API response types, normalized domain types
@@ -294,7 +295,7 @@ When you complete a skill's checklist, check the boxes and add a completion time
 
 ## Bundling
 
-`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. `mcpb pack` reads `.mcpbignore`, not `.gitignore`, so every root path the bundle must not ship — source, tests, docs, caches, logs, agent docs, plugin manifests, gitignored local files — needs a root-anchored line there (`/docs/`, never `docs/`, which also strips `node_modules/*/docs/`); `lint:packaging` names each missing or unanchored line. Root `skills/` ships on purpose. The pack step is followed by `scripts/clean-mcpb.ts`, which prunes dev dependencies (`mcpb clean`) and strips four classes of `node_modules/**` content that root-anchored `.mcpbignore` patterns cannot reach: dependency-shipped agent docs (`framework-skills/`, `skills/`, `.claude/`, `.agents/` at a package's root, and `SKILL.md`); platform-specific native bindings; node-gyp build output beside a `binding.gyp`, which records the packing machine's paths — compiled `*.node` addons stay; and build-only package files — the framework's `changelog/`, `scripts/`, `templates/`, `CLAUDE.md`, `AGENTS.md`, and config bases, and `better-sqlite3`'s `deps/` and `src/` C sources. A `skills/` directory deeper inside a package is runtime code and ships: MCP SDK 2.4 loads `@modelcontextprotocol/server/dist/ext/skills/` and `@modelcontextprotocol/core/dist/ext/skills/` at startup, so `AGENT_DOC_ENTRY` in both `scripts/clean-mcpb.ts` and `scripts/lint-packaging.ts` matches package roots only — a local divergence from the framework copy ([mcp-ts-core#794](https://github.com/cyanheads/mcp-ts-core/issues/794)) that a script resync must carry forward until upstream ships the fix; `tests/packaging.test.ts` pins it. MCPB is stdio-only — HTTP deployments are unaffected. The bundle file ships as `dist/nhtsa-vehicle-safety-mcp-server.mcpb` and the `release-and-publish` skill attaches it to the GitHub Release.
+`bun run bundle` produces a `.mcpb` extension bundle for one-click install in Claude Desktop. `mcpb pack` reads `.mcpbignore`, not `.gitignore`, so every root path the bundle must not ship — source, tests, docs, caches, logs, agent docs, plugin manifests, gitignored local files — needs a root-anchored line there (`/docs/`, never `docs/`, which also strips `node_modules/*/docs/`); `lint:packaging` names each missing or unanchored line. Root `skills/` ships on purpose. The pack step is followed by `scripts/clean-mcpb.ts`, which prunes dev dependencies (`mcpb clean`) and strips four classes of `node_modules/**` content that root-anchored `.mcpbignore` patterns cannot reach: dependency-shipped agent docs — `framework-skills/`, `skills/`, `.claude/`, `.agents/`, `AGENTS.md`, and `CLAUDE.md` at a package's root, and `SKILL.md` anywhere; platform-specific native bindings; node-gyp build output beside a `binding.gyp`, which records the packing machine's paths — compiled `*.node` addons stay; and build-only package files — the framework's `changelog/`, `scripts/`, `templates/`, and config bases, and `better-sqlite3`'s `deps/` and `src/` C sources. A `skills/` directory deeper inside a package is runtime code and ships: MCP SDK 2.4 loads `@modelcontextprotocol/server/dist/ext/skills/` and `@modelcontextprotocol/core/dist/ext/skills/` at startup, which is why `AGENT_DOC_ENTRY` in `scripts/clean-mcpb.ts` and `scripts/lint-packaging.ts` matches package roots only; `tests/packaging.test.ts` pins both scripts to that rule. MCPB is stdio-only — HTTP deployments are unaffected. The bundle file ships as `dist/nhtsa-vehicle-safety-mcp-server.mcpb` and the `release-and-publish` skill attaches it to the GitHub Release.
 
 **Adding an env var requires both files:** `server.json` (registry discovery, `environmentVariables[]`) and `manifest.json` (bundle install UX, `mcp_config.env` + `user_config`). `bun run lint:packaging` (run by `devcheck`) verifies the env var names match, that every `user_config` option is wired into `mcp_config.env` as `"X": "${user_config.X}"` (the host substitutes nothing else — `"${X}"` reaches the server as that literal string), and that an optional string option carries `"default": ""`.
 
