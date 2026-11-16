@@ -4,7 +4,7 @@
  * @module tests/mcp-server/tools/definitions/get-vehicle-safety-edge.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -14,18 +14,22 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { getVehicleSafety } from '@/mcp-server/tools/definitions/get-vehicle-safety.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import { firstText } from '../../../helpers/content.js';
+import type { Investigation } from '@/services/nhtsa/types.js';
+import { firstText, readerText } from '../../../helpers/content.js';
 
 const mockService = {
   getSafetyRatingVariants: vi.fn(),
   getSafetyRating: vi.fn(),
   getRecallsByVehicle: vi.fn(),
   getComplaintsByVehicle: vi.fn(),
+  getInvestigationsWithin: vi.fn(),
+  getInvestigations: vi.fn(),
 };
 
 beforeEach(() => {
   vi.mocked(getNhtsaService).mockReturnValue(mockService as any);
   for (const fn of Object.values(mockService)) fn.mockReset();
+  mockService.getInvestigationsWithin.mockResolvedValue({ kind: 'ready', value: [] });
 });
 
 const sampleRating = {
@@ -148,6 +152,7 @@ describe('getVehicleSafety — format edge cases', () => {
         safetyRatings: 'partial' as const,
         recalls: 'available' as const,
         complaints: 'available' as const,
+        investigations: 'available' as const,
       },
       warnings: ['Some NCAP safety ratings could not be retrieved (1 variant).'],
     };
@@ -173,6 +178,7 @@ describe('getVehicleSafety — format edge cases', () => {
         safetyRatings: 'available' as const,
         recalls: 'available' as const,
         complaints: 'available' as const,
+        investigations: 'available' as const,
       },
       warnings: [],
     };
@@ -224,6 +230,7 @@ describe('getVehicleSafety — format edge cases', () => {
         safetyRatings: 'unavailable' as const,
         recalls: 'available' as const,
         complaints: 'available' as const,
+        investigations: 'available' as const,
       },
       warnings: ['NCAP crash test data is not available for this vehicle.'],
     };
@@ -300,6 +307,7 @@ describe('getVehicleSafety — decode from output schema', () => {
         safetyRatings: 'available' as const,
         recalls: 'available' as const,
         complaints: 'available' as const,
+        investigations: 'available' as const,
       },
       warnings: [],
     };
@@ -307,5 +315,145 @@ describe('getVehicleSafety — decode from output schema', () => {
     const text = firstText(getVehicleSafety.format!(output));
     expect(text).toContain('**Rollover:** Not Rated | Probability: Not available');
     expect(text).not.toContain('0.0%');
+  });
+});
+
+describe('getVehicleSafety — investigations unavailable (#64)', () => {
+  const ODYSSEY = { make: 'Honda', model: 'Odyssey', modelYear: 2018 };
+  const STILL_LOADING =
+    'Investigation data is still loading from NHTSA; a later call will include it once the load finishes.';
+  const RECALL = {
+    campaignNumber: '18V268000',
+    manufacturer: 'Honda (American Honda Motor Co.)',
+    component: 'SEATS',
+    summary: 'Second-row outboard seat may not latch.',
+    consequence: 'Increased risk of injury.',
+    remedy: 'Dealers will repair.',
+    reportReceivedDate: '2018-04-25',
+  };
+  const PE25008: Investigation = {
+    nhtsaId: 'PE25008',
+    investigationType: 'PE',
+    status: 'O',
+    subject: 'Engine failure',
+    summary: 'A long summary.',
+    openDate: '2025-05-01',
+    vehicles: [{ make: 'HONDA', model: 'ODYSSEY', year: 2018 }],
+  };
+
+  function seedOtherSections() {
+    mockService.getSafetyRatingVariants.mockResolvedValue([{ vehicleId: 14720 }]);
+    mockService.getSafetyRating.mockResolvedValue(sampleRating);
+    mockService.getRecallsByVehicle.mockResolvedValue([RECALL]);
+    mockService.getComplaintsByVehicle.mockResolvedValue([{ odiNumber: 1, components: 'ENGINE' }]);
+  }
+
+  it.each([
+    [
+      'failed',
+      { kind: 'failed', error: new Error('502') },
+      'Investigation data could not be retrieved.',
+    ],
+    ['still loading', { kind: 'pending' }, STILL_LOADING],
+  ] as const)(
+    'a load that %s leaves the other sections intact and the call successful',
+    async (_label, outcome, warning) => {
+      seedOtherSections();
+      mockService.getInvestigationsWithin.mockResolvedValue(outcome);
+
+      const result = await runToolContract(getVehicleSafety, ODYSSEY);
+
+      expect(result.isError).not.toBe(true);
+      const structured = result.structuredContent as Record<string, unknown>;
+      expect(structured.sectionStatus).toStrictEqual({
+        safetyRatings: 'available',
+        recalls: 'available',
+        complaints: 'available',
+        investigations: 'unavailable',
+      });
+      expect(structured.warnings).toStrictEqual([warning]);
+      expect(structured).not.toHaveProperty('investigations');
+      expect(structured.recalls).toStrictEqual([RECALL]);
+      expect(structured.safetyRatings).toHaveLength(1);
+      expect(structured.complaintSummary).toMatchObject({ totalCount: 1 });
+      const lines = readerText(result.content).split('\n');
+      expect(lines).toContain(`Warning: ${warning}`);
+      expect(linesFrom(lines, 'Investigations', 2)).toStrictEqual([
+        'Investigations',
+        'Investigation data was unavailable for this request. nhtsa_search_investigations with the same make, model, and modelYear lists them once the data loads.',
+      ]);
+    },
+  );
+
+  it('reads the loaded data on the next call after a wait that lapsed', async () => {
+    seedOtherSections();
+    mockService.getInvestigationsWithin
+      .mockResolvedValueOnce({ kind: 'pending' })
+      .mockResolvedValueOnce({ kind: 'ready', value: [PE25008] });
+
+    const first = await runToolContract(getVehicleSafety, ODYSSEY);
+    const second = await runToolContract(getVehicleSafety, ODYSSEY);
+
+    expect(first.structuredContent).toMatchObject({
+      sectionStatus: { investigations: 'unavailable' },
+    });
+    expect(second.structuredContent).toMatchObject({
+      sectionStatus: { investigations: 'available' },
+      warnings: [],
+      investigations: [{ nhtsaId: 'PE25008', status: 'O', matchedModels: ['ODYSSEY'] }],
+    });
+    /** Each call waits through the bounded seam with its own signal; neither waits unbounded. */
+    expect(mockService.getInvestigationsWithin).toHaveBeenCalledTimes(2);
+    expect(mockService.getInvestigationsWithin.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal);
+    expect(mockService.getInvestigations).not.toHaveBeenCalled();
+  });
+
+  it('reports an empty section as available with no rows', async () => {
+    seedOtherSections();
+
+    const result = await runToolContract(getVehicleSafety, ODYSSEY);
+
+    expect(result.structuredContent).toMatchObject({
+      sectionStatus: { investigations: 'available' },
+      investigations: [],
+      warnings: [],
+    });
+    const lines = readerText(result.content).split('\n');
+    expect(linesFrom(lines, 'Investigations (0)', 2)).toStrictEqual([
+      'Investigations (0)',
+      'No investigations found.',
+    ]);
+  });
+});
+
+/** `count` reader lines starting at `first`; fails when `first` is absent. */
+function linesFrom(lines: string[], first: string, count: number): string[] {
+  const start = lines.indexOf(first);
+  expect(start).toBeGreaterThanOrEqual(0);
+  return lines.slice(start, start + count);
+}
+
+describe('getVehicleSafety — investigation rows in the output schema (#64)', () => {
+  it('declares the row fields and no summary', () => {
+    const row = getVehicleSafety.output.shape.investigations.unwrap().element;
+    expect(Object.keys(row.shape).sort()).toStrictEqual(
+      [
+        'closeDate',
+        'investigationType',
+        'investigationTypeName',
+        'matchedModels',
+        'nhtsaId',
+        'openDate',
+        'recallCampaigns',
+        'status',
+        'statusName',
+        'subject',
+      ].sort(),
+    );
+  });
+
+  it('declares the section status as available or unavailable', () => {
+    const status = getVehicleSafety.output.shape.sectionStatus.shape.investigations;
+    expect(status.options).toStrictEqual(['available', 'unavailable']);
   });
 });

@@ -7,6 +7,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import {
   limitClampNotice,
   limitSchema,
@@ -22,10 +23,13 @@ import {
 } from '@/services/nhtsa/date-range.js';
 import {
   formatRecallAdvisories,
+  formatText,
   nextPageHint,
   outOfBoundsMessage,
+  renderNotice,
 } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
+import type { IndexedRecall } from '@/services/nhtsa/types.js';
 
 const PAGE = {
   tool: 'nhtsa_search_recalls',
@@ -42,13 +46,28 @@ const listFormat = new Intl.ListFormat('en', { type: 'conjunction' });
 function noMatchNotice(filters: string[], byName: boolean): string {
   const relax = `No recall campaign matches ${listFormat.format(filters)}. Relax or remove ${filters.length > 1 ? 'one of these filters' : 'this filter'}.`;
   return byName
-    ? `${relax} The make and model filters match whole names as NHTSA's recall records spell them, ignoring case, and NHTSA may file a vehicle's recalls under another model name, such as a series name or a base name.`
+    ? `${relax} The make and model filters match whole names as NHTSA's recall records spell them, ignoring case, and NHTSA may file a vehicle's recalls under another model name: nhtsa_lookup_vehicles operation="dataset_models" lists a make and model year's names and tags the ones recall records use "recalls".`
     : relax;
+}
+
+/** The way back to the campaign text a default broad page leaves out of its rows. */
+const TEXT_OMITTED =
+  "Broad-search rows leave out each campaign's summary, consequence, remedy, and notes: look one campaign up by campaignNumber for its text, every vehicle it covers, and its investigationId when NHTSA links one, or repeat this search with includeSummary: true.";
+
+/** A broad row without the campaign text `includeSummary` opts into. */
+function withoutCampaignText({
+  summary: _summary,
+  consequence: _consequence,
+  remedy: _remedy,
+  notes: _notes,
+  ...row
+}: IndexedRecall) {
+  return row;
 }
 
 export const searchRecalls = tool('nhtsa_search_recalls', {
   description:
-    "Search recall campaigns by campaign number, by vehicle, or across every campaign by make, model, model year, and received date. campaignNumber returns that campaign with every vehicle it covers; make, model, and modelYear together return that vehicle's recalls; any other combination of make, model, modelYear, and dateRange is a broad search of NHTSA's recall files, newest first, paged with limit and offset. A broad search matches a campaign when one of its vehicle records carries every vehicle filter given, and the received date it reports can fall one day before the date the other modes report for the same campaign.",
+    "Search recall campaigns by campaign number, by vehicle, or across every campaign by make, model, model year, and received date. campaignNumber returns that campaign with every vehicle it covers; make, model, and modelYear together return that vehicle's recalls; any other combination of make, model, modelYear, and dateRange is a broad search of NHTSA's recall files, newest first, paged with limit and offset. Broad-search rows leave out each campaign's summary, consequence, remedy, and notes unless includeSummary is true; the lookups always return them. A broad search matches a campaign when one of its vehicle records carries every vehicle filter given, and the received date it reports can fall one day before the date the other modes report for the same campaign.",
   annotations: { readOnlyHint: true },
   input: z.object({
     campaignNumber: z
@@ -81,6 +100,12 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       .describe(
         'Inclusive received-date bounds in YYYY-MM-DD, in every mode; a bound alone is a broad search. Blank bounds are unset; records without a usable date are excluded only with active bounds.',
       ),
+    includeSummary: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Include each campaign's summary, consequence, remedy, and notes in broad-search rows. Off by default: broad rows carry the campaign number, manufacturer, component, received date, units affected, and advisories, and a campaignNumber or full make + model + modelYear lookup always returns the text. A campaign's text can run past a thousand characters, so pair this with a small limit.",
+      ),
     limit: limitSchema()
       .optional()
       .describe(
@@ -112,19 +137,25 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
               .string()
               .optional()
               .describe(
-                'Recall summary. Omitted for older campaigns whose record leaves it blank.',
+                'Recall summary. Campaign and vehicle lookups always return it; broad-search rows carry it only with includeSummary: true. Omitted for older campaigns whose record leaves it blank.',
               ),
             consequence: z
               .string()
               .optional()
               .describe(
-                'Safety consequence. Omitted for older campaigns whose record leaves it blank.',
+                'Safety consequence. Campaign and vehicle lookups always return it; broad-search rows carry it only with includeSummary: true. Omitted for older campaigns whose record leaves it blank.',
               ),
             remedy: z
               .string()
               .optional()
               .describe(
-                'Corrective action. Omitted for older campaigns whose record leaves it blank.',
+                'Corrective action. Campaign and vehicle lookups always return it; broad-search rows carry it only with includeSummary: true. Omitted for older campaigns whose record leaves it blank.',
+              ),
+            notes: z
+              .string()
+              .optional()
+              .describe(
+                "NHTSA's recall notes as published: the defect description for many campaigns received before 2000, and NHTSA's hotline sentence on most received since 2010. Campaign and vehicle lookups always return it; broad-search rows carry it only with includeSummary: true. Omitted when NHTSA leaves it blank.",
               ),
             reportReceivedDate: z.string().describe('Date received by NHTSA (ISO YYYY-MM-DD)'),
             potentialUnitsAffected: z
@@ -186,9 +217,10 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       .string()
       .optional()
       .describe(
-        'Guidance when no recalls match: for a vehicle lookup, how to list the other model names NHTSA may file its recalls under with nhtsa_lookup_vehicles operation="dataset_models"; for a broad search, which filters to relax. Also explains a date range that excluded every recall, a broad-search page past the last match, and a limit lowered to the page maximum.',
+        'Guidance when no recalls match: for a broad search, which filters to relax; for a vehicle lookup or a broad search by make or model, that nhtsa_lookup_vehicles operation="dataset_models" lists the model names a make and model year go by and tags the ones recall records use "recalls". Also explains a date range that excluded every recall, a broad-search page past the last match, a limit lowered to the page maximum, and how to get back the campaign text a broad-search page leaves out.',
       ),
   },
+  enrichmentTrailer: { notice: { render: renderNotice } },
   errors: [
     {
       reason: 'mode_conflict',
@@ -292,6 +324,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
           ...(campaign.summary !== undefined ? { summary: campaign.summary } : {}),
           ...(campaign.consequence !== undefined ? { consequence: campaign.consequence } : {}),
           ...(campaign.remedy !== undefined ? { remedy: campaign.remedy } : {}),
+          ...(campaign.notes !== undefined ? { notes: campaign.notes } : {}),
           reportReceivedDate: campaign.receivedDate,
           ...(campaign.potentialUnitsAffected !== undefined
             ? { potentialUnitsAffected: campaign.potentialUnitsAffected }
@@ -343,7 +376,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
         );
       } else if (all.length === 0) {
         ctx.enrich.notice(
-          'No recalls found. This vehicle may have no recalls on file, or NHTSA may list them under another model name, such as a series name or a base name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search recalls under each.',
+          'No recalls found. This vehicle may have no recalls on file, or NHTSA may list them under another model name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search recalls under each name it tags "recalls". If a name tagged "recalls" still finds none, search it with make and model and no modelYear: that broad search matches the recall files\' spelling.',
         );
       }
 
@@ -380,6 +413,7 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       model,
       modelYear,
       dateQuery,
+      includeSummary: input.includeSummary,
       total: totalCount,
       returned: recalls.length,
       offset,
@@ -403,10 +437,23 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       notices.push(noMatchNotice(filters, Boolean(make || model)));
     } else if (recalls.length === 0) {
       notices.push(outOfBoundsMessage({ offset, limit, totalCount }));
+    } else if (
+      !input.includeSummary &&
+      recalls.some((r) =>
+        [r.summary, r.consequence, r.remedy, r.notes].some((text) => text !== undefined),
+      )
+    ) {
+      notices.push(TEXT_OMITTED);
     }
     if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
 
-    return { recalls, totalCount, returned: recalls.length, offset, limit };
+    return {
+      recalls: input.includeSummary ? recalls : recalls.map(withoutCampaignText),
+      totalCount,
+      returned: recalls.length,
+      offset,
+      limit,
+    };
   },
 
   format: (result) => {
@@ -415,6 +462,13 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       const none = 'No recalls found matching the search criteria.';
       return [{ type: 'text' as const, text: page ? `${none}\n\n${page}` : none }];
     }
+
+    // Only a broad search reports paging fields, and format() sees the result alone. A lookup
+    // states blank campaign text as "Not available" (#55); a broad row prints only the text it
+    // carries, since includeSummary decides whether it carries any.
+    const broad = result.returned !== undefined;
+    const textLine = (label: string, value: string | undefined) =>
+      value || !broad ? [`**${label}:** ${formatText(value)}`] : [];
 
     const lines = [`**${result.totalCount} recall(s) found**\n`];
     if (page) lines.push(page);
@@ -425,28 +479,36 @@ export const searchRecalls = tool('nhtsa_search_recalls', {
       if (r.overTheAirUpdate) alerts.push('OTA update available');
       const alertStr = alerts.length > 0 ? ` [${alerts.join(', ')}]` : '';
 
-      lines.push(`### ${r.campaignNumber}${alertStr}`);
-      if (r.component) lines.push(`**Component:** ${r.component}`);
+      lines.push(`### ${escapeMarkdownInline(r.campaignNumber)}${alertStr}`);
+      if (r.component) lines.push(`**Component:** ${escapeMarkdownInline(r.component)}`);
       if (r.potentialUnitsAffected != null) {
         lines.push(`**Units Affected:** ${r.potentialUnitsAffected}`);
       }
-      lines.push(`**Date:** ${r.reportReceivedDate}`);
-      lines.push(`**Manufacturer:** ${r.manufacturer}`);
+      lines.push(`**Date:** ${escapeMarkdownInline(r.reportReceivedDate)}`);
+      lines.push(`**Manufacturer:** ${escapeMarkdownInline(r.manufacturer)}`);
       lines.push(`**Advisories:** ${formatRecallAdvisories(r)}`);
       if (r.investigationId) {
         lines.push(
-          `**Investigation:** ${r.investigationId} — pass as nhtsaId to nhtsa_search_investigations`,
+          `**Investigation:** ${escapeMarkdownInline(r.investigationId)} — pass as nhtsaId to nhtsa_search_investigations`,
         );
       }
       if (r.affectedVehicles && r.affectedVehicles.length > 0) {
         lines.push(`**Affected Vehicles (${r.affectedVehicles.length}):**`);
         for (const v of r.affectedVehicles) {
-          lines.push(`- ${[v.modelYear, v.make, v.model].filter(Boolean).join(' ')}`);
+          // Join, then escape once: an element's trailing `&amp` must not meet a separator.
+          const vehicle = [v.modelYear, v.make, v.model].filter(Boolean).join(' ');
+          lines.push(`- ${escapeMarkdownInline(vehicle)}`);
         }
       }
-      lines.push(`\n${r.summary ?? 'Summary: Not available'}`);
-      lines.push(`\n**Consequence:** ${r.consequence ?? 'Not available'}`);
-      lines.push(`**Remedy:** ${r.remedy ?? 'Not available'}\n`);
+      if (r.summary) lines.push('', escapeMarkdownInline(r.summary));
+      else if (!broad) lines.push('', 'Summary: Not available');
+      const details = [
+        ...textLine('Consequence', r.consequence),
+        ...textLine('Remedy', r.remedy),
+        ...(r.notes ? [`**Notes:** ${escapeMarkdownInline(r.notes)}`] : []),
+      ];
+      if (details.length > 0) lines.push('', ...details);
+      lines.push('');
     }
 
     return [{ type: 'text' as const, text: lines.join('\n') }];

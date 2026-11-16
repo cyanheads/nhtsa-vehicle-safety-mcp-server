@@ -329,17 +329,19 @@ describe('searchRecalls', () => {
     expect(result.recalls[0]!.campaignNumber).toBe('21V100000');
   });
 
-  it('populates enrichment notice when no vehicle recalls found', async () => {
+  it('names the dataset_models "recalls" tag when a vehicle lookup finds nothing (#61)', async () => {
     mockService.getRecallsByVehicle.mockResolvedValue([]);
 
-    const ctx = createMockContext({ errors: searchRecalls.errors });
-    const input = searchRecalls.input.parse({ make: 'Nope', model: 'Ghost', modelYear: 2023 });
-    const result = await searchRecalls.handler(input, ctx);
+    const result = await runToolContract(searchRecalls, {
+      make: 'Nope',
+      model: 'Ghost',
+      modelYear: 2023,
+    });
 
-    expect(result.totalCount).toBe(0);
-    expect(getEnrichment(ctx).notice).toBe(
-      'No recalls found. This vehicle may have no recalls on file, or NHTSA may list them under another model name, such as a series name or a base name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search recalls under each.',
-    );
+    const notice =
+      'No recalls found. This vehicle may have no recalls on file, or NHTSA may list them under another model name. List the names with nhtsa_lookup_vehicles operation="dataset_models" for this make and model year, then search recalls under each name it tags "recalls". If a name tagged "recalls" still finds none, search it with make and model and no modelYear: that broad search matches the recall files\' spelling.';
+    expect(result.structuredContent).toMatchObject({ recalls: [], totalCount: 0, notice });
+    expect(readerText(result.content)).toContain(notice);
   });
 
   it('format renders alert badges', () => {
@@ -445,19 +447,29 @@ describe('searchRecalls', () => {
   });
 });
 
-/** One campaign as the recall-file index returns it. */
-const indexedRecall = {
+/** One campaign as a broad row carries it by default: without the campaign text (#60). */
+const indexedRow = {
   campaignNumber: '26V690000',
   manufacturer: 'Toyota Motor Engineering & Manufacturing',
   component: 'SEATS | STRUCTURE',
-  summary: 'Seat backs may fail.',
-  consequence: 'Injury risk.',
-  remedy: 'Dealers will repair.',
   reportReceivedDate: '2026-10-20',
   potentialUnitsAffected: 1200,
   parkIt: false,
   parkOutSide: true,
 };
+
+/** The same campaign as the recall-file index returns it, campaign text included. */
+const indexedRecall = {
+  ...indexedRow,
+  summary: 'Seat backs may fail.',
+  consequence: 'Injury risk.',
+  remedy: 'Dealers will repair.',
+  notes: 'Owners may also contact the NHTSA Vehicle Safety Hotline.',
+};
+
+/** The notice naming the way back to the campaign text a default broad page leaves out. */
+const TEXT_OMITTED =
+  "Broad-search rows leave out each campaign's summary, consequence, remedy, and notes: look one campaign up by campaignNumber for its text, every vehicle it covers, and its investigationId when NHTSA links one, or repeat this search with includeSummary: true.";
 
 type Envelope = {
   error: { code: number; message: string; data: { reason?: string; recovery?: { hint?: string } } };
@@ -494,23 +506,29 @@ describe('searchRecalls — broad search (#37)', () => {
     expect(mockService.getRecallCampaigns).not.toHaveBeenCalled();
     expect(mockService.getRecallsByVehicle).not.toHaveBeenCalled();
     expect(result.structuredContent).toEqual({
-      recalls: [indexedRecall],
+      recalls: [indexedRow],
       totalCount: 42,
       returned: 1,
       offset: 0,
       limit: 20,
       effectiveQuery: 'make=TOYOTA dateRange(after=2025-01-01)',
+      notice: TEXT_OMITTED,
     });
-    const text = readerText(result.content);
-    expect(text).toContain('42 recall(s) found');
-    expect(text).toContain(
-      'Page: returned 1 of 42, offset 0, limit 20, newest received date first',
+    expect(readerText(result.content)).toBe(
+      [
+        '42 recall(s) found',
+        'Page: returned 1 of 42, offset 0, limit 20, newest received date first',
+        'Use offset=1 to retrieve the next page.',
+        '26V690000 [PARK OUTSIDE]',
+        'Component: SEATS | STRUCTURE',
+        'Units Affected: 1200',
+        'Date: 2026-10-20',
+        'Manufacturer: Toyota Motor Engineering & Manufacturing',
+        'Advisories: Do not drive: no | Park outside: yes',
+        'effectiveQuery: make=TOYOTA dateRange(after=2025-01-01)',
+        TEXT_OMITTED,
+      ].join('\n'),
     );
-    expect(text).toContain('Use offset=1 to retrieve the next page.');
-    expect(text).toContain('Component: SEATS | STRUCTURE');
-    expect(text).toContain('Units Affected: 1200');
-    expect(text).toContain('Advisories: Do not drive: no | Park outside: yes');
-    expect(text).toContain('make=TOYOTA dateRange(after=2025-01-01)');
   });
 
   it.each([
@@ -544,31 +562,65 @@ describe('searchRecalls — broad search (#37)', () => {
     expect(result.structuredContent).toMatchObject({ effectiveQuery, returned: 1 });
   });
 
-  it('omits fields a campaign record leaves blank and renders them as not available', async () => {
+  it('prints only the campaign text a broad row carries, never "Not available" (#60, #56)', async () => {
+    /** 66V008001 as the recall files hold it: blank summary, consequence, and remedy. */
     const sparse = {
       campaignNumber: '66V008001',
       manufacturer: 'CHRYSLER CORPORATION',
       reportReceivedDate: '1966-10-12',
     };
+    const notes = 'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.';
+    const args = { dateRange: { before: '1966-12-31' } };
+    const head = [
+      '1 recall(s) found',
+      'Page: returned 1 of 1, offset 0, limit 20, newest received date first',
+      '66V008001',
+      'Date: 1966-10-12',
+      'Manufacturer: CHRYSLER CORPORATION',
+      'Advisories: None reported by NHTSA',
+    ];
+    const echo = 'effectiveQuery: dateRange(before=1966-12-31)';
+
     mockService.searchRecallFiles.mockResolvedValue({ recalls: [sparse], totalCount: 1 });
+    const textless = await runToolContract(searchRecalls, args);
+    mockService.searchRecallFiles.mockResolvedValue({
+      recalls: [{ ...sparse, notes }],
+      totalCount: 1,
+    });
+    const byDefault = await runToolContract(searchRecalls, args);
+    const withText = await runToolContract(searchRecalls, { ...args, includeSummary: true });
 
-    const result = await runToolContract(searchRecalls, { dateRange: { before: '1966-12-31' } });
+    // A row carrying no campaign text has nothing left out, so no notice either.
+    expect(textless.structuredContent).toEqual({
+      recalls: [sparse],
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      effectiveQuery: 'dateRange(before=1966-12-31)',
+    });
+    expect(readerText(textless.content)).toBe([...head, echo].join('\n'));
 
-    expect(result.isError).not.toBe(true);
-    expect((result.structuredContent as { recalls: unknown[] }).recalls).toEqual([sparse]);
-    const text = readerText(result.content);
-    expect(text).toContain('Summary: Not available');
-    expect(text).toContain('Consequence: Not available');
-    expect(text).toContain('Remedy: Not available');
-    expect(text).toContain('Advisories: None reported by NHTSA');
-    expect(text).not.toContain('Units Affected');
-    expect(text).not.toContain('Component');
+    expect(byDefault.structuredContent).toMatchObject({ recalls: [sparse], notice: TEXT_OMITTED });
+    expect(readerText(byDefault.content)).toBe([...head, echo, TEXT_OMITTED].join('\n'));
+
+    expect(withText.isError).not.toBe(true);
+    expect(withText.structuredContent).toEqual({
+      recalls: [{ ...sparse, notes }],
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      effectiveQuery: 'dateRange(before=1966-12-31)',
+    });
+    expect(readerText(withText.content)).toBe([...head, `Notes: ${notes}`, echo].join('\n'));
   });
 
   it.each([
     {},
     { limit: 5 },
     { offset: 3 },
+    { includeSummary: true },
     { dateRange: { after: ' ', before: '' } },
     { make: '  ', model: '' },
   ])(
@@ -622,22 +674,23 @@ describe('searchRecalls — broad search (#37)', () => {
     const yearOnly = await runToolContract(searchRecalls, { modelYear: 1901 });
     const modelOnly = await runToolContract(searchRecalls, { model: 'Silverado' });
 
+    const byName =
+      'The make and model filters match whole names as NHTSA\'s recall records spell them, ignoring case, and NHTSA may file a vehicle\'s recalls under another model name: nhtsa_lookup_vehicles operation="dataset_models" lists a make and model year\'s names and tags the ones recall records use "recalls".';
     expect(named.structuredContent).toMatchObject({
       recalls: [],
       totalCount: 0,
       returned: 0,
       offset: 0,
       limit: 20,
-      notice:
-        "No recall campaign matches make, model, and dateRange. Relax or remove one of these filters. The make and model filters match whole names as NHTSA's recall records spell them, ignoring case, and NHTSA may file a vehicle's recalls under another model name, such as a series name or a base name.",
+      notice: `No recall campaign matches make, model, and dateRange. Relax or remove one of these filters. ${byName}`,
     });
     expect(yearOnly.structuredContent).toMatchObject({
       notice: 'No recall campaign matches modelYear. Relax or remove this filter.',
     });
     expect(modelOnly.structuredContent).toMatchObject({
-      notice:
-        "No recall campaign matches model. Relax or remove this filter. The make and model filters match whole names as NHTSA's recall records spell them, ignoring case, and NHTSA may file a vehicle's recalls under another model name, such as a series name or a base name.",
+      notice: `No recall campaign matches model. Relax or remove this filter. ${byName}`,
     });
+    expect(readerText(modelOnly.content)).toContain(byName);
     const text = readerText(named.content);
     expect(text).toContain('No recalls found matching the search criteria.');
     expect(text).toContain('Page: returned 0 of 0, offset 0, limit 20');
@@ -681,12 +734,26 @@ describe('searchRecalls — broad search (#37)', () => {
   it('names the next offset in the clamp notice while matches remain', async () => {
     mockService.searchRecallFiles.mockResolvedValue({ recalls: [indexedRecall], totalCount: 42 });
 
-    const result = await runToolContract(searchRecalls, { make: 'Toyota', limit: 1e21 });
+    const result = await runToolContract(searchRecalls, {
+      make: 'Toyota',
+      limit: 1e21,
+      includeSummary: true,
+    });
 
     expect(result.structuredContent).toMatchObject({
       limit: 50,
       notice: 'limit 1e+21 exceeds the maximum of 50; returned 1 — continue at offset=1.',
     });
+  });
+
+  it('joins the left-out-text notice after the clamp notice, not in place of it (#60)', async () => {
+    mockService.searchRecallFiles.mockResolvedValue({ recalls: [indexedRecall], totalCount: 42 });
+
+    const result = await runToolContract(searchRecalls, { make: 'Toyota', limit: 1e21 });
+
+    const notice = `limit 1e+21 exceeds the maximum of 50; returned 1 — continue at offset=1. ${TEXT_OMITTED}`;
+    expect(result.structuredContent).toMatchObject({ limit: 50, notice });
+    expect(readerText(result.content)).toContain(notice);
   });
 
   it('rejects an over-maximum limit with limit_too_large when clamping is off, before upstream work', async () => {
@@ -758,6 +825,141 @@ describe('searchRecalls — broad search (#37)', () => {
   });
 });
 
+describe('searchRecalls — campaign text in broad rows is opt-in (#60)', () => {
+  it('returns the campaign text verbatim with includeSummary: true, without the notice', async () => {
+    mockService.searchRecallFiles.mockResolvedValue({ recalls: [indexedRecall], totalCount: 1 });
+
+    const result = await runToolContract(searchRecalls, { make: 'Toyota', includeSummary: true });
+
+    expect(result.structuredContent).toEqual({
+      recalls: [indexedRecall],
+      totalCount: 1,
+      returned: 1,
+      offset: 0,
+      limit: 20,
+      effectiveQuery: 'make=TOYOTA',
+    });
+    expect(readerText(result.content)).toBe(
+      [
+        '1 recall(s) found',
+        'Page: returned 1 of 1, offset 0, limit 20, newest received date first',
+        '26V690000 [PARK OUTSIDE]',
+        'Component: SEATS | STRUCTURE',
+        'Units Affected: 1200',
+        'Date: 2026-10-20',
+        'Manufacturer: Toyota Motor Engineering & Manufacturing',
+        'Advisories: Do not drive: no | Park outside: yes',
+        'Seat backs may fail.',
+        'Consequence: Injury risk.',
+        'Remedy: Dealers will repair.',
+        'Notes: Owners may also contact the NHTSA Vehicle Safety Hotline.',
+        'effectiveQuery: make=TOYOTA',
+      ].join('\n'),
+    );
+  });
+
+  it.each([
+    ['campaign', { campaignNumber: '20V682000' }],
+    ['vehicle', { make: 'Toyota', model: 'Camry', modelYear: 2020 }],
+  ])(
+    'returns the same %s lookup rows with and without includeSummary, without the notice',
+    async (_mode, key) => {
+      const notes = 'Owners may contact Toyota customer service.';
+      mockService.getRecallCampaigns.mockResolvedValue([
+        { ...sampleRecall, notes, receivedDate: '2020-12-11', affectedVehicles: [] },
+      ]);
+      mockService.getRecallsByVehicle.mockResolvedValue([{ ...sampleRecall, notes }]);
+
+      const unset = await runToolContract(searchRecalls, key);
+      const off = await runToolContract(searchRecalls, { ...key, includeSummary: false });
+      const on = await runToolContract(searchRecalls, { ...key, includeSummary: true });
+
+      expect(unset.structuredContent).toMatchObject({
+        recalls: [
+          {
+            summary: 'Fuel leak.',
+            consequence: 'Fire risk.',
+            remedy: 'Replace pipe.',
+            notes,
+          },
+        ],
+      });
+      expect(unset.structuredContent).not.toHaveProperty('notice');
+      for (const result of [off, on]) {
+        expect(result.isError).not.toBe(true);
+        expect(result.structuredContent).toStrictEqual(unset.structuredContent);
+        expect(result.content).toStrictEqual(unset.content);
+      }
+    },
+  );
+});
+
+describe("searchRecalls — NHTSA's recall notes (#56)", () => {
+  const notes = 'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.';
+
+  it.each([
+    [{ campaignNumber: '66V008001' }, '66V008001'],
+    [{ make: 'Dodge', model: 'Dart', modelYear: 1967 }, 'Dodge Dart 1967'],
+  ])(
+    'returns the notes of %j on both surfaces, beside "Not available" for the blank text',
+    async (args, effectiveQuery) => {
+      const dart = {
+        campaignNumber: '66V008001',
+        manufacturer: 'CHRYSLER CORPORATION',
+        component: 'WHEELS',
+        notes,
+      };
+      mockService.getRecallCampaigns.mockResolvedValue([
+        { ...dart, receivedDate: '1966-10-12', affectedVehicles: [] },
+      ]);
+      mockService.getRecallsByVehicle.mockResolvedValue([
+        { ...dart, reportReceivedDate: '1966-10-12' },
+      ]);
+
+      const result = await runToolContract(searchRecalls, args);
+
+      expect(result.isError).not.toBe(true);
+      const [recall] = (result.structuredContent as { recalls: Record<string, unknown>[] }).recalls;
+      expect(recall).toMatchObject({ campaignNumber: '66V008001', notes });
+      for (const field of ['summary', 'consequence', 'remedy']) {
+        expect(recall).not.toHaveProperty(field);
+      }
+      expect(readerText(result.content)).toBe(
+        [
+          '1 recall(s) found',
+          '66V008001',
+          'Component: WHEELS',
+          'Date: 1966-10-12',
+          'Manufacturer: CHRYSLER CORPORATION',
+          'Advisories: None reported by NHTSA',
+          'Summary: Not available',
+          'Consequence: Not available',
+          'Remedy: Not available',
+          `Notes: ${notes}`,
+          `effectiveQuery: ${effectiveQuery}`,
+        ].join('\n'),
+      );
+    },
+  );
+
+  it('prints no notes line for a lookup row NHTSA sent without notes', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([sampleRecall]);
+
+    const result = await runToolContract(searchRecalls, {
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+    });
+
+    expect((result.structuredContent as { recalls: object[] }).recalls[0]).not.toHaveProperty(
+      'notes',
+    );
+    expect(readerText(result.content)).toContain(
+      'Consequence: Fire risk.\nRemedy: Replace pipe.\neffectiveQuery: Toyota Camry 2020',
+    );
+  });
+});
+
 describe('searchRecalls — campaign text NHTSA sends as null (#55)', () => {
   const fetchMock = vi.fn();
   /** 66V008001 for a 1967 Dodge Dart, as api.nhtsa.gov returns it: the campaign text is null. */
@@ -820,6 +1022,7 @@ describe('searchRecalls — campaign text NHTSA sends as null (#55)', () => {
         manufacturer: 'CHRYSLER CORPORATION',
         component: 'WHEELS',
         reportReceivedDate: '1966-10-12',
+        notes: 'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.',
       });
       for (const field of ['summary', 'consequence', 'remedy']) {
         expect(recall).not.toHaveProperty(field);
@@ -828,6 +1031,9 @@ describe('searchRecalls — campaign text NHTSA sends as null (#55)', () => {
       expect(text).toContain('Summary: Not available');
       expect(text).toContain('Consequence: Not available');
       expect(text).toContain('Remedy: Not available');
+      expect(text).toContain(
+        'Notes: POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.',
+      );
       expect(text).not.toMatch(/\bnull\b|\bundefined\b/);
     },
   );
@@ -974,6 +1180,7 @@ describe('searchRecalls — campaign numbers through the campaignNumber endpoint
           summary: 'The low-pressure fuel pump inside the fuel tank may fail.',
           consequence: 'If the fuel pump fails, the engine can stall while driving.',
           remedy: 'Dealers will replace the fuel pump assembly, free of charge.',
+          notes: 'Owners may contact Toyota customer service.',
           reportReceivedDate: '2020-11-04',
           potentialUnitsAffected: 1_525_742,
           affectedVehicles: [
@@ -1005,6 +1212,7 @@ describe('searchRecalls — campaign numbers through the campaignNumber endpoint
         'The low-pressure fuel pump inside the fuel tank may fail.',
         'Consequence: If the fuel pump fails, the engine can stall while driving.',
         'Remedy: Dealers will replace the fuel pump assembly, free of charge.',
+        'Notes: Owners may contact Toyota customer service.',
         'effectiveQuery: 20V682000',
       ].join('\n'),
     );

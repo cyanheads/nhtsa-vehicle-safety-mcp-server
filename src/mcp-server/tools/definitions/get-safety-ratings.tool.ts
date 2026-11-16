@@ -6,7 +6,12 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { formatRolloverProbability, formatStars, formatText } from '@/services/nhtsa/format.js';
+import {
+  formatRolloverProbability,
+  formatStars,
+  formatText,
+  renderNotice,
+} from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { SafetyRating } from '@/services/nhtsa/types.js';
 
@@ -132,6 +137,7 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
         'Guidance when no NCAP ratings are found — coverage notes, adjacent years, and the lookup listing the model names NCAP files the vehicle under.',
       ),
   },
+  enrichmentTrailer: { notice: { render: renderNotice } },
   errors: [
     {
       reason: 'mode_conflict',
@@ -214,10 +220,9 @@ export const getSafetyRatings = tool('nhtsa_get_safety_ratings', {
 
     const lines: string[] = [];
     for (const r of result.ratings) {
-      const label = r.vehicleDescription
-        ? `${r.vehicleDescription} (vehicleId: ${r.vehicleId})`
-        : `Vehicle ${r.vehicleId}`;
-      lines.push(`## ${label}\n`);
+      /** A heading holds one line, so the free-text description sits on its own labeled line. */
+      lines.push(`## Vehicle ${r.vehicleId}\n`);
+      lines.push(`**Description:** ${formatText(r.vehicleDescription)}`);
       lines.push(`**Overall:** ${formatStars(r.overallRating)}\n`);
 
       lines.push('### Frontal Crash');

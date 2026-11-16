@@ -9,6 +9,7 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import { holdToCap } from '@/mcp-server/tools/request-cap.js';
+import { renderNotice } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 
 /** VINs one call decodes; past this, the rest come back in `deferredVins`. */
@@ -273,6 +274,7 @@ export const decodeVin = tool('nhtsa_decode_vin', {
         `Present when VINs past the first ${MAX_BATCH_SIZE} were deferred to deferredVins, or when VINs decoded with VPIC warnings (errorCode != 0) — check errorCode/errorText per vehicle.`,
       ),
   },
+  enrichmentTrailer: { notice: { render: renderNotice } },
   errors: [
     {
       reason: 'empty_vin_list',

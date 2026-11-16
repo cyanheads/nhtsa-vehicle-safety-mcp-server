@@ -5,14 +5,19 @@
 
 import v8 from 'node:v8';
 import vm from 'node:vm';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { zipSync } from 'fflate';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getNhtsaService,
   initNhtsaService,
   MANUFACTURER_RESULT_CAP,
   NhtsaService,
 } from '@/services/nhtsa/nhtsa-service.js';
+
+/** The page a proxy in front of an upstream serves in place of the JSON it asked for. */
+const HTML_ERROR_PAGE =
+  '<html><head><title>502 Bad Gateway</title></head><body><h1>502 Bad Gateway</h1></body></html>';
 
 /** The smallest FLAT_INV a load accepts: one row, one investigation. */
 const ONE_INV_ROW = ['PE25001', 'TOYOTA', 'CAMRY', '2020', 'BRAKES', 'Toyota'];
@@ -66,13 +71,28 @@ describe('init / accessor', () => {
 });
 
 describe('fetchJson retry', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Run `call` through every retry backoff, then settle it as a value or a caught error. */
+  async function throughBackoff(call: Promise<unknown>): Promise<unknown> {
+    const settled = call.catch((e: unknown) => e);
+    await vi.runAllTimersAsync();
+    return await settled;
+  }
+
   it('retries on 500 and succeeds', async () => {
     mockFetch
       .mockResolvedValueOnce(jsonResponse({}, 500))
       .mockResolvedValueOnce(jsonResponse({ Count: 0, Message: 'OK', results: [] }));
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
+    const result = await throughBackoff(svc.getRecallsByVehicle('Toyota', 'Camry', 2020));
     expect(result).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
@@ -83,7 +103,7 @@ describe('fetchJson retry', () => {
       .mockResolvedValueOnce(jsonResponse({ Count: 0, Message: 'OK', results: [] }));
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
+    const result = await throughBackoff(svc.getRecallsByVehicle('Toyota', 'Camry', 2020));
     expect(result).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
@@ -94,7 +114,7 @@ describe('fetchJson retry', () => {
       .mockResolvedValueOnce(jsonResponse({ Count: 0, Message: 'OK', results: [] }));
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
+    const result = await throughBackoff(svc.getRecallsByVehicle('Toyota', 'Camry', 2020));
     expect(result).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
@@ -110,9 +130,105 @@ describe('fetchJson retry', () => {
       .mockResolvedValueOnce(jsonResponse({ Count: 0, Message: 'OK', results: [] }));
 
     const svc = getNhtsaService();
-    const result = await svc.getRecallsByVehicle('Toyota', 'Camry', 2020);
+    const result = await throughBackoff(svc.getRecallsByVehicle('Toyota', 'Camry', 2020));
     expect(result).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits 1 s before the second attempt and 2 s before the third, then stops', async () => {
+    mockFetch.mockImplementation(async () => jsonResponse({}, 503));
+    let settled = false;
+    const failure = getNhtsaService()
+      .getRecallsByVehicle('Toyota', 'Camry', 2020)
+      .catch((e: unknown) => e)
+      .finally(() => {
+        settled = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await failure).toMatchObject({ code: JsonRpcErrorCode.ServiceUnavailable });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects with the caller's abort reason when it aborts during a backoff, and sends no further request", async () => {
+    mockFetch.mockImplementation(async () => jsonResponse({}, 500));
+    const controller = new AbortController();
+    const reason = new Error('caller left');
+    const call = getNhtsaService().getRecallsByVehicle('Toyota', 'Camry', 2020, controller.signal);
+    const rejection = expect(call).rejects.toBe(reason);
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    controller.abort(reason);
+
+    await rejection;
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a 200 whose body is not JSON as the upstream unavailable, quoting none of the body', async () => {
+    mockFetch.mockImplementation(
+      async () =>
+        new Response(HTML_ERROR_PAGE, { status: 200, headers: { 'Content-Type': 'text/html' } }),
+    );
+
+    const error = await throughBackoff(
+      getNhtsaService().getRecallsByVehicle('Toyota', 'Camry', 2020),
+    );
+
+    expect(error).toBeInstanceOf(McpError);
+    expect(error).toMatchObject({
+      code: JsonRpcErrorCode.ServiceUnavailable,
+      message: 'NHTSA returned HTTP 200 with a body that is not JSON.',
+      data: { endpoint: '/recalls/recallsByVehicle', status: 200 },
+    });
+    expect((error as McpError).cause).toBeInstanceOf(SyntaxError);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports a request that never connects as the upstream unavailable, naming the endpoint', async () => {
+    const dropped = new TypeError('fetch failed');
+    mockFetch.mockRejectedValue(dropped);
+
+    const error = await throughBackoff(
+      getNhtsaService().getRecallsByVehicle('Toyota', 'Camry', 2020),
+    );
+
+    expect(error).toBeInstanceOf(McpError);
+    expect(error).toMatchObject({
+      code: JsonRpcErrorCode.ServiceUnavailable,
+      message: 'NHTSA could not be reached.',
+      data: { endpoint: '/recalls/recallsByVehicle' },
+    });
+    expect((error as McpError).cause).toBe(dropped);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports a request that outlives its 30 s timeout as the upstream not responding', async () => {
+    mockFetch.mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'));
+
+    const error = await throughBackoff(
+      getNhtsaService().getRecallsByVehicle('Toyota', 'Camry', 2020),
+    );
+
+    expect(error).toMatchObject({
+      code: JsonRpcErrorCode.ServiceUnavailable,
+      message: 'NHTSA did not respond within 30 seconds.',
+      data: { endpoint: '/recalls/recallsByVehicle' },
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
   it('throws immediately on 403', async () => {
@@ -160,7 +276,9 @@ describe('fetchJson retry', () => {
     mockFetch.mockResolvedValue(jsonResponse({}, 500));
 
     const svc = getNhtsaService();
-    await expect(svc.getRecallsByVehicle('Toyota', 'Camry', 2020)).rejects.toThrow('500');
+    const error = await throughBackoff(svc.getRecallsByVehicle('Toyota', 'Camry', 2020));
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('500');
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });
@@ -254,7 +372,7 @@ describe('getRecallsByVehicle', () => {
     expect(recalls[0]!.overTheAirUpdate).toBeUndefined();
   });
 
-  it('omits the summary, consequence, and remedy an older campaign sends as null', async () => {
+  it('omits the summary, consequence, and remedy an older campaign sends as null, and returns its notes (#56)', async () => {
     // A 1967 Dodge Dart row as the endpoint returns it: the campaign text is null, not blank.
     mockFetch.mockResolvedValue(
       jsonResponse({
@@ -288,12 +406,53 @@ describe('getRecallsByVehicle', () => {
         campaignNumber: '66V008001',
         manufacturer: 'CHRYSLER CORPORATION',
         component: 'WHEELS',
+        notes: 'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.',
         reportReceivedDate: '1966-10-12',
         parkIt: false,
         parkOutSide: false,
         overTheAirUpdate: false,
       },
     ]);
+  });
+
+  it('trims notes, and omits notes sent as null, empty, or whitespace (#56)', async () => {
+    const row = {
+      Manufacturer: 'Toyota',
+      ReportReceivedDate: '11/12/2020',
+      Component: 'FUEL/PROPULSION SYSTEM',
+      Summary: 'Fuel delivery pipe may leak.',
+      Consequence: 'Fire risk.',
+      Remedy: 'Replace fuel pipe.',
+      ModelYear: '2020',
+      Make: 'TOYOTA',
+      Model: 'CAMRY',
+    };
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 4,
+        Message: 'Results returned successfully',
+        results: [
+          { ...row, NHTSACampaignNumber: '20V000001', Notes: null },
+          { ...row, NHTSACampaignNumber: '20V000002', Notes: '' },
+          { ...row, NHTSACampaignNumber: '20V000003', Notes: ' \r\n\t ' },
+          {
+            ...row,
+            NHTSACampaignNumber: '20V000004',
+            Notes: '\r\n  Owners may contact NHTSA.\r\nLine two.  ',
+          },
+        ],
+      }),
+    );
+
+    const recalls = await getNhtsaService().getRecallsByVehicle('Toyota', 'Camry', 2020);
+
+    expect(recalls.map((r) => [r.campaignNumber, r.notes])).toEqual([
+      ['20V000001', undefined],
+      ['20V000002', undefined],
+      ['20V000003', undefined],
+      ['20V000004', 'Owners may contact NHTSA.\r\nLine two.'],
+    ]);
+    for (const recall of recalls.slice(0, 3)) expect(recall).not.toHaveProperty('notes');
   });
 });
 
@@ -1675,12 +1834,12 @@ describe('getInvestigations caching (flat-file source)', () => {
 
   it('retains memory in proportion to the kept fields, not the decompressed file (#54)', async () => {
     const ids = 256;
-    const rowsPerId = 32;
+    const rowsPerId = 16;
     const summaryChars = 4000;
     /**
      * Every row names a new model, so every stretch of decoded text holds a field the records
      * keep. A field sliced out of that text pins the whole stretch, which puts the retained heap
-     * near `textBytes`; a field decoded on its own keeps only itself (~1.5 MB here). Model names
+     * near `textBytes`; a field decoded on its own keeps only itself (~1.2 MB here). Model names
      * run past 12 characters: V8 copies a shorter substring rather than slicing it.
      */
     let seed = 1;
@@ -1748,6 +1907,81 @@ describe('getInvestigations caching (flat-file source)', () => {
     expect(investigations).toHaveLength(ids);
     expect(investigations[ids - 1]!.models).toHaveLength(rowsPerId);
     expect(retained).toBeLessThan(textBytes / 4);
+  });
+});
+
+describe('getInvestigationsWithin (#64)', () => {
+  /** Serve FLAT_INV from `response`, resolving `started` once the load asks for it. */
+  function serveInvestigations(response: Promise<Response>, started: PromiseWithResolvers<void>) {
+    mockFetch.mockImplementation((url: string) => {
+      if (new URL(url).hostname !== 'static.nhtsa.gov')
+        return Promise.reject(new Error('unmocked fetch'));
+      started.resolve();
+      return response;
+    });
+  }
+
+  it('returns the investigations when the load finishes inside the wait', async () => {
+    mockFetch.mockResolvedValue(makeFlatInvZipResponse([ONE_INV_ROW]));
+
+    expect(await new NhtsaService().getInvestigationsWithin()).toMatchObject({
+      kind: 'ready',
+      value: [{ nhtsaId: 'PE25001', makes: ['TOYOTA'], models: ['CAMRY'] }],
+    });
+  });
+
+  it('returns pending when the load is still running at 30 s; the next call reads the load it left running', async () => {
+    vi.useFakeTimers();
+    try {
+      const response = Promise.withResolvers<Response>();
+      serveInvestigations(response.promise, Promise.withResolvers());
+      const svc = new NhtsaService();
+      let settled = false;
+      const waited = svc.getInvestigationsWithin().finally(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await waited).toEqual({ kind: 'pending' });
+
+      response.resolve(makeFlatInvZipResponse([ONE_INV_ROW]));
+      expect(await svc.getInvestigationsWithin()).toMatchObject({
+        kind: 'ready',
+        value: [{ nhtsaId: 'PE25001' }],
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns failed with the error of a load that fails', async () => {
+    mockFetch.mockResolvedValue(new Response('Bad Gateway', { status: 502 }));
+
+    expect(await new NhtsaService().getInvestigationsWithin()).toMatchObject({
+      kind: 'failed',
+      error: { code: JsonRpcErrorCode.ServiceUnavailable, data: { status: 502 } },
+    });
+  });
+
+  it("rejects with the caller's abort reason and leaves the load running for the cache", async () => {
+    const response = Promise.withResolvers<Response>();
+    const started = Promise.withResolvers<void>();
+    serveInvestigations(response.promise, started);
+    const svc = new NhtsaService();
+    const controller = new AbortController();
+    const reason = new Error('caller left');
+
+    const waited = svc.getInvestigationsWithin(controller.signal);
+    await started.promise;
+    controller.abort(reason);
+
+    await expect(waited).rejects.toBe(reason);
+    response.resolve(makeFlatInvZipResponse([ONE_INV_ROW]));
+    expect(await svc.getInvestigations()).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -2325,7 +2559,7 @@ describe('getRecallCampaigns (direct endpoint)', () => {
     expect(result!.overTheAirUpdate).toBeUndefined();
   });
 
-  it('omits the summary, consequence, and remedy an older campaign sends as null', async () => {
+  it('omits the summary, consequence, and remedy an older campaign sends as null, and returns its notes (#56)', async () => {
     // 66V008001 as the endpoint returns it: four vehicle rows, each with null campaign text.
     const campaignDetail = {
       Manufacturer: 'CHRYSLER CORPORATION',
@@ -2362,6 +2596,7 @@ describe('getRecallCampaigns (direct endpoint)', () => {
         campaignNumber: '66V008001',
         manufacturer: 'CHRYSLER CORPORATION',
         component: 'WHEELS',
+        notes: 'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.',
         receivedDate: '1966-10-12',
         potentialUnitsAffected: 1101,
         affectedVehicles: [
@@ -2452,5 +2687,39 @@ describe('getRecallCampaigns (direct endpoint)', () => {
       },
     ]);
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes each campaign's notes from its first row, trimmed, and omits null, empty, or whitespace notes (#56)", async () => {
+    const detail = {
+      Manufacturer: 'Toyota',
+      Component: 'FUEL/PROPULSION SYSTEM',
+      ReportReceivedDate: '11/12/2020',
+      Make: 'TOYOTA',
+      Model: 'CAMRY',
+      ModelYear: '2020',
+    };
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Count: 5,
+        Message: 'Results returned successfully',
+        results: [
+          { ...detail, NHTSACampaignNumber: '20V682001', Notes: '\n  Defect text.\r\n  ' },
+          { ...detail, NHTSACampaignNumber: '20V682002', Notes: null },
+          { ...detail, NHTSACampaignNumber: '20V682001', Notes: 'A later row.', ModelYear: '2021' },
+          { ...detail, NHTSACampaignNumber: '20V682003', Notes: '' },
+          { ...detail, NHTSACampaignNumber: '20V682004', Notes: ' \t ' },
+        ],
+      }),
+    );
+
+    const campaigns = await getNhtsaService().getRecallCampaigns('20V682');
+
+    expect(campaigns.map((c) => [c.campaignNumber, c.notes])).toEqual([
+      ['20V682001', 'Defect text.'],
+      ['20V682002', undefined],
+      ['20V682003', undefined],
+      ['20V682004', undefined],
+    ]);
+    for (const campaign of campaigns.slice(1)) expect(campaign).not.toHaveProperty('notes');
   });
 });

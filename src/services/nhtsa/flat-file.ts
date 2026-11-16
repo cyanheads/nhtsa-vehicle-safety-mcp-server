@@ -39,6 +39,15 @@ export interface FlatFileRow {
   readonly fieldCount: number;
 }
 
+/**
+ * What {@link FlatFileCache.getWithin} found when its wait ended: the value, a load still
+ * running, or the error of a load that failed.
+ */
+export type BoundedLoad<T> =
+  | { kind: 'ready'; value: T }
+  | { kind: 'pending' }
+  | { kind: 'failed'; error: unknown };
+
 /** Reads one flat file within the load that received it; see {@link FlatFileCache}. */
 export type ReadFlatFile = (url: string, onRow: (row: FlatFileRow) => void) => Promise<void>;
 
@@ -106,6 +115,27 @@ export class FlatFileCache<T> {
         },
       );
     });
+  }
+
+  /**
+   * {@link get}, waiting at most `waitMs` for the shared load. A load still running when the
+   * wait lapses resolves `pending` and runs on for the cache; a failed load resolves `failed`
+   * with its error. Rejects only with `signal.reason` when `signal` aborts. For callers that
+   * degrade instead of failing when the files are slow or unavailable.
+   */
+  async getWithin(waitMs: number, signal?: AbortSignal): Promise<BoundedLoad<T>> {
+    /** A timer rather than `AbortSignal.timeout`, so fake timers drive it as they drive the load. */
+    const wait = new AbortController();
+    const timer = setTimeout(() => wait.abort(), waitMs);
+    try {
+      const value = await this.get(signal ? AbortSignal.any([signal, wait.signal]) : wait.signal);
+      return { kind: 'ready', value };
+    } catch (error) {
+      signal?.throwIfAborted();
+      return wait.signal.aborted ? { kind: 'pending' } : { kind: 'failed', error };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async startLoad(): Promise<T> {

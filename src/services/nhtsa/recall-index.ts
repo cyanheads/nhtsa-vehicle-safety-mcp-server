@@ -1,7 +1,8 @@
 /**
  * @fileoverview In-memory index of NHTSA's recall flat files (FLAT_RCL_POST_2010 and
  * FLAT_RCL_PRE_2010): one record per campaign, grouped from the files' rows by campaign number
- * and searched by make, model, model year, and received date, newest first.
+ * and searched by make, model, model year, and received date, newest first, plus the model names
+ * the files list for a make and model year.
  * @module services/nhtsa/recall-index
  */
 
@@ -25,6 +26,7 @@ const FIELD = {
   summary: 19,
   consequence: 20,
   remedy: 21,
+  notes: 22,
   doNotDrive: 27,
   parkOutside: 28,
 } as const;
@@ -75,18 +77,38 @@ const descending = (a: string, b: string): number => Number(a < b) - Number(a > 
 /** The recall campaigns from the flat files, newest received date first, ties by campaign number descending. */
 export class RecallIndex {
   private readonly entries: readonly Entry[];
+  /**
+   * Every vehicle key the campaigns name, once each. The campaigns' lists repeat a key in every
+   * campaign covering that vehicle, so a lookup by vehicle reads this list instead.
+   */
+  private readonly vehicles: readonly VehicleKey[];
 
-  constructor(entries: Entry[]) {
+  constructor(entries: Entry[], vehicles: readonly VehicleKey[]) {
     this.entries = entries.sort(
       (a, b) =>
         descending(a.recall.reportReceivedDate, b.recall.reportReceivedDate) ||
         descending(a.recall.campaignNumber, b.recall.campaignNumber),
     );
+    this.vehicles = vehicles;
   }
 
   /** Campaigns in the index. */
   get size(): number {
     return this.entries.length;
+  }
+
+  /**
+   * The model names on rows whose make is `make` (the whole name, ignoring case) and whose model
+   * year is `modelYear`, each once, uppercased as the index keeps them, in ascending code-unit
+   * order. A row whose model year is unknown or 9999 names no model year, so it adds no name.
+   */
+  modelNames(make: string, modelYear: number): string[] {
+    const upper = make.toUpperCase();
+    // Keys are distinct, so for one make and model year each model name occurs once.
+    return this.vehicles
+      .filter((v) => v.model !== '' && v.make === upper && v.modelYear === modelYear)
+      .map((v) => v.model)
+      .sort();
   }
 
   /**
@@ -174,7 +196,7 @@ class RecallIndexBuilder {
       if (components.length > 0) recall.component = components.join(COMPONENT_SEPARATOR);
       entries.push({ recall, vehicles });
     }
-    return new RecallIndex(entries);
+    return new RecallIndex(entries, [...this.keys.values()]);
   }
 
   private name(raw: string): string {
@@ -217,6 +239,7 @@ function campaignFields(row: FlatFileRow, campaignNumber: string): IndexedRecall
   const summary = row.field(FIELD.summary);
   const consequence = row.field(FIELD.consequence);
   const remedy = row.field(FIELD.remedy);
+  const notes = row.field(FIELD.notes);
   const parkIt = advisory(row.field(FIELD.doNotDrive));
   const parkOutSide = advisory(row.field(FIELD.parkOutside));
   return {
@@ -227,6 +250,7 @@ function campaignFields(row: FlatFileRow, campaignNumber: string): IndexedRecall
     ...(summary ? { summary } : {}),
     ...(consequence ? { consequence } : {}),
     ...(remedy ? { remedy } : {}),
+    ...(notes ? { notes } : {}),
     ...(parkIt !== undefined ? { parkIt } : {}),
     ...(parkOutSide !== undefined ? { parkOutSide } : {}),
   };

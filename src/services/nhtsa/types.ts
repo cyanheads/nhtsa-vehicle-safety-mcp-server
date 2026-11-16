@@ -25,7 +25,8 @@ export interface VpicResponse<T> {
 
 /**
  * /recalls/recallsByVehicle — PascalCase with camelCase booleans. Older campaigns (the 1960s
- * ones, for example) send `Summary`, `Consequence`, and `Remedy` as null.
+ * ones, for example) send `Summary`, `Consequence`, and `Remedy` as null, and carry their
+ * defect text in `Notes`; some recent campaigns send `Notes` as null.
  */
 export interface RawRecallByVehicle {
   Component: string;
@@ -35,7 +36,7 @@ export interface RawRecallByVehicle {
   Model: string;
   ModelYear: string;
   NHTSACampaignNumber: string;
-  Notes: string;
+  Notes: string | null;
   overTheAirUpdate?: boolean;
   parkIt?: boolean;
   parkOutSide?: boolean;
@@ -60,7 +61,7 @@ export interface RawRecallCampaignDirect {
   ModelYear?: string;
   NHTSAActionNumber?: string;
   NHTSACampaignNumber: string;
-  Notes?: string;
+  Notes?: string | null;
   overTheAirUpdate?: boolean;
   PotentialNumberofUnitsAffected?: number;
   parkIt?: boolean;
@@ -147,6 +148,8 @@ export interface Recall {
   component: string;
   consequence?: string;
   manufacturer: string;
+  /** NHTSA's notes on the campaign; older campaigns carry their defect text here. */
+  notes?: string;
   overTheAirUpdate?: boolean;
   parkIt?: boolean;
   parkOutSide?: boolean;
@@ -178,6 +181,8 @@ export interface RecallCampaign {
   consequence?: string;
   investigationId?: string;
   manufacturer: string;
+  /** NHTSA's notes on the campaign; older campaigns carry their defect text here. */
+  notes?: string;
   overTheAirUpdate?: boolean;
   parkIt?: boolean;
   parkOutSide?: boolean;
@@ -199,6 +204,8 @@ export interface IndexedRecall {
   component?: string;
   consequence?: string;
   manufacturer: string;
+  /** NHTSA's notes on the campaign; older campaigns carry their defect text here. */
+  notes?: string;
   parkIt?: boolean;
   parkOutSide?: boolean;
   potentialUnitsAffected?: number;
@@ -419,9 +426,10 @@ export interface VpicModel {
 
 /**
  * The model-name lists NHTSA keeps per make and model year: the complaint products list, NCAP's
- * model list, and VPIC's catalog. No list enumerates recall names.
+ * model list, VPIC's catalog, and the model names on the recall flat files' vehicle rows. The
+ * order is the order `listedBy` tags follow.
  */
-export const DATASET_MODEL_LISTS = ['products', 'ncap', 'vpic'] as const;
+export const DATASET_MODEL_LISTS = ['products', 'ncap', 'vpic', 'recalls'] as const;
 
 export type DatasetModelList = (typeof DATASET_MODEL_LISTS)[number];
 

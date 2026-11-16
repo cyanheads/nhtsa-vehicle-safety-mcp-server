@@ -6,6 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import {
   limitClampNotice,
   limitSchema,
@@ -18,6 +19,7 @@ import {
   nextPageHint,
   outOfBoundsMessage,
   pluralize,
+  renderNotice,
 } from '@/services/nhtsa/format.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { UnreliableIncidentDateReason } from '@/services/nhtsa/types.js';
@@ -46,18 +48,19 @@ const INCIDENT_DATE_REJECTIONS: Record<UnreliableIncidentDateReason, string> = {
  * reading only `content[]` gets the same machine-readable verdict `structuredContent` carries.
  *
  * Both fields render independently: the service sets one or the other, but format() owes every
- * declared output field a rendering rather than a rendering conditional on a sibling.
+ * declared output field a rendering rather than a rendering conditional on a sibling. Both dates
+ * are escaped: the service passes an incident date it cannot parse through as NHTSA sent it.
  */
 function formatIncidentDate(complaint: {
   dateOfIncident?: string | undefined;
   unreliableIncidentDate?: { reported: string; reason: UnreliableIncidentDateReason } | undefined;
 }): string {
   const parts: string[] = [];
-  if (complaint.dateOfIncident) parts.push(complaint.dateOfIncident);
+  if (complaint.dateOfIncident) parts.push(escapeMarkdownInline(complaint.dateOfIncident));
   const unreliable = complaint.unreliableIncidentDate;
   if (unreliable) {
     parts.push(
-      `Unreliable (${unreliable.reason}) — NHTSA reported ${unreliable.reported}, which ${INCIDENT_DATE_REJECTIONS[unreliable.reason]}`,
+      `Unreliable (${unreliable.reason}) — NHTSA reported ${escapeMarkdownInline(unreliable.reported)}, which ${INCIDENT_DATE_REJECTIONS[unreliable.reason]}`,
     );
   }
   return parts.join(' · ') || 'Not available';
@@ -191,6 +194,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
         'Guidance when no complaints match the vehicle (NHTSA may file them under another model name), when the component filter excludes every complaint, when the requested page overshoots the result set, or when limit was lowered to the page maximum.',
       ),
   },
+  enrichmentTrailer: { notice: { render: renderNotice } },
   errors: [
     {
       reason: 'limit_too_large',
@@ -291,7 +295,9 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
         `${b.injuryCount} ${pluralize(b.injuryCount, 'injury', 'injuries')}`,
         `${b.deathCount} ${pluralize(b.deathCount, 'death')}`,
       ].join(', ');
-      lines.push(`- **${b.component}:** ${b.count} ${pluralize(b.count, 'complaint')} (${flags})`);
+      lines.push(
+        `- **${escapeMarkdownInline(b.component)}:** ${b.count} ${pluralize(b.count, 'complaint')} (${flags})`,
+      );
     }
 
     lines.push(
@@ -314,7 +320,7 @@ export const searchComplaints = tool('nhtsa_search_complaints', {
       );
       const severity = formatComplaintSeverity(c);
       if (severity) lines.push(`Reported: ${severity}`);
-      if (c.vin) lines.push(`VIN: ${c.vin}`);
+      if (c.vin) lines.push(`VIN: ${escapeMarkdownInline(c.vin)}`);
       lines.push(`Components: ${formatText(c.components)}`);
       lines.push(`${formatText(c.summary)}\n`);
     }

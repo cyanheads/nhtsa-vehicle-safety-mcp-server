@@ -12,13 +12,43 @@ import {
   nextPageHint,
   outOfBoundsMessage,
   pluralize,
+  renderNotice,
 } from '@/services/nhtsa/format.js';
+import { readerText } from '../../helpers/content.js';
+
+/** What a CommonMark reader sees in `markdown`. */
+const read = (markdown: string) => readerText([{ type: 'text', text: markdown }]);
+
+/** Upstream text whose Markdown-active characters must read back literally. */
+const MARKDOWN_ACTIVE = 'POWER STEERING *DUH* `x` _y_ <tag> [x](y) &amp; ###';
 
 describe('formatText', () => {
   it('passes a value through and renders absent or blank as Not available', () => {
     expect(formatText('Standard')).toBe('Standard');
     expect(formatText()).toBe('Not available');
     expect(formatText('')).toBe('Not available');
+  });
+
+  it('renders upstream text so a reader sees it as written', () => {
+    expect(read(formatText(MARKDOWN_ACTIVE))).toBe(MARKDOWN_ACTIVE);
+    expect(read(formatText('1. FIRST\n- SECOND\n# THIRD'))).toBe('1. FIRST\n- SECOND\n# THIRD');
+  });
+});
+
+describe('renderNotice', () => {
+  it('quotes a notice that reads back exactly, caller text included', () => {
+    const notice = 'No models found for make "*x* [y](z)". Verify the make spelling.';
+    const rendered = renderNotice(notice);
+
+    expect(rendered.startsWith('> ')).toBe(true);
+    expect(read(rendered)).toBe(notice);
+  });
+
+  it('keeps every line of a multi-line notice inside the quote', () => {
+    const rendered = renderNotice('First line.\n- not a list\n\nAfter a blank line.');
+
+    expect(rendered.split('\n').every((line) => line.startsWith('>'))).toBe(true);
+    expect(read(rendered)).toBe('First line.\n- not a list\n\nAfter a blank line.');
   });
 });
 
@@ -58,6 +88,10 @@ describe('formatStars', () => {
 
   it('returns the raw value for non-numeric strings', () => {
     expect(formatStars('Not Rated')).toBe('Not Rated');
+  });
+
+  it('renders a non-numeric rating so a reader sees it as written', () => {
+    expect(read(formatStars('Not *Rated* [x](y)'))).toBe('Not *Rated* [x](y)');
   });
 
   it('handles zero stars without negative repeat', () => {

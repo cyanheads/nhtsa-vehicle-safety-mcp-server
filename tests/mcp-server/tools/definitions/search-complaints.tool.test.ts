@@ -20,6 +20,7 @@ vi.mock('@/config/server-config.js', () => ({ getServerConfig: () => serverConfi
 import { searchComplaints } from '@/mcp-server/tools/definitions/search-complaints.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { firstText, readerText } from '../../../helpers/content.js';
+import { hostile } from '../../../helpers/hostile.js';
 
 const mockService = { getComplaintsByVehicle: vi.fn() };
 
@@ -652,5 +653,69 @@ describe('searchComplaints — over-cap limit (#53)', () => {
 
     expect(result.structuredContent).toMatchObject({ returned: 50, limit: 50 });
     expect(result.structuredContent).not.toHaveProperty('notice');
+  });
+});
+
+/** ODI 10722035's `*DUH*`, plus the line-leading `1. ` and the entity NHTSA narratives carry. */
+const NARRATIVE = [
+  'TWO ALERTS APPEARED (SERVICE POWER STEERING *DUH*, AND SOMETHING ABOUT THE TERRAIN MANAGEMENT',
+  '1. THE WHEEL LOCKED &#8805; TWICE',
+  '- `CODE` <tag> [x](y) &amp; _u_',
+  '# HEADING ###',
+].join('\n');
+
+describe('searchComplaints — upstream text renders as itself (#59)', () => {
+  it('reads back every upstream string in content[] as structuredContent carries it', async () => {
+    const componentA = hostile('- ', 'componentA');
+    const componentB = hostile('# ', 'componentB');
+    const reported = {
+      odiNumber: 10722035,
+      dateOfIncident: hostile('1. ', 'incident'),
+      dateComplaintFiled: hostile('# ', 'filed'),
+      vin: hostile('- ', 'vin'),
+      components: `${componentA},${componentB}`,
+      summary: NARRATIVE,
+      crash: false,
+      fire: false,
+      numberOfInjuries: 0,
+      numberOfDeaths: 0,
+    };
+    const contradicted = {
+      odiNumber: 10877133,
+      unreliableIncidentDate: {
+        reported: hostile('- ', 'reported'),
+        reason: 'predates_model_year' as const,
+      },
+      dateComplaintFiled: '2016-06-28',
+      components: componentB,
+    };
+    mockService.getComplaintsByVehicle.mockResolvedValue([reported, contradicted]);
+
+    const result = await runToolContract(searchComplaints, CAMRY);
+
+    expect(result.structuredContent).toMatchObject({
+      componentBreakdown: [
+        { component: componentB, count: 2 },
+        { component: componentA, count: 1 },
+      ],
+      complaints: [reported, contradicted],
+    });
+    expect(readerText([result.content[0]!])).toBe(
+      [
+        '2 complaint(s)',
+        'Component Breakdown',
+        `${componentB}: 2 complaints (0 crashes, 0 fires, 0 injuries, 0 deaths)`,
+        `${componentA}: 1 complaint (0 crashes, 0 fires, 0 injuries, 0 deaths)`,
+        'Recent Complaints (returned 2 of 2, offset 0, limit 20, date-descending)',
+        `#10722035 — ${reported.dateOfIncident} (filed ${reported.dateComplaintFiled})`,
+        'Reported: Crash: no | Fire: no | Injuries: 0 | Deaths: 0',
+        `VIN: ${reported.vin}`,
+        `Components: ${reported.components}`,
+        NARRATIVE,
+        `#10877133 — Unreliable (predates_model_year) — NHTSA reported ${contradicted.unreliableIncidentDate.reported}, which predates the vehicle model year (filed 2016-06-28)`,
+        `Components: ${componentB}`,
+        'Not available',
+      ].join('\n'),
+    );
   });
 });

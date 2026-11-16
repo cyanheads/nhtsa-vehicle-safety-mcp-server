@@ -16,12 +16,14 @@ export function firstText(blocks: readonly { type: string; text?: string }[]): s
   return block.text;
 }
 
-/** The text an inline token reads as; markup tokens contribute nothing. */
+/**
+ * The text an inline token reads as; markup tokens contribute nothing. Raw HTML is markup too: a
+ * client renders `<tag>` as an element, so an unescaped one reads as nothing, not as its source.
+ */
 function inlineText(token: Token): string {
   switch (token.type) {
     case 'text':
     case 'code_inline':
-    case 'html_inline':
     case 'image':
       return token.content;
     case 'softbreak':

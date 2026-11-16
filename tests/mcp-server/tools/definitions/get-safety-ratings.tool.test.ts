@@ -14,6 +14,7 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 import { getSafetyRatings } from '@/mcp-server/tools/definitions/get-safety-ratings.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { firstText, readerText } from '../../../helpers/content.js';
+import { hostile } from '../../../helpers/hostile.js';
 
 const mockService = {
   getSafetyRatingVariants: vi.fn(),
@@ -227,5 +228,112 @@ describe('getSafetyRatings', () => {
     expect(
       getSafetyRatings.input.parse({ make: 'Toyota', model: 'Camry', modelYear: 2020 }).modelYear,
     ).toBe(2020);
+  });
+});
+
+/** The rendered markdown's variant (level-2) heading lines, as written. */
+const variantHeadings = (blocks: readonly { type: string; text?: string }[]) =>
+  firstText(blocks)
+    .split('\n')
+    .filter((line) => line.startsWith('## '));
+
+/** Ratings take the `- ` and `# ` leads only: a digit-led value would take formatStars' numeric path. */
+describe('getSafetyRatings — upstream text renders as itself (#59)', () => {
+  it('reads back every upstream string in content[] as structuredContent carries it', async () => {
+    const rating = {
+      vehicleId: 14720,
+      vehicleDescription: hostile('# ', 'description'),
+      overallRating: hostile('- ', 'overall'),
+      frontalCrash: {
+        overall: hostile('# ', 'frontal'),
+        driverSide: hostile('- ', 'frontalDriver'),
+        passengerSide: hostile('# ', 'frontalPassenger'),
+      },
+      sideCrash: {
+        overall: hostile('- ', 'side'),
+        driverSide: hostile('# ', 'sideDriver'),
+        passengerSide: hostile('- ', 'sidePassenger'),
+        combinedBarrierPoleFront: hostile('# ', 'combinedFront'),
+        combinedBarrierPoleRear: hostile('- ', 'combinedRear'),
+        barrierOverall: hostile('# ', 'barrier'),
+        pole: hostile('- ', 'pole'),
+      },
+      rollover: {
+        rating: hostile('# ', 'rollover'),
+        probability: 0.099,
+        dynamicTipResult: hostile('- ', 'tip'),
+      },
+      adasFeatures: {
+        electronicStabilityControl: hostile('# ', 'esc'),
+        forwardCollisionWarning: hostile('- ', 'fcw'),
+        laneDepartureWarning: hostile('# ', 'ldw'),
+      },
+      complaintsCount: 255,
+      recallsCount: 3,
+      investigationCount: 0,
+    };
+    mockService.getSafetyRating.mockResolvedValue(rating);
+
+    const result = await runToolContract(getSafetyRatings, { vehicleId: 14720 });
+
+    expect(result.structuredContent).toEqual({ ratings: [rating] });
+    const { frontalCrash: front, sideCrash: side, rollover, adasFeatures: adas } = rating;
+    expect(readerText([result.content[0]!])).toBe(
+      [
+        'Vehicle 14720',
+        `Description: ${rating.vehicleDescription}`,
+        `Overall: ${rating.overallRating}`,
+        'Frontal Crash',
+        `Overall: ${front.overall}`,
+        `Driver: ${front.driverSide} | Passenger: ${front.passengerSide}`,
+        'Side Crash',
+        `Overall: ${side.overall}`,
+        `Driver: ${side.driverSide} | Passenger: ${side.passengerSide}`,
+        `Barrier: ${side.barrierOverall} | Pole: ${side.pole}`,
+        `Combined Barrier/Pole — Front: ${side.combinedBarrierPoleFront} | Rear: ${side.combinedBarrierPoleRear}`,
+        'Rollover',
+        `Rating: ${rollover.rating}`,
+        `Probability: 9.9% | Tip test: ${rollover.dynamicTipResult}`,
+        'ADAS Features',
+        `ESC: ${adas.electronicStabilityControl}`,
+        `Forward Collision Warning: ${adas.forwardCollisionWarning}`,
+        `Lane Departure Warning: ${adas.laneDepartureWarning}`,
+        'Linked to this NCAP record only — Complaints: 255 | Recalls: 3 | Investigations: 0. Use nhtsa_search_complaints / nhtsa_search_recalls / nhtsa_search_investigations for vehicle-level totals.',
+      ].join('\n'),
+    );
+  });
+
+  it('builds each variant heading from vehicleId and puts the description on a labeled line', async () => {
+    const description = '2020 Toyota CAMRY 4 DR FWD\n- *HYBRID* ###';
+    mockService.getSafetyRatingVariants.mockResolvedValue([
+      { vehicleId: 14720, vehicleDescription: description },
+      { vehicleId: 14721 },
+    ]);
+    mockService.getSafetyRating.mockImplementation(async (vehicleId: number) =>
+      vehicleId === 14720
+        ? { ...sampleRating, vehicleDescription: description }
+        : { ...sampleRating, vehicleId, vehicleDescription: undefined },
+    );
+
+    const result = await runToolContract(getSafetyRatings, {
+      make: 'Toyota',
+      model: 'Camry',
+      modelYear: 2020,
+    });
+
+    expect(variantHeadings(result.content)).toEqual(['## Vehicle 14720', '## Vehicle 14721']);
+    const lines = readerText([result.content[0]!]).split('\n');
+    expect(lines.slice(0, 4)).toEqual([
+      'Vehicle 14720',
+      'Description: 2020 Toyota CAMRY 4 DR FWD',
+      '- *HYBRID* ###',
+      'Overall: ★★★★★ (5/5)',
+    ]);
+    const second = lines.indexOf('Vehicle 14721');
+    expect(lines.slice(second, second + 3)).toEqual([
+      'Vehicle 14721',
+      'Description: Not available',
+      'Overall: ★★★★★ (5/5)',
+    ]);
   });
 });

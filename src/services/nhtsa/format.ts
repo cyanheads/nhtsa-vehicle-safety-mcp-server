@@ -2,9 +2,12 @@
  * @fileoverview Shared rendering helpers for NHTSA tool format() output.
  * Centralized so tools rendering the same upstream shapes — crash-test stars, recall
  * advisory flags, out-of-range pagination — agree on wording rather than each
- * reimplementing it.
+ * reimplementing it. Every upstream string a helper returns is Markdown-escaped, so
+ * `content[]` reads back exactly what `structuredContent` carries.
  * @module services/nhtsa/format
  */
+
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 
 /** The optional advisory flags NHTSA attaches to a recall, on every recall shape. */
 export interface RecallAdvisoryFlags {
@@ -13,15 +16,59 @@ export interface RecallAdvisoryFlags {
   parkOutSide?: boolean | undefined;
 }
 
+/** An upstream string, escaped for `content[]`; absent or blank renders as "Not available". */
 export function formatText(value?: string): string {
-  return value || 'Not available';
+  return value ? escapeMarkdownInline(value) : 'Not available';
 }
 
+/** A crash-test rating as stars; a non-numeric rating ("Not Rated") is escaped as upstream text. */
 export function formatStars(rating?: string): string {
   if (!rating) return 'Not available';
   const n = Number.parseInt(rating, 10);
-  if (Number.isNaN(n)) return rating;
+  if (Number.isNaN(n)) return escapeMarkdownInline(rating);
   return `${'★'.repeat(n)}${'☆'.repeat(Math.max(0, 5 - n))} (${n}/5)`;
+}
+
+/**
+ * The `content[]` trailer line for an enrichment `notice`: a block quote of the escaped text,
+ * every line quoted. Notices quote caller input (a make, a query), which the framework's default
+ * notice line would render as Markdown; escaped, it reads back as `structuredContent.notice`.
+ * Wired on every tool as `enrichmentTrailer: { notice: { render: renderNotice } }`.
+ */
+export function renderNotice(notice: string): string {
+  return escapeMarkdownInline(notice)
+    .split('\n')
+    .map((line) => `> ${line}`)
+    .join('\n');
+}
+
+/** The investigation row fields the heading and dates lines print, on every investigation shape. */
+export interface InvestigationRowText {
+  closeDate?: string | undefined;
+  investigationType?: string | undefined;
+  investigationTypeName?: string | undefined;
+  nhtsaId?: string | undefined;
+  openDate?: string | undefined;
+  status?: string | undefined;
+  statusName?: string | undefined;
+}
+
+/** An investigation's `### id [status: name]` heading and its `**Type:**` line. */
+export function formatInvestigationHeading(i: InvestigationRowText): string[] {
+  const id = i.nhtsaId ? escapeMarkdownInline(i.nhtsaId) : 'Unknown ID';
+  const status = i.status ? escapeMarkdownInline(i.status) : 'N/A';
+  const statusName = i.statusName ? escapeMarkdownInline(i.statusName) : 'Unknown';
+  const type = i.investigationType ? escapeMarkdownInline(i.investigationType) : 'N/A';
+  return [
+    `### ${id} [${status}: ${statusName}]`,
+    `**Type:** ${type} — ${formatText(i.investigationTypeName)}`,
+  ];
+}
+
+/** An investigation's `**Opened:**` line, with ` | **Closed:**` once it has closed. */
+export function formatInvestigationDates(i: InvestigationRowText): string {
+  const closed = i.closeDate ? ` | **Closed:** ${escapeMarkdownInline(i.closeDate)}` : '';
+  return `**Opened:** ${formatText(i.openDate)}${closed}`;
 }
 
 export function formatRolloverProbability(probability?: number): string {

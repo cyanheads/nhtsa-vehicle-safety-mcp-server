@@ -3,7 +3,8 @@
  * both consumption surfaces. The handler tests elsewhere call handlers directly and see the
  * thrown `McpError`; `runToolContract` routes through the production rejection and rendering
  * path instead, which is where the code, the `Recovery:` line, and the reason/retryable
- * suffix are decided. Nothing else in the suite covers that boundary.
+ * suffix are decided, and where an upstream's error body is kept off the wire. Nothing else in
+ * the suite covers that boundary.
  * @module tests/error-envelope
  */
 
@@ -15,13 +16,15 @@ import { getSafetyRatings } from '@/mcp-server/tools/definitions/get-safety-rati
 import { getVehicleSafety } from '@/mcp-server/tools/definitions/get-vehicle-safety.tool.js';
 import { lookupVehicles } from '@/mcp-server/tools/definitions/lookup-vehicles.tool.js';
 import { searchComplaints } from '@/mcp-server/tools/definitions/search-complaints.tool.js';
+import { searchInvestigations } from '@/mcp-server/tools/definitions/search-investigations.tool.js';
 import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
 import { initNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { readerText } from './helpers/content.js';
 
 /**
- * Both cases below reject before any upstream call, so the real service is safe here and
- * keeps the seam wide enough to include the accessor the handlers go through.
+ * The argument cases reject before any upstream call and the upstream cases stub `fetch`, so the
+ * real service is safe here and keeps the seam wide enough to include the accessor the handlers
+ * go through.
  */
 beforeAll(() => {
   initNhtsaService();
@@ -56,8 +59,38 @@ describe('normalized argument contracts (#36)', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('accepts make on makes as a name filter (#62)', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      expect(new URL(url).hostname).toBe('vpic.nhtsa.dot.gov');
+      return Response.json({
+        Count: 3,
+        Message: 'Response returned successfully',
+        SearchCriteria: null,
+        Results: [
+          { Make_ID: 448, Make_Name: 'TOYOTA' },
+          { Make_ID: 449, Make_Name: 'MERCEDES-BENZ' },
+          { Make_ID: 10_004, Make_Name: 'TOYOTA TSUSHO AMERICA' },
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const result = await runToolContract(lookupVehicles, {
+      operation: 'makes',
+      make: 'Toyota',
+      offset: 1,
+      limit: 2,
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 2,
+      returned: 1,
+      makes: [{ makeId: 10_004, makeName: 'TOYOTA TSUSHO AMERICA' }],
+      effectiveQuery: 'makes make=Toyota offset=1 limit=2',
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
-    ['makes', { make: 'Toyota' }],
     ['makes', { modelYear: 2020 }],
     ['makes', { manufacturer: 'Honda' }],
     ['models', { make: 'Toyota', manufacturer: 'Honda' }],
@@ -192,4 +225,81 @@ describe('declared contract reason', () => {
     expect(envelopeOf(result).code).toBeTypeOf('number');
     expect(textOf(result)).not.toContain('-32007');
   });
+});
+
+describe('notices in content[]', () => {
+  it('render caller text quoted in a notice as written', async () => {
+    const make = '*x* [y](z)';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ Count: 0, Message: '', SearchCriteria: '', Results: [] })),
+    );
+
+    const result = await runToolContract(lookupVehicles, { operation: 'models', make });
+
+    const notice = (result.structuredContent as { notice?: string }).notice;
+    expect(notice).toContain(`"${make}"`);
+    expect(readerText(result.content as { type: string; text?: string }[])).toContain(notice);
+  });
+
+  it.each([
+    ['nhtsa_decode_vin', decodeVin],
+    ['nhtsa_get_safety_ratings', getSafetyRatings],
+    ['nhtsa_get_vehicle_safety', getVehicleSafety],
+    ['nhtsa_lookup_vehicles', lookupVehicles],
+    ['nhtsa_search_complaints', searchComplaints],
+    ['nhtsa_search_investigations', searchInvestigations],
+    ['nhtsa_search_recalls', searchRecalls],
+  ] as const)('%s renders its notice so a reader sees it as written', (_name, definition) => {
+    const notice = 'No match for "*x* `y` [z](w)".\n- not a list item';
+    const { enrichmentTrailer } = definition as {
+      enrichmentTrailer?: { notice?: { render?(value: string): string } };
+    };
+    const rendered = enrichmentTrailer?.notice?.render?.(notice);
+
+    expect(rendered).toBeTypeOf('string');
+    expect(readerText([{ type: 'text', text: rendered! }])).toBe(notice);
+  });
+});
+
+describe('upstream HTML error pages', () => {
+  /** The page a proxy in front of an NHTSA host serves in place of the data it asked for. */
+  const HTML_ERROR_PAGE =
+    '<html><head><title>502 Bad Gateway</title></head><body><h1>502 Bad Gateway</h1></body></html>';
+
+  it.each([
+    [
+      'a JSON API answering 414',
+      searchRecalls,
+      { make: 'Toyota', model: 'Camry', modelYear: 2020 },
+      { status: 414, statusText: 'URI Too Long' },
+      { code: -32600, message: 'NHTSA returned HTTP 414 URI Too Long.' },
+    ],
+    [
+      'a bulk file answering 502',
+      searchInvestigations,
+      { make: 'Toyota' },
+      { status: 502, statusText: 'Bad Gateway' },
+      { code: -32000, message: 'Fetch failed for https://static.nhtsa.gov/…. Status: 502' },
+    ],
+  ] as const)(
+    'keeps the page from %s off both surfaces',
+    async (_label, definition, args, init, wire) => {
+      const fetch = vi.fn(
+        async () =>
+          new Response(HTML_ERROR_PAGE, { ...init, headers: { 'Content-Type': 'text/html' } }),
+      );
+      vi.stubGlobal('fetch', fetch);
+
+      const result = await runToolContract(definition as typeof searchRecalls, args as never);
+
+      expect(result.isError).toBe(true);
+      expect(envelopeOf(result)).toMatchObject({ ...wire, data: { status: init.status } });
+      expect(envelopeOf(result).data).not.toHaveProperty('body');
+      expect(envelopeOf(result).data).not.toHaveProperty('responseBody');
+      expect(textOf(result)).toContain(wire.message);
+      expect(JSON.stringify(result)).not.toContain('<');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
 });

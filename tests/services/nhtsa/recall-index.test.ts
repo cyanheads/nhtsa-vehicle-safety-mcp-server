@@ -36,8 +36,10 @@ interface RclRow {
   doNotDrive?: string;
   make?: string;
   manufacturer?: string;
+  /** MFR_COMP_DESC, a column the index never reads. */
+  mfrCompDesc?: string;
   model?: string;
-  /** NOTES, a column the index never reads. */
+  /** NOTES, read from a campaign's first row like its other campaign fields. */
   notes?: string;
   parkOutside?: string;
   received?: string;
@@ -62,6 +64,7 @@ function rcl(row: RclRow): string {
   cells[20] = row.consequence ?? 'A fire may occur.';
   cells[21] = row.remedy ?? 'Dealers will replace the pipe.';
   cells[22] = row.notes ?? '';
+  cells[25] = row.mfrCompDesc ?? '';
   cells[27] = row.doNotDrive ?? 'No';
   cells[28] = row.parkOutside ?? 'No';
   return cells.join('\t');
@@ -180,6 +183,7 @@ describe('recall index records (#37)', () => {
         doNotDrive: '',
         parkOutside: 'N/A',
         component: '',
+        notes: '  ',
       }),
     ]);
 
@@ -190,6 +194,47 @@ describe('recall index records (#37)', () => {
       manufacturer: 'Toyota Motor Engineering & Manufacturing',
       reportReceivedDate: '1966-10-12',
     });
+  });
+
+  it("reads NOTES from the campaign's first row, trimmed, as it reads the other campaign fields (#56)", async () => {
+    serveRecallFiles(
+      [rcl({ campaign: '25V100000', notes: 'Recall notes.', summary: 'A summary.' })],
+      [
+        rcl({
+          campaign: '66V008001',
+          make: 'DODGE',
+          model: 'DART',
+          year: '1967',
+          received: '19661012',
+          summary: '',
+          notes:
+            '  POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM. ',
+        }),
+        rcl({
+          campaign: '66V008001',
+          make: 'PLYMOUTH',
+          model: 'VALIANT',
+          year: '1966',
+          received: '19661012',
+          notes: 'A later row.',
+        }),
+        rcl({ campaign: '67V009002', received: '19670310', notes: '' }),
+        rcl({ campaign: '67V009002', received: '19670310', notes: 'A later row.' }),
+      ],
+    );
+
+    const page = await search({});
+
+    expect(page.recalls.map((r) => [r.campaignNumber, r.summary, r.notes])).toEqual([
+      ['25V100000', 'A summary.', 'Recall notes.'],
+      ['67V009002', 'Fuel may leak.', undefined],
+      [
+        '66V008001',
+        undefined,
+        'POSSIBLE INTERFERENCE BETWEEN THE FLANGE OF THE WHEEL DISC AND THE BRAKE DRUM.',
+      ],
+    ]);
+    expect(page.recalls[1]).not.toHaveProperty('notes');
   });
 
   it('skips rows with no campaign number or no YYYYMMDD received date', async () => {
@@ -360,6 +405,141 @@ describe('recall files (#37)', () => {
   });
 });
 
+describe('recall model names (#61)', () => {
+  it('lists the model names on rows of the make and model year, each once, in code-unit order', async () => {
+    serveRecallFiles([
+      rcl({ campaign: '14V100000', make: 'CHEVROLET', model: 'SILVERADO 1500', year: '2014' }),
+      rcl({ campaign: '14V100000', make: 'CHEVROLET', model: 'SILVERADO', year: '2014' }),
+      rcl({ campaign: '14V200000', make: 'CHEVROLET', model: 'SILVERADO 1500', year: '2014' }),
+      rcl({
+        campaign: '14V200000',
+        make: 'Chevrolet',
+        model: 'Caprice Police Pursuit',
+        year: '2014',
+      }),
+      rcl({ campaign: '14V300000', make: 'CHEVROLET', model: 'CHEVEROLET SS', year: '2014' }),
+      rcl({ campaign: '14V300000', make: 'CHEVROLET', model: 'SS', year: '2015' }),
+      rcl({ campaign: '14V400000', make: 'GMC', model: 'SIERRA 1500', year: '2014' }),
+      rcl({ campaign: '14V400000', make: 'CHEVROLET TRUCK', model: 'EXPRESS', year: '2014' }),
+      rcl({ campaign: '14V500000', make: 'CHEVROLET', model: '', year: '2014' }),
+    ]);
+
+    expect(await new NhtsaService().getRecallModelNames('chevrolet', 2014)).toEqual({
+      kind: 'ready',
+      value: ['CAPRICE POLICE PURSUIT', 'CHEVEROLET SS', 'SILVERADO', 'SILVERADO 1500'],
+    });
+  });
+
+  it('takes no name from a row whose model year is 9999', async () => {
+    serveRecallFiles([
+      rcl({ campaign: '14E000001', make: 'CHEVROLET', model: 'WHEEL', year: '9999' }),
+      rcl({ campaign: '14V000002', make: 'CHEVROLET', model: 'CRUZE', year: '2014' }),
+    ]);
+    const svc = new NhtsaService();
+
+    expect(await svc.getRecallModelNames('Chevrolet', 9999)).toEqual({ kind: 'ready', value: [] });
+    expect(await svc.getRecallModelNames('Chevrolet', 2014)).toEqual({
+      kind: 'ready',
+      value: ['CRUZE'],
+    });
+  });
+
+  it('lists no names for a make the files never name', async () => {
+    serveRecallFiles([rcl({ campaign: '25V000001' })]);
+
+    expect(await new NhtsaService().getRecallModelNames('Zzzzq', 2020)).toEqual({
+      kind: 'ready',
+      value: [],
+    });
+  });
+
+  it('shares one load between a cold model-name lookup and a cold broad search', async () => {
+    serveRecallFiles([
+      rcl({ campaign: '25V000001', make: 'TOYOTA', model: 'CAMRY', year: '2020' }),
+    ]);
+    const svc = new NhtsaService();
+
+    const [names, page] = await Promise.all([
+      svc.getRecallModelNames('Toyota', 2020),
+      svc.searchRecallFiles({ ...everything }),
+    ]);
+
+    expect(names).toEqual({ kind: 'ready', value: ['CAMRY'] });
+    expect(campaigns(page)).toEqual(['25V000001']);
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([POST_URL, PRE_URL]);
+  });
+
+  it('resolves pending when the load is still running at 30 s; the next call reads the load it left running', async () => {
+    vi.useFakeTimers();
+    try {
+      const post = Promise.withResolvers<Response>();
+      mockFetch.mockImplementation(async (input: string) => {
+        if (new URL(input).hostname !== HOST) throw new Error('unmocked fetch');
+        if (input === POST_URL) return await post.promise;
+        if (input === PRE_URL) return zipResponse('FLAT_RCL_PRE_2010.txt', `${PRE_FILLER}\r\n`);
+        throw new Error(`unmocked fetch ${input}`);
+      });
+      const svc = new NhtsaService();
+      let settled = false;
+      const waited = svc.getRecallModelNames('Toyota', 2020).finally(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await waited).toEqual({ kind: 'pending' });
+
+      post.resolve(zipResponse('FLAT_RCL_POST_2010.txt', `${rcl({ campaign: '25V000001' })}\r\n`));
+      expect(await svc.getRecallModelNames('Toyota', 2020)).toEqual({
+        kind: 'ready',
+        value: ['CAMRY'],
+      });
+      expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([POST_URL, PRE_URL]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves failed with the error of a load that fails', async () => {
+    mockFetch.mockImplementation(async (input: string) => {
+      if (new URL(input).hostname !== HOST) throw new Error('unmocked fetch');
+      return new Response('not a zip', { status: 200 });
+    });
+
+    expect(await new NhtsaService().getRecallModelNames('Toyota', 2020)).toMatchObject({
+      kind: 'failed',
+      error: {
+        code: JsonRpcErrorCode.ServiceUnavailable,
+        message: 'NHTSA bulk file FLAT_RCL_POST_2010.zip is not a readable ZIP archive.',
+      },
+    });
+  });
+
+  it("rejects with the caller's abort reason and leaves the load running for the cache", async () => {
+    const post = Promise.withResolvers<Response>();
+    mockFetch.mockImplementation(async (input: string) => {
+      if (new URL(input).hostname !== HOST) throw new Error('unmocked fetch');
+      if (input === POST_URL) return await post.promise;
+      if (input === PRE_URL) return zipResponse('FLAT_RCL_PRE_2010.txt', `${PRE_FILLER}\r\n`);
+      throw new Error(`unmocked fetch ${input}`);
+    });
+    const svc = new NhtsaService();
+    const controller = new AbortController();
+
+    const reason = new Error('caller left');
+
+    const waited = svc.getRecallModelNames('Toyota', 2020, controller.signal);
+    await settle();
+    controller.abort(reason);
+
+    await expect(waited).rejects.toBe(reason);
+    post.resolve(zipResponse('FLAT_RCL_POST_2010.txt', `${rcl({ campaign: '25V000001' })}\r\n`));
+    expect((await svc.searchRecallFiles({ ...everything })).totalCount).toBe(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('recall file loading (#37)', () => {
   it('shares one load among concurrent cold callers and serves later calls from the cache', async () => {
     serveRecallFiles([rcl({ campaign: '25V000001' })]);
@@ -459,14 +639,15 @@ describe('recall file loading (#37)', () => {
   });
 
   it('retains memory in proportion to the kept fields, not the decompressed files (#54)', async () => {
-    const campaignCount = 256;
+    const campaignCount = 128;
     const rowsPerCampaign = 32;
     const summaryChars = 4000;
+    const notesChars = 500;
     /**
      * Every row names a new model, so the index keeps a vehicle key from every row, and every
-     * row repeats its campaign's long summary. The index keeps make and model as uppercased
-     * copies, so this measures what the index keeps; the next test covers a kept field sliced
-     * out of a decoded line.
+     * row repeats its campaign's long summary and notes. The index keeps make and model as
+     * uppercased copies, so this measures what the index keeps; the next test covers a kept
+     * field sliced out of a decoded line.
      */
     let seed = 1;
     const letters = (count: number) =>
@@ -477,6 +658,7 @@ describe('recall file loading (#37)', () => {
     const lines: string[] = [];
     for (let c = 0; c < campaignCount; c++) {
       const summary = letters(summaryChars);
+      const notes = letters(notesChars);
       for (let row = 0; row < rowsPerCampaign; row++) {
         lines.push(
           rcl({
@@ -484,6 +666,7 @@ describe('recall file loading (#37)', () => {
             model: `MODEL ${c}-${row}`,
             component: `PART ${row % 4}`,
             summary,
+            notes,
           }),
         );
       }
@@ -508,28 +691,33 @@ describe('recall file loading (#37)', () => {
     post = text;
 
     const svc = new NhtsaService();
-    const page = await svc.searchRecallFiles({ ...everything, model: `MODEL 255-31` });
+    const page = await svc.searchRecallFiles({
+      ...everything,
+      model: `MODEL ${campaignCount - 1}-${rowsPerCampaign - 1}`,
+    });
     forceGc();
     const retained = process.memoryUsage().heapUsed - before;
 
     expect(page.totalCount).toBe(1);
     expect(page.recalls[0]!.component).toBe('PART 0 | PART 1 | PART 2 | PART 3');
+    expect(page.recalls[0]!.notes).toHaveLength(notesChars);
     expect(retained).toBeLessThan(textBytes / 4);
     // Keep the service, and with it the index, alive through the measure.
     expect(svc).toBeInstanceOf(NhtsaService);
   });
 
   it('keeps no decoded line alive through the campaign fields it keeps (#54)', async () => {
-    const campaignCount = 4096;
+    const campaignCount = 2048;
     /**
-     * One row per campaign, its bulk in NOTES, which the index never reads. The index keeps the
-     * row's manufacturer, summary, consequence, and remedy as decoded: one sliced out of the
-     * decoded line would pin the whole line and put the retained heap near `textBytes`, while
-     * fields decoded on their own keep only themselves.
+     * One row per campaign, its bulk in MFR_COMP_DESC, which the index never reads. The index
+     * keeps the row's manufacturer, summary, consequence, remedy, and notes as decoded: one
+     * sliced out of the decoded line would pin the whole line and put the retained heap near
+     * `textBytes`, while fields decoded on their own keep only themselves.
      */
-    const notes = 'N'.repeat(8000);
+    const mfrCompDesc = 'D'.repeat(8000);
+    const notes = 'Owners may contact the NHTSA Vehicle Safety Hotline.';
     const text = `${Array.from({ length: campaignCount }, (_, c) =>
-      rcl({ campaign: `25V${String(c).padStart(6, '0')}`, notes }),
+      rcl({ campaign: `25V${String(c).padStart(6, '0')}`, mfrCompDesc, notes }),
     ).join('\r\n')}\r\n`;
     const textBytes = encoder.encode(text).length;
     let post = `${rcl({ campaign: '25V000001' })}\r\n`;
@@ -551,6 +739,7 @@ describe('recall file loading (#37)', () => {
     const retained = process.memoryUsage().heapUsed - before;
 
     expect(page.totalCount).toBe(campaignCount);
+    expect(page.recalls[0]!.notes).toBe(notes);
     expect(retained).toBeLessThan(textBytes / 4);
     expect(svc).toBeInstanceOf(NhtsaService);
   });

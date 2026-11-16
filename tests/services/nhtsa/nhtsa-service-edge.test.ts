@@ -1,6 +1,6 @@
 /**
- * @fileoverview Additional edge-case coverage for NhtsaService — recall campaign subject/notes,
- * model normalization, timeout/abort handling, and decodeVinBatch with modelYear.
+ * @fileoverview Additional edge-case coverage for NhtsaService — sparse recall campaign fields,
+ * model normalization, abort-signal propagation, and decodeVinBatch with modelYear.
  * @module tests/services/nhtsa/nhtsa-service-edge
  */
 

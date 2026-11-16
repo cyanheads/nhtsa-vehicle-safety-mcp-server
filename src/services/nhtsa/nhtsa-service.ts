@@ -5,10 +5,15 @@
  * @module services/nhtsa/nhtsa-service
  */
 
-import { setTimeout as sleep } from 'node:timers/promises';
+import { serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
 import { httpErrorFromResponse } from '@cyanheads/mcp-ts-core/utils';
 
-import { FlatFileCache, type FlatFileRow, type ReadFlatFile } from './flat-file.js';
+import {
+  type BoundedLoad,
+  FlatFileCache,
+  type FlatFileRow,
+  type ReadFlatFile,
+} from './flat-file.js';
 import { loadRecallIndex, type RecallSearch, type RecallSearchPage } from './recall-index.js';
 import type {
   AffectedVehicle,
@@ -43,6 +48,11 @@ const FLAT_RCL_PRE_2010_URL = 'https://static.nhtsa.gov/odi/ffdd/rcl/FLAT_RCL_PR
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
+/**
+ * Bounds one API request, and how long a caller that degrades instead of failing waits on a
+ * flat-file load: under an MCP client's default 60 s request timeout, unlike the load's own
+ * deadline.
+ */
 const REQUEST_TIMEOUT_MS = 30_000;
 /** The flat files refresh daily. */
 const FLAT_FILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -206,6 +216,24 @@ function toError(error: unknown, fallbackMessage: string): Error {
 }
 
 /**
+ * Wait `ms` before a retry, rejecting with `signal.reason` if `signal` aborts first. Runs on the
+ * global `setTimeout` rather than `node:timers/promises`, so fake timers drive it.
+ */
+function backoff(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
  * Detect an NHTSA empty-result envelope on a 400 response.
  * Different endpoints use different casing:
  *   recallsByVehicle:    { Count, Message, results }  (PascalCase Count/Message)
@@ -250,9 +278,7 @@ export class NhtsaService {
     const endpoint = new URL(url).pathname;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       signal?.throwIfAborted();
-      if (attempt > 0) {
-        await sleep(RETRY_BASE_MS * 2 ** (attempt - 1), undefined, { signal });
-      }
+      if (attempt > 0) await backoff(RETRY_BASE_MS * 2 ** (attempt - 1), signal);
       const composed = signal
         ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
         : AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -261,14 +287,32 @@ export class NhtsaService {
         res = await fetch(url, { ...init, signal: composed });
       } catch (error) {
         signal?.throwIfAborted();
-        lastError = toError(error, `NHTSA API request failed for ${endpoint}`);
+        /** No response at all: the runtime's message ("fetch failed") names neither upstream nor endpoint. */
+        lastError = serviceUnavailable(
+          error instanceof DOMException && error.name === 'TimeoutError'
+            ? `NHTSA did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`
+            : 'NHTSA could not be reached.',
+          { endpoint },
+          { cause: error },
+        );
         continue;
       }
       if (res.ok) {
         try {
           return (await res.json()) as T;
         } catch (error) {
-          lastError = toError(error, `NHTSA API returned invalid JSON for ${endpoint}`);
+          /**
+           * A proxy can answer 200 with an HTML page. The parser's message quotes the body on
+           * Node, so the failure is reported by status and endpoint, with the parse error as cause.
+           */
+          lastError =
+            error instanceof SyntaxError
+              ? serviceUnavailable(
+                  `NHTSA returned HTTP ${res.status} with a body that is not JSON.`,
+                  { endpoint, status: res.status },
+                  { cause: error },
+                )
+              : toError(error, `NHTSA API response body failed to read for ${endpoint}`);
           continue;
         }
       }
@@ -339,6 +383,23 @@ export class NhtsaService {
    */
   async searchRecallFiles(query: RecallSearch, signal?: AbortSignal): Promise<RecallSearchPage> {
     return (await this.recallFiles.get(signal)).search(query);
+  }
+
+  /**
+   * The model names the recall files list for `make` and `modelYear` (see
+   * `RecallIndex.modelNames`), from the index broad searches share. Waits at most
+   * {@link REQUEST_TIMEOUT_MS} for its load: `pending` when the load is still running then (it
+   * runs on for the cache), `failed` when it failed. Rejects only with `signal.reason`.
+   */
+  async getRecallModelNames(
+    make: string,
+    modelYear: number,
+    signal?: AbortSignal,
+  ): Promise<BoundedLoad<string[]>> {
+    const index = await this.recallFiles.getWithin(REQUEST_TIMEOUT_MS, signal);
+    return index.kind === 'ready'
+      ? { kind: 'ready', value: index.value.modelNames(make, modelYear) }
+      : index;
   }
 
   // ── Complaints ───────────────────────────────────────────────────
@@ -474,9 +535,21 @@ export class NhtsaService {
     return this.investigations.get(signal);
   }
 
+  /**
+   * {@link getInvestigations}, waiting at most {@link REQUEST_TIMEOUT_MS} for the shared load:
+   * `pending` when it is still running then (it runs on for the cache), `failed` when it failed.
+   * Rejects only with `signal.reason`.
+   */
+  getInvestigationsWithin(signal?: AbortSignal): Promise<BoundedLoad<Investigation[]>> {
+    return this.investigations.getWithin(REQUEST_TIMEOUT_MS, signal);
+  }
+
   // ── VPIC Lookups ─────────────────────────────────────────────────
 
-  /** Get all makes from VPIC (warning: ~12K results, ~700KB). */
+  /**
+   * Get every VPIC make, about 12,400 (a ~600 KB response); nhtsa_lookup_vehicles
+   * operation="makes" filters it by name.
+   */
   async getAllMakes(signal?: AbortSignal): Promise<VpicMake[]> {
     const data = await this.fetchJson<VpicResponse<{ Make_ID: number; Make_Name: string }>>(
       `${VPIC_API}/vehicles/GetAllMakes?format=json`,
@@ -570,7 +643,10 @@ function normalizeDate(raw?: string): string {
   return raw;
 }
 
-/** Older campaigns send their summary, consequence, and remedy as null; those are omitted. */
+/**
+ * Older campaigns send their summary, consequence, and remedy as null and carry their defect
+ * text in notes; some recent ones send notes as null. Null and blank text is omitted.
+ */
 function normalizeRecallByVehicle(r: RawRecallByVehicle): Recall {
   return {
     campaignNumber: r.NHTSACampaignNumber,
@@ -580,6 +656,7 @@ function normalizeRecallByVehicle(r: RawRecallByVehicle): Recall {
       summary: normalizeOptionalString(r.Summary),
       consequence: normalizeOptionalString(r.Consequence),
       remedy: normalizeOptionalString(r.Remedy),
+      notes: normalizeOptionalString(r.Notes),
     }),
     reportReceivedDate: normalizeDate(r.ReportReceivedDate),
     ...(r.parkIt !== undefined ? { parkIt: r.parkIt } : {}),
@@ -641,7 +718,8 @@ function normalizeRecallCampaigns(rows: RawRecallCampaignDirect[]): RecallCampai
  * Collapse one campaign's rows into one record. The endpoint repeats identical campaign detail
  * on every row of a campaign, so the first row supplies the campaign fields and the whole set
  * supplies `affectedVehicles`. Older campaigns send their summary, consequence, and remedy as
- * null; those are omitted.
+ * null and carry their defect text in notes; some recent ones send notes as null. Null and blank
+ * text is omitted.
  */
 function normalizeRecallCampaign(
   rows: [RawRecallCampaignDirect, ...RawRecallCampaignDirect[]],
@@ -656,6 +734,7 @@ function normalizeRecallCampaign(
       summary: normalizeOptionalString(r.Summary),
       consequence: normalizeOptionalString(r.Consequence),
       remedy: normalizeOptionalString(r.Remedy),
+      notes: normalizeOptionalString(r.Notes),
       potentialUnitsAffected: normalizeOptionalNumber(r.PotentialNumberofUnitsAffected),
     }),
     receivedDate: normalizeDate(r.ReportReceivedDate),

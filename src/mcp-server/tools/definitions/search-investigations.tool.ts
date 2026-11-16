@@ -8,6 +8,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import {
   limitClampNotice,
   limitSchema,
@@ -21,7 +22,20 @@ import {
   matchesDateRange,
   normalizeDateRange,
 } from '@/services/nhtsa/date-range.js';
-import { nextPageHint, outOfBoundsMessage } from '@/services/nhtsa/format.js';
+import {
+  formatInvestigationDates,
+  formatInvestigationHeading,
+  nextPageHint,
+  outOfBoundsMessage,
+  renderNotice,
+} from '@/services/nhtsa/format.js';
+import {
+  INVESTIGATION_TYPE_MAP,
+  investigationStatusName,
+  investigationTypeCode,
+  investigationTypeName,
+  matchedModels,
+} from '@/services/nhtsa/investigation-match.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import type { Investigation } from '@/services/nhtsa/types.js';
 
@@ -35,18 +49,23 @@ const PAGE = {
 const SUMMARIES_OMITTED =
   'Search rows omit summaries: fetch one investigation by nhtsaId for its full summary, or repeat this search with includeSummary: true.';
 
-const INVESTIGATION_TYPE_MAP: Record<string, string> = {
-  PE: 'Preliminary Evaluation',
-  EA: 'Engineering Analysis',
-  DP: 'Defect Petition',
-  RQ: 'Recall Query',
-  AQ: 'Audit Query',
-};
+/**
+ * The type codes `investigationType` accepts: every code a loaded record carries, so a new ID
+ * prefix needs no code change, plus the five named types' codes. Sorted.
+ */
+function acceptedTypeCodes(investigations: Investigation[]): string[] {
+  const codes = new Set(INVESTIGATION_TYPE_MAP.keys());
+  for (const { investigationType } of investigations) {
+    if (investigationType) codes.add(investigationType);
+  }
+  return [...codes].sort();
+}
 
-const STATUS_MAP: Record<string, string> = {
-  O: 'Open',
-  C: 'Closed',
-};
+/** The notice for an `investigationType` that is neither an accepted code nor a type name. */
+function unrecognizedTypeNotice(value: string, codes: string[]): string {
+  const names = [...INVESTIGATION_TYPE_MAP].map(([code, name]) => `${name} (${code})`);
+  return `investigationType "${value}" is not a recognized investigation type. Accepted codes: ${codes.join(', ')}. Accepted names, matched whole ignoring case: ${names.join(', ')}.`;
+}
 
 function matchesText(investigation: Investigation, text: string): boolean {
   const lower = text.toLowerCase();
@@ -54,24 +73,6 @@ function matchesText(investigation: Investigation, text: string): boolean {
     (investigation.nhtsaId ?? '').toLowerCase().includes(lower) ||
     (investigation.subject ?? '').toLowerCase().includes(lower) ||
     (investigation.summary ?? '').toLowerCase().includes(lower)
-  );
-}
-
-/**
- * Whether one vehicle association of the investigation carries every supplied value: `make` and
- * `model`, already lowercased, within its make and model case-insensitively, and `modelYear` as
- * its exact year.
- */
-function matchesVehicle(
-  investigation: Investigation,
-  filter: { make: string | undefined; model: string | undefined; modelYear: number | undefined },
-): boolean {
-  const { make, model, modelYear } = filter;
-  return investigation.vehicles.some(
-    (vehicle) =>
-      (make === undefined || (vehicle.make?.toLowerCase().includes(make) ?? false)) &&
-      (model === undefined || (vehicle.model?.toLowerCase().includes(model) ?? false)) &&
-      (modelYear === undefined || vehicle.year === modelYear),
   );
 }
 
@@ -124,7 +125,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       .string()
       .optional()
       .describe(
-        'Filter by ODI investigation type code (the leading letters of the NHTSA ID). Named types: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query), "AQ" (Audit Query). Additional valid codes present in the dataset: "SQ", "EQ", "RP", "ID", "TA", "C". Pass any code exactly as it appears in the investigation ID prefix.',
+        'Filter by ODI investigation type, as a code or a name, ignoring case. The code is the leading letters of the NHTSA ID: "PE" (Preliminary Evaluation), "EA" (Engineering Analysis), "DP" (Defect Petition), "RQ" (Recall Query), "AQ" (Audit Query), and codes without a name such as "SQ", "EQ", "RP", "ID", "TA", and "C". A name matches whole ("Preliminary Evaluation", not "Preliminary"). A value that is neither returns no investigations, with a notice listing the accepted codes and names.',
       ),
     status: z
       .enum(['O', 'C'])
@@ -213,14 +214,17 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
   enrichment: {
     effectiveQuery: z
       .string()
-      .describe('Applied filters as a readable string, e.g. make="Ford", status="O".'),
+      .describe(
+        'Applied filters as a readable string, e.g. make="Ford", status="O". investigationType shows the type code applied, also when given as a name.',
+      ),
     notice: z
       .string()
       .optional()
       .describe(
-        'Guidance when no investigations match the filters, when the requested page overshoots the result set, when limit was lowered to the page maximum, or when search rows omit summaries.',
+        'Guidance when no investigations match the filters or investigationType is not a recognized type, when the requested page overshoots the result set, when limit was lowered to the page maximum, or when search rows omit summaries.',
       ),
   },
+  enrichmentTrailer: { notice: { render: renderNotice } },
   errors: [
     {
       reason: 'mode_conflict',
@@ -290,29 +294,30 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     }
     const limit = pageLimit.applied;
 
+    // The caller's value as given, and the type code it selects (a type name selects its code).
+    const type = input.investigationType
+      ? { value: input.investigationType, code: investigationTypeCode(input.investigationType) }
+      : undefined;
+
     // The service hands the records over newest-opened first; every filter below keeps that order.
-    let investigations = await svc.getInvestigations(ctx.signal);
+    const loaded = await svc.getInvestigations(ctx.signal);
+    let investigations = loaded;
 
     if (input.nhtsaId) {
       const nhtsaId = input.nhtsaId.toUpperCase();
       investigations = investigations.filter((i) => i.nhtsaId?.toUpperCase() === nhtsaId);
     }
 
-    if (input.investigationType) {
-      const type = input.investigationType.toUpperCase();
-      investigations = investigations.filter((i) => i.investigationType === type);
+    if (type) {
+      investigations = investigations.filter((i) => i.investigationType === type.code);
     }
     if (input.status) {
       const status = input.status;
       investigations = investigations.filter((i) => i.status === status);
     }
     if (input.make || input.model || input.modelYear !== undefined) {
-      const vehicle = {
-        make: input.make?.toLowerCase(),
-        model: input.model?.toLowerCase(),
-        modelYear: input.modelYear,
-      };
-      investigations = investigations.filter((i) => matchesVehicle(i, vehicle));
+      const vehicle = { make: input.make, model: input.model, modelYear: input.modelYear };
+      investigations = investigations.filter((i) => matchedModels(i, vehicle) !== undefined);
     }
     if (input.component) {
       const component = input.component;
@@ -354,7 +359,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       input.model ? `model="${input.model}"` : null,
       input.modelYear !== undefined ? `modelYear=${input.modelYear}` : null,
       input.component ? `component="${input.component}"` : null,
-      input.investigationType ? `investigationType="${input.investigationType}"` : null,
+      type ? `investigationType="${type.code}"` : null,
       input.status ? `status="${input.status}"` : null,
       describeDateRange('openDateRange', openDateRange) || null,
       describeDateRange('closeDateRange', closeDateRange) || null,
@@ -367,10 +372,14 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     const clamped = limitClampNotice(pageLimit, { offset, returned: page.length, totalCount });
     if (clamped) notices.push(clamped);
     if (totalCount === 0) {
+      const typeCodes = type ? acceptedTypeCodes(loaded) : [];
       if (input.nhtsaId) {
         notices.push(
           `No investigation has the ID "${input.nhtsaId}". IDs are a type prefix plus a number, e.g. "EA23003" or "PE24010" (some older IDs hold a letter, as in "EA78N34"); nhtsa_search_recalls returns one as investigationId for campaigns NHTSA links to an investigation.`,
         );
+      } else if (type && !typeCodes.includes(type.code)) {
+        // An unknown type alone explains the empty result: the other filters never come into it.
+        notices.push(unrecognizedTypeNotice(type.value, typeCodes));
       } else if (appliedFilters.length === 0) {
         notices.push(
           'No investigations found. This is unexpected — the investigations dataset should contain thousands of records.',
@@ -396,10 +405,10 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
         nhtsaId: i.nhtsaId,
         investigationType: i.investigationType,
         investigationTypeName: i.investigationType
-          ? (INVESTIGATION_TYPE_MAP[i.investigationType] ?? i.investigationType)
+          ? investigationTypeName(i.investigationType)
           : undefined,
         status: i.status,
-        statusName: i.status ? (STATUS_MAP[i.status] ?? i.status) : undefined,
+        statusName: i.status ? investigationStatusName(i.status) : undefined,
         makes: i.makes && i.makes.length > 0 ? i.makes : undefined,
         models: i.models && i.models.length > 0 ? i.models : undefined,
         years: i.years && i.years.length > 0 ? i.years : undefined,
@@ -419,7 +428,7 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
       return [
         {
           type: 'text' as const,
-          text: 'No investigations found matching the search criteria. Try broadening the search — use fewer filters, or search by make only.',
+          text: 'No investigations found matching the search criteria.',
         },
       ];
     }
@@ -431,29 +440,29 @@ export const searchInvestigations = tool('nhtsa_search_investigations', {
     if (nextPage) lines.push(nextPage);
 
     /**
+     * Upstream strings are Markdown-escaped so `content[]` reads back as `structuredContent`.
      * Names join on "; " because some makes, models, components, and manufacturer names contain
-     * commas and none contains a semicolon; years and campaign numbers contain neither.
+     * commas and none contains a semicolon; years and campaign numbers contain neither. A list is
+     * escaped after the join: an element ending "&amp" escaped alone would form an entity with the
+     * "; " after it.
      */
+    const list = (values: string[], separator: string) =>
+      escapeMarkdownInline(values.join(separator));
+
     for (const i of result.investigations) {
-      const statusLabel = i.statusName || 'Unknown';
-      lines.push(`### ${i.nhtsaId || 'Unknown ID'} [${i.status ?? 'N/A'}: ${statusLabel}]`);
-      lines.push(
-        `**Type:** ${i.investigationType ?? 'N/A'} — ${i.investigationTypeName || 'Not available'}`,
-      );
-      if (i.makes && i.makes.length > 0) lines.push(`**Makes:** ${i.makes.join('; ')}`);
-      if (i.models && i.models.length > 0) lines.push(`**Models:** ${i.models.join('; ')}`);
+      lines.push(...formatInvestigationHeading(i));
+      if (i.makes && i.makes.length > 0) lines.push(`**Makes:** ${list(i.makes, '; ')}`);
+      if (i.models && i.models.length > 0) lines.push(`**Models:** ${list(i.models, '; ')}`);
       if (i.years && i.years.length > 0) lines.push(`**Years:** ${i.years.join(', ')}`);
       if (i.components && i.components.length > 0)
-        lines.push(`**Components:** ${i.components.join('; ')}`);
+        lines.push(`**Components:** ${list(i.components, '; ')}`);
       if (i.manufacturers && i.manufacturers.length > 0)
-        lines.push(`**Manufacturers:** ${i.manufacturers.join('; ')}`);
-      if (i.subject) lines.push(`**Subject:** ${i.subject}`);
-      lines.push(
-        `**Opened:** ${i.openDate || 'Not available'}${i.closeDate ? ` | **Closed:** ${i.closeDate}` : ''}`,
-      );
+        lines.push(`**Manufacturers:** ${list(i.manufacturers, '; ')}`);
+      if (i.subject) lines.push(`**Subject:** ${escapeMarkdownInline(i.subject)}`);
+      lines.push(formatInvestigationDates(i));
       if (i.recallCampaigns && i.recallCampaigns.length > 0)
-        lines.push(`**Recall Campaigns:** ${i.recallCampaigns.join(', ')}`);
-      if (i.summary) lines.push(`\n${i.summary}`);
+        lines.push(`**Recall Campaigns:** ${list(i.recallCampaigns, ', ')}`);
+      if (i.summary) lines.push(`\n${escapeMarkdownInline(i.summary)}`);
       lines.push('');
     }
 

@@ -24,6 +24,7 @@ vi.mock('@/config/server-config.js', () => ({ getServerConfig: () => serverConfi
 import { decodeVin } from '@/mcp-server/tools/definitions/decode-vin.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
 import { firstText, readerText } from '../../../helpers/content.js';
+import { hostile } from '../../../helpers/hostile.js';
 
 const mockService = {
   decodeVin: vi.fn(),
@@ -715,5 +716,96 @@ describe('decodeVin — driver-assistance equipment (#50)', () => {
     }
     expect(shape.tpmsType.description).toMatch(/Direct or Indirect/);
     expect(shape.airBagLocSeatCushion.description).toMatch(/Driver Seat Only.*All Rows/);
+  });
+});
+
+/** Every safety-equipment field with the label `content[]` gives it, in render order. */
+const EQUIPMENT_LABELS = [
+  ['airBagLocFront', 'Front airbags'],
+  ['airBagLocSide', 'Side airbags'],
+  ['airBagLocCurtain', 'Curtain airbags'],
+  ['airBagLocKnee', 'Knee airbags'],
+  ['airBagLocSeatCushion', 'Seat Cushion Air Bag Locations'],
+  ['electronicStabilityControl', 'ESC'],
+  ['abs', 'ABS'],
+  ['tractionControl', 'Traction control'],
+  ['tpmsType', 'Tire Pressure Monitoring System (TPMS) Type'],
+  ['crashImminentBraking', 'Crash Imminent Braking (CIB)'],
+  ['dynamicBrakeSupport', 'Dynamic Brake Support (DBS)'],
+  ['pedestrianAutomaticEmergencyBraking', 'Pedestrian Automatic Emergency Braking (PAEB)'],
+  ['forwardCollisionWarning', 'Forward Collision Warning (FCW)'],
+  ['laneDepartureWarning', 'Lane Departure Warning (LDW)'],
+  ['laneKeepingAssistance', 'Lane Keeping Assistance (LKA)'],
+  ['laneCenteringAssistance', 'Lane Centering Assistance'],
+  ['blindSpotWarning', 'Blind Spot Warning (BSW)'],
+  ['blindSpotIntervention', 'Blind Spot Intervention (BSI)'],
+  ['rearCrossTrafficAlert', 'Rear Cross Traffic Alert'],
+  ['backupCamera', 'Backup Camera'],
+  ['rearAutomaticEmergencyBraking', 'Rear Automatic Emergency Braking'],
+  ['parkingAssist', 'Parking Assist'],
+  ['adaptiveCruiseControl', 'Adaptive Cruise Control (ACC)'],
+] as const;
+
+describe('decodeVin — upstream text renders as itself (#59)', () => {
+  it('reads back every VPIC value and deferred VIN in content[] as structuredContent carries it', async () => {
+    const equipment = Object.fromEntries(
+      EQUIPMENT_LABELS.map(([field], i) => [field, hostile(i % 2 ? '- ' : '1. ', field)]),
+    ) as Record<(typeof EQUIPMENT_LABELS)[number][0], string>;
+    const clean = {
+      vin: hostile('# ', 'vin'),
+      errorCode: '0',
+      errorText: hostile('- ', 'errorText'),
+      modelYear: hostile('1. ', 'modelYear'),
+      make: hostile('- ', 'make'),
+      model: hostile('# ', 'model'),
+      trim: hostile('- ', 'trim'),
+      bodyClass: hostile('1. ', 'bodyClass'),
+      vehicleType: hostile('- ', 'vehicleType'),
+      driveType: hostile('# ', 'driveType'),
+      engineCylinders: hostile('- ', 'engineCylinders'),
+      engineDisplacementL: hostile('# ', 'engineDisplacementL'),
+      engineHP: hostile('1. ', 'engineHP'),
+      fuelType: hostile('- ', 'fuelType'),
+      plantCity: hostile('# ', 'plantCity'),
+      plantState: hostile('1. ', 'plantState'),
+      plantCountry: hostile('- ', 'plantCountry'),
+      manufacturer: hostile('# ', 'manufacturer'),
+      ...equipment,
+    };
+    /** A warning decode carrying only a trim, its errorText running over two lines. */
+    const warned = {
+      vin: hostile('- ', 'warnedVin'),
+      errorCode: hostile('1. ', 'errorCode'),
+      errorText: `1 - Check Digit (9th position) does not calculate properly\n${hostile('- ', 'errorText2')}`,
+      trim: hostile('# ', 'warnedTrim'),
+    };
+    /** EA97012's VIN ranges with each `**` split into a `*x*` pair a reader would emphasize. */
+    const deferredVins = ['1YVGE22*S*5300001', '1YVGE22*V*5599030'];
+    mockService.decodeVinBatch.mockResolvedValue([clean, warned]);
+
+    const result = await runToolContract(decodeVin, {
+      vin: [...Array.from({ length: 50 }, (_, i) => vin17(i)), ...deferredVins],
+    });
+
+    expect(structuredOf(result)).toMatchObject({ vehicles: [clean, warned], deferredVins });
+    expect(readerText([result.content[0]!])).toBe(
+      [
+        clean.vin,
+        `Decode status (errorCode: 0): ${clean.errorText}`,
+        `${clean.modelYear} ${clean.make} ${clean.model} ${clean.trim}`,
+        `${clean.bodyClass} | ${clean.vehicleType}`,
+        clean.driveType,
+        `Engine: ${clean.engineCylinders}-cyl, ${clean.engineDisplacementL}L, ${clean.engineHP} HP, ${clean.fuelType}`,
+        `Manufactured: ${clean.plantCity}, ${clean.plantState}, ${clean.plantCountry}`,
+        `Manufacturer: ${clean.manufacturer}`,
+        'Safety Equipment:',
+        ...EQUIPMENT_LABELS.map(([field, label]) => `${label}: ${equipment[field]}`),
+        warned.vin,
+        `Warning (errorCode: ${warned.errorCode}): ${warned.errorText}`,
+        `Trim: ${warned.trim}`,
+        'Deferred VINs (2) — pass these as vin to decode them:',
+        ...deferredVins,
+      ].join('\n'),
+    );
   });
 });

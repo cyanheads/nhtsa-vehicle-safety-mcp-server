@@ -193,6 +193,35 @@ describe('FlatFileCache failures', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it('reports a download the connection drops mid-body as the upstream unavailable', async () => {
+    const archive = zipOf('row\t1\n'.repeat(5000), 0);
+    const dropped = new TypeError('terminated');
+    serve(() => {
+      let sent = false;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent) {
+              controller.error(dropped);
+              return;
+            }
+            sent = true;
+            controller.enqueue(archive.slice(0, 1024));
+          },
+        }),
+      );
+    });
+    const cache = rowsCache();
+
+    const error = await cache.get().catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(McpError);
+    expect(error).toMatchObject({ code: JsonRpcErrorCode.ServiceUnavailable });
+    expect((error as McpError).cause).toBe(dropped);
+    serve(() => streamed(zipOf('ok\t1\n')));
+    expect(await cache.get()).toEqual([['ok', '1']]);
+  });
+
   const valid = zipOf(
     Array.from({ length: 500 }, (_, i) => `ID${i}\tvalue ${(i * 7919) % 10007}\n`).join(''),
   );
@@ -472,5 +501,79 @@ describe('FlatFileCache shared load', () => {
     } finally {
       clock.mockRestore();
     }
+  });
+});
+
+describe('FlatFileCache bounded wait', () => {
+  it('returns the value when the load finishes inside the wait', async () => {
+    serve(() => streamed(zipOf('in\ttime\n')));
+
+    expect(await rowsCache().getWithin(30_000)).toEqual({ kind: 'ready', value: [['in', 'time']] });
+  });
+
+  it.each([
+    ['no caller signal', false],
+    ["a caller's live signal", true],
+  ])(
+    'returns pending when the wait lapses under %s; the load runs on and the next call reads the cache',
+    async (_label, withSignal) => {
+      vi.useFakeTimers();
+      try {
+        const response = Promise.withResolvers<Response>();
+        mockFetch.mockImplementation((input: string) => {
+          if (new URL(input).hostname !== HOST) return Promise.reject(new Error('unmocked fetch'));
+          return response.promise;
+        });
+        const cache = rowsCache();
+        const signal = withSignal ? new AbortController().signal : undefined;
+        let settled = false;
+        const waited = cache.getWithin(30_000, signal).finally(() => {
+          settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(29_999);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(await waited).toEqual({ kind: 'pending' });
+        const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+        expect(init.signal?.aborted).toBe(false);
+
+        response.resolve(streamed(zipOf('loaded\tlater\n')));
+        expect(await cache.getWithin(30_000)).toEqual({
+          kind: 'ready',
+          value: [['loaded', 'later']],
+        });
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('returns failed with the error of a load that fails inside the wait', async () => {
+    serve(() => new Response('Bad Gateway', { status: 502 }));
+
+    expect(await rowsCache().getWithin(30_000)).toMatchObject({
+      kind: 'failed',
+      error: { data: { status: 502 } },
+    });
+  });
+
+  it("rejects with the caller's abort reason and leaves the load running", async () => {
+    const response = Promise.withResolvers<Response>();
+    serve(() => response.promise);
+    const cache = rowsCache();
+    const controller = new AbortController();
+
+    const waited = cache.getWithin(30_000, controller.signal);
+    await settle();
+    controller.abort();
+
+    await expect(waited).rejects.toBe(controller.signal.reason);
+    response.resolve(streamed(zipOf('still\tloading\n')));
+    expect(await cache.get()).toEqual([['still', 'loading']]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

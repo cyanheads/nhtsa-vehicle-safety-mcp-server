@@ -3,7 +3,7 @@
  * @module tests/mcp-server/tools/definitions/search-recalls-edge.tool
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -13,11 +13,12 @@ vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
 
 import { searchRecalls } from '@/mcp-server/tools/definitions/search-recalls.tool.js';
 import { getNhtsaService } from '@/services/nhtsa/nhtsa-service.js';
-import { firstText } from '../../../helpers/content.js';
+import { firstText, readerText } from '../../../helpers/content.js';
 
 const mockService = {
   getRecallsByVehicle: vi.fn(),
   getRecallCampaigns: vi.fn(),
+  searchRecallFiles: vi.fn(),
 };
 
 beforeEach(() => {
@@ -174,6 +175,150 @@ describe('searchRecalls — format', () => {
     expect(text).not.toContain('PARK OUTSIDE');
     expect(text).toContain('20V682000');
     expect(text).toContain('**Advisories:** None reported by NHTSA');
+  });
+});
+
+describe('searchRecalls — upstream text renders as itself in content[] (#59)', () => {
+  /**
+   * One value per field format() renders, each opening with a block marker and carrying inline
+   * syntax; the summary and notes span lines. The campaign number stays one line: it heads its
+   * row. The joined values (the component list, each vehicle's year, make, and model) carry an
+   * element ending `&amp`, which a separator must not complete into an entity.
+   */
+  const hostile = {
+    campaignNumber: '# 24V*744*000 `x` ###',
+    component: '1. STEERING &amp | `GEAR` _x_ <tag> ###',
+    date: '<tag>2024*10*03 [x](y)',
+    manufacturer: '- ACME _Motors_ <tag> [x](y) &amp; ###',
+    investigationId: 'EA_23 *003* [x](y)',
+    make: '- HONDA <b>bold</b> &amp',
+    model: '1. CIVIC *x* &amp; ###',
+    summary: '- Steering *may* bind.\n# Owner `notes` [x](y)\n1. Dealers &amp; <tag> ###',
+    consequence: '# Crash _risk_ <tag> ###',
+    remedy: '1. Replace `gearbox` [x](y) &amp; ###',
+    notes: '- Owners *may* call.\n# NHTSA <tag> [x](y)\n1. Hotline &amp; ###',
+  };
+  const text = {
+    summary: hostile.summary,
+    consequence: hostile.consequence,
+    remedy: hostile.remedy,
+    notes: hostile.notes,
+  };
+  /** The row's text as a reader sees it: the summary paragraph, then the labeled lines. */
+  const textLines = [
+    hostile.summary,
+    `Consequence: ${hostile.consequence}`,
+    `Remedy: ${hostile.remedy}`,
+    `Notes: ${hostile.notes}`,
+  ];
+
+  it('in a campaign lookup, through the heading, labeled lines, and vehicle list', async () => {
+    mockService.getRecallCampaigns.mockResolvedValue([
+      {
+        ...text,
+        campaignNumber: hostile.campaignNumber,
+        manufacturer: hostile.manufacturer,
+        component: hostile.component,
+        receivedDate: hostile.date,
+        potentialUnitsAffected: 5000,
+        investigationId: hostile.investigationId,
+        affectedVehicles: [
+          { make: hostile.make, model: hostile.model, modelYear: 2022 },
+          // No model year: the make opens the list item.
+          { make: hostile.make, model: hostile.model },
+        ],
+      },
+    ]);
+
+    const result = await runToolContract(searchRecalls, { campaignNumber: '24V744000' });
+
+    expect(result.isError).not.toBe(true);
+    expect(readerText(result.content)).toBe(
+      [
+        '1 recall(s) found',
+        hostile.campaignNumber,
+        `Component: ${hostile.component}`,
+        'Units Affected: 5000',
+        `Date: ${hostile.date}`,
+        `Manufacturer: ${hostile.manufacturer}`,
+        'Advisories: None reported by NHTSA',
+        `Investigation: ${hostile.investigationId} — pass as nhtsaId to nhtsa_search_investigations`,
+        'Affected Vehicles (2):',
+        `2022 ${hostile.make} ${hostile.model}`,
+        `${hostile.make} ${hostile.model}`,
+        ...textLines,
+        'effectiveQuery: 24V744000',
+      ].join('\n'),
+    );
+  });
+
+  it('in a vehicle lookup, with an alert badge after the heading', async () => {
+    mockService.getRecallsByVehicle.mockResolvedValue([
+      {
+        ...text,
+        campaignNumber: hostile.campaignNumber,
+        manufacturer: hostile.manufacturer,
+        component: hostile.component,
+        reportReceivedDate: hostile.date,
+        parkIt: true,
+      },
+    ]);
+
+    const result = await runToolContract(searchRecalls, {
+      make: 'Honda',
+      model: 'Civic',
+      modelYear: 2022,
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(readerText(result.content)).toBe(
+      [
+        '1 recall(s) found',
+        `${hostile.campaignNumber} [DO NOT DRIVE]`,
+        `Component: ${hostile.component}`,
+        `Date: ${hostile.date}`,
+        `Manufacturer: ${hostile.manufacturer}`,
+        'Advisories: Do not drive: yes',
+        ...textLines,
+        'effectiveQuery: Honda Civic 2022',
+      ].join('\n'),
+    );
+  });
+
+  it('in a broad search row with includeSummary: true', async () => {
+    mockService.searchRecallFiles.mockResolvedValue({
+      recalls: [
+        {
+          ...text,
+          campaignNumber: hostile.campaignNumber,
+          manufacturer: hostile.manufacturer,
+          component: hostile.component,
+          reportReceivedDate: hostile.date,
+          potentialUnitsAffected: 1200,
+          parkIt: false,
+          parkOutSide: true,
+        },
+      ],
+      totalCount: 1,
+    });
+
+    const result = await runToolContract(searchRecalls, { make: 'Honda', includeSummary: true });
+
+    expect(result.isError).not.toBe(true);
+    expect(readerText(result.content)).toBe(
+      [
+        '1 recall(s) found',
+        'Page: returned 1 of 1, offset 0, limit 20, newest received date first',
+        `${hostile.campaignNumber} [PARK OUTSIDE]`,
+        `Component: ${hostile.component}`,
+        'Units Affected: 1200',
+        `Date: ${hostile.date}`,
+        `Manufacturer: ${hostile.manufacturer}`,
+        'Advisories: Do not drive: no | Park outside: yes',
+        ...textLines,
+        'effectiveQuery: make=HONDA',
+      ].join('\n'),
+    );
   });
 });
 

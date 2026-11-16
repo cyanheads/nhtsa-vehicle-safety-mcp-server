@@ -4,7 +4,7 @@
  * @module tests/mcp-server/tools/definitions/search-investigations-edge.tool
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/nhtsa/nhtsa-service.js', () => ({
@@ -210,6 +210,55 @@ describe('searchInvestigations — DP and RQ type codes', () => {
     const result = await searchInvestigations.handler(input, ctx);
 
     expect(result.investigations[0]!.investigationTypeName).toBe('XY');
+  });
+});
+
+describe('searchInvestigations — type codes beyond the named five (#63)', () => {
+  const onlyXy = [{ nhtsaId: 'XY99999', investigationType: 'XY', status: 'O', vehicles: [] }];
+  const NAMES =
+    'Accepted names, matched whole ignoring case: Preliminary Evaluation (PE), Engineering Analysis (EA), Defect Petition (DP), Recall Query (RQ), Audit Query (AQ).';
+
+  it('accepts a prefix only the loaded data holds as a code, in any case', async () => {
+    mockService.getInvestigations.mockResolvedValue(onlyXy);
+
+    const result = await runToolContract(searchInvestigations, { investigationType: 'xy' });
+
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 1,
+      investigations: [
+        { nhtsaId: 'XY99999', investigationType: 'XY', investigationTypeName: 'XY' },
+      ],
+      effectiveQuery: 'investigationType="XY"',
+    });
+    expect(result.structuredContent).not.toHaveProperty('notice');
+  });
+
+  it('recognizes a named type the loaded data lacks, and lists its code beside the loaded ones', async () => {
+    mockService.getInvestigations.mockResolvedValue(onlyXy);
+
+    const named = await runToolContract(searchInvestigations, { investigationType: 'Audit Query' });
+    const unknown = await runToolContract(searchInvestigations, { investigationType: 'ZZ' });
+
+    expect(named.structuredContent).toMatchObject({
+      totalCount: 0,
+      notice:
+        'No investigations matched the applied filters (investigationType="AQ"). Filters are ANDed; try broadening by removing a filter. make, model, and modelYear must all match on the same vehicle association; component matches any of the investigation\'s components.',
+    });
+    expect(unknown.structuredContent).toMatchObject({
+      totalCount: 0,
+      notice: `investigationType "ZZ" is not a recognized investigation type. Accepted codes: AQ, DP, EA, PE, RQ, XY. ${NAMES}`,
+    });
+  });
+
+  it('lists the named codes when the loaded data holds no records', async () => {
+    mockService.getInvestigations.mockResolvedValue([]);
+
+    const result = await runToolContract(searchInvestigations, { investigationType: 'ZZ' });
+
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 0,
+      notice: `investigationType "ZZ" is not a recognized investigation type. Accepted codes: AQ, DP, EA, PE, RQ. ${NAMES}`,
+    });
   });
 });
 

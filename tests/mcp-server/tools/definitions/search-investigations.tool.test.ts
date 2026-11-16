@@ -856,6 +856,22 @@ describe('searchInvestigations — through the flat-file loader (#48, #51)', () 
     expect(ids(result)).toStrictEqual(expected);
   });
 
+  it.each([{ make: 'GMC' }, { modelYear: 2019 }])(
+    'matches %j on an association that names no model',
+    async (args) => {
+      const withBlankModel = [...rows, row('RQ24001', 'GMC', '', '2019', 'AIR BAGS', 'GM', '')];
+      fetchMock.mockImplementation(async (url: string) => {
+        if (new URL(url).hostname !== 'static.nhtsa.gov') throw new Error('unmocked fetch');
+        const text = withBlankModel.map((r) => r.join('\t')).join('\n');
+        return new Response(zipSync({ 'FLAT_INV.txt': new TextEncoder().encode(text) }));
+      });
+
+      const result = await runToolContract(searchInvestigations, args);
+
+      expect(ids(result)).toContain('RQ24001');
+    },
+  );
+
   it('never matches modelYear on a record whose rows carry no model year', async () => {
     const result = await runToolContract(searchInvestigations, {
       model: 'Civic',
@@ -915,6 +931,168 @@ describe('searchInvestigations — through the flat-file loader (#48, #51)', () 
       error: { data: { reason: 'mode_conflict' } },
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('searchInvestigations — investigationType names and codes (#63)', () => {
+  /** The loaded data's codes are AQ, C, DP, EA, PE, RQ, SQ, and the fixture-only XY. */
+  const typed: Investigation[] = [
+    ...sampleInvestigations,
+    ...['DP', 'RQ', 'SQ', 'AQ', 'C', 'XY'].map((type, i) => ({
+      nhtsaId: `${type}2300${i}`,
+      investigationType: type,
+      status: 'O',
+      subject: `${type} subject`,
+      vehicles: [{ make: 'KIA', model: 'SOUL', year: 2020 }],
+    })),
+  ];
+  const unrecognized = (value: string) =>
+    `investigationType "${value}" is not a recognized investigation type. Accepted codes: AQ, C, DP, EA, PE, RQ, SQ, XY. Accepted names, matched whole ignoring case: Preliminary Evaluation (PE), Engineering Analysis (EA), Defect Petition (DP), Recall Query (RQ), Audit Query (AQ).`;
+
+  beforeEach(() => {
+    mockService.getInvestigations.mockResolvedValue(typed);
+  });
+
+  it.each([
+    'Preliminary Evaluation',
+    ' preliminary evaluation ',
+    'PRELIMINARY EVALUATION',
+    'pe',
+    'PE',
+  ])('%j selects the PE investigations and echoes the code applied', async (investigationType) => {
+    const result = await runToolContract(searchInvestigations, { investigationType });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 2,
+      investigations: [{ nhtsaId: 'PE20001' }, { nhtsaId: 'PE22003' }],
+      effectiveQuery: 'investigationType="PE"',
+    });
+  });
+
+  it.each(['Query', 'Recall', 'Preliminary', 'nonsense'])(
+    '%j is no type: an empty success saying so on both surfaces, with no broaden advice',
+    async (investigationType) => {
+      const result = await runToolContract(searchInvestigations, { investigationType });
+
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        totalCount: 0,
+        returned: 0,
+        investigations: [],
+        notice: unrecognized(investigationType),
+      });
+      const text = readerText(result.content);
+      expect(text.split('\n')).toContain(unrecognized(investigationType));
+      expect(text.split('\n')).toContain('No investigations found matching the search criteria.');
+      expect(text).not.toMatch(/broaden/i);
+    },
+  );
+
+  it('names the unrecognized type, not the other filters, after the clamp notice', async () => {
+    const result = await runToolContract(searchInvestigations, {
+      investigationType: ' nonsense ',
+      make: 'Honda',
+      limit: 51,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 0,
+      effectiveQuery: 'make="Honda", investigationType="NONSENSE"',
+      notice: `limit 51 exceeds the maximum of 50; returned 0. ${unrecognized('nonsense')}`,
+    });
+    expect(readerText(result.content).split('exceeds the maximum').length - 1).toBe(1);
+  });
+
+  it.each([
+    ['EA', 'EA'],
+    ['engineering analysis', 'EA'],
+  ])('a recognized type %j that matches nothing keeps the broaden notice', async (type, code) => {
+    const result = await runToolContract(searchInvestigations, {
+      investigationType: type,
+      make: 'Toyota',
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      totalCount: 0,
+      effectiveQuery: `make="Toyota", investigationType="${code}"`,
+      notice: `No investigations matched the applied filters (make="Toyota", investigationType="${code}"). Filters are ANDed; try broadening by removing a filter. make, model, and modelYear must all match on the same vehicle association; component matches any of the investigation's components.`,
+    });
+  });
+
+  it('format leaves the zero-result guidance to the notice', () => {
+    const blocks = searchInvestigations.format!({
+      totalCount: 0,
+      returned: 0,
+      offset: 0,
+      limit: 20,
+      investigations: [],
+    });
+
+    expect(firstText(blocks)).toBe('No investigations found matching the search criteria.');
+  });
+});
+
+describe('searchInvestigations — upstream text in content[] (#59)', () => {
+  /**
+   * Markdown-active text through every upstream field format() renders. `TRAIL &amp` ends a list
+   * element, so a list escaped element by element would gain an entity from the "; " after it.
+   */
+  const hostile = {
+    nhtsaId: 'EA*97*_012_ `x` <b>',
+    investigationType: '<b>T</b>',
+    status: '[O](y)',
+    makes: ['- MAKE *A*', 'TRAIL &amp', 'B_C_'],
+    models: ['1. MODEL <tag>', 'GRAND ###'],
+    years: [2020],
+    components: ['[x](y)', '&amp; BRAKES', '# COMP'],
+    manufacturers: ['ACME_<i>_', 'Takata `TK` *LLC*'],
+    subject: '# Subject `code` with *stars* and <tag> ###',
+    summary:
+      'VIN 1YVGE22**S5300001 THROUGH 1YVGE22**V5599030\n- item one\n1. item (*) two (*)\n# heading-ish\nend &amp; <tag> [x](y) ###',
+    openDate: '*2023*-01-15',
+    closeDate: '_2024_ <d>',
+    recallCampaigns: ['23V*123*', '14V_668_', '`9`'],
+    vehicles: [],
+  } satisfies Investigation;
+
+  it('reads every rendered field back as NHTSA wrote it, and keeps structuredContent raw', async () => {
+    mockService.getInvestigations.mockResolvedValue([hostile]);
+
+    const result = await runToolContract(searchInvestigations, { includeSummary: true });
+
+    expect(result.isError).not.toBe(true);
+    const { vehicles: _internal, ...row } = hostile;
+    expect(result.structuredContent).toMatchObject({
+      investigations: [{ ...row, investigationTypeName: '<b>T</b>', statusName: '[O](y)' }],
+    });
+    const expected = [
+      '1 investigation(s) found (showing 1, offset 0, limit 20)',
+      'EA*97*_012_ `x` <b> [[O](y): [O](y)]',
+      'Type: <b>T</b> — <b>T</b>',
+      'Makes: - MAKE *A*; TRAIL &amp; B_C_',
+      'Models: 1. MODEL <tag>; GRAND ###',
+      'Years: 2020',
+      'Components: [x](y); &amp; BRAKES; # COMP',
+      'Manufacturers: ACME_<i>_; Takata `TK` *LLC*',
+      'Subject: # Subject `code` with *stars* and <tag> ###',
+      'Opened: *2023*-01-15 | Closed: _2024_ <d>',
+      'Recall Campaigns: 23V*123*, 14V_668_, `9`',
+      ...hostile.summary.split('\n'),
+    ];
+    const lines = readerText(result.content).split('\n');
+    expect(lines.slice(0, expected.length)).toStrictEqual(expected);
+  });
+
+  it.each([
+    ['EA97012', 'MAZDA 626:1YVGE22**S5300001 THROUGH 1YVGE22**V5599030; FORD PROBE:1ZVLT20**S51.'],
+    ['PE06013', 'ALLEGED STALLING (*) AT HIGHWAY SPEED (*) WITHOUT WARNING.'],
+  ])('renders the %s summary without emphasis', async (nhtsaId, summary) => {
+    mockService.getInvestigations.mockResolvedValue([{ nhtsaId, summary, vehicles: [] }]);
+
+    const result = await runToolContract(searchInvestigations, { nhtsaId });
+
+    expect(readerText(result.content).split('\n')).toContain(summary);
   });
 });
 
